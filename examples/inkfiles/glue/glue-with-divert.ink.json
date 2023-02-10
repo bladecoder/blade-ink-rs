@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[["^We hurried home ","<>","\n",{"->":"to_savile_row"},["done",{"#n":"g-0"}],null],"done",{"to_savile_row":["^to Savile Row","\n",{"->":"as_fast_as_we_could"},null],"as_fast_as_we_could":["<>","^ as fast as we could.","\n","end",null]}],"listDefs":{}}

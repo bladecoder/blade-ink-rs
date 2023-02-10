@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[[{"->":"paragraph_1"},["done",{"#n":"g-0"}],null],"done",{"paragraph_1":[["^You stand by the wall of Analand, sword in hand.","\n","ev","str","^Open the gate","/str","/ev",{"*":".^.c-0","flg":20},{"c-0":["^ ",{"->":"paragraph_2"},"\n",{"#f":5}]}],null],"paragraph_2":["^You open the gate, and step out onto the path. ","end","\n",null]}],"listDefs":{}}

@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[["^The value is ","ev",3,4.0,{"x()":"externalFunction","exArgs":2},"out","/ev","^.","\n","end",["done",{"#n":"g-0"}],null],"done",{"externalFunction":[{"temp=":"y"},{"temp=":"x"},"ev",{"VAR?":"x"},{"VAR?":"y"},"+","/ev","~ret",null]}],"listDefs":{}}

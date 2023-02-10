@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[["ev",2,3,{"f()":"herp"},"pop","/ev","\n","^The value is ","ev",{"VAR?":"x"},"out","/ev","^.","\n","end",["done",{"#n":"g-0"}],null],"done",{"herp":[{"temp=":"b"},{"temp=":"a"},"ev",{"VAR?":"a"},{"VAR?":"b"},"*","/ev",{"VAR=":"x","re":true},null],"global decl":["ev",0.0,{"VAR=":"x"},"/ev","end",null]}],"listDefs":{}}

@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[["^The value of x is ","ev",2,8,0.4,{"f()":"lerp"},"out","/ev","^.","\n","end",["done",{"#n":"g-0"}],null],"done",{"lerp":[{"temp=":"k"},{"temp=":"b"},{"temp=":"a"},"ev",{"VAR?":"b"},{"VAR?":"a"},"-",{"VAR?":"k"},"*",{"VAR?":"a"},"+","/ev","~ret",null]}],"listDefs":{}}

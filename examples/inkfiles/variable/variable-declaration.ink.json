@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[["^\"My name is Jean Passepartout, but my friend's call me ","ev",{"VAR?":"friendly_name_of_player"},"out","/ev","^. I'm ","ev",{"VAR?":"age"},"out","/ev","^ years old.\"","\n",["done",{"#n":"g-0"}],null],"done",{"global decl":["ev","str","^Jackie","/str",{"VAR=":"friendly_name_of_player"},23,{"VAR=":"age"},"/ev","end",null]}],"listDefs":{}}
