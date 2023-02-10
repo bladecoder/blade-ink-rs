@@ -1,0 +1,1 @@
+{"inkVersion":21,"root":[[["done",{"#n":"g-0"}],null],"done",{"one":[{"->":".^.sone"},{"sone":["^One.1 ",{"->":"end"},"\n",null],"stwo":["^One.2 ",{"->":"end"},"\n",null]}],"two":[{"->":".^.sone"},{"sone":["^Two.1 ",{"->":"end"},"\n",null],"stwo":["^Two.2 ",{"->":"end"},"\n",null],"sthree":["^Two.3 ",{"->":"end"},"\n",null]}],"end":["end",null]}],"listDefs":{}}
