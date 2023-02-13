@@ -104,3 +104,30 @@ impl FloatValue {
         Box::new(FloatValue { value })
     }
 }
+
+// String Value
+pub struct StringValue {
+    value: String,
+}
+
+impl RTObject for StringValue {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl InkValue for StringValue {
+    fn value_type() -> ValueType {
+        ValueType::String
+    }
+
+    fn is_truthy(&self) -> bool {
+        self.value.len() > 0
+    }
+}
+
+impl StringValue {
+    pub fn new(value: String) -> Box<Self>  {
+        Box::new(StringValue { value })
+    }
+}

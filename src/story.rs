@@ -51,7 +51,7 @@ impl Story {
         //}
 
 
-        let main_content_container = json_serialization::jtoken_to_runtime_object(rootToken);
+        let main_content_container = json_serialization::jtoken_to_runtime_object(rootToken)?;
 
         //ResetState ();
 
