@@ -1,11 +1,13 @@
 #![allow(unused_variables, dead_code)]
 
-use crate::json_serialization;
+use crate::{json_serialization, container::Container, rt_object::RTObject};
 
 const INK_VERSION_CURRENT: i32 = 21;
 const INK_VERSION_MINIMUM_COMPATIBLE: i32 = 18;
 
-pub struct Story {}
+pub struct Story{
+    main_content_container: Box<dyn RTObject>,
+}
 
 impl Story {
     pub fn new(json_string: &str) -> Result<Self, String> {
@@ -48,12 +50,12 @@ impl Story {
         //    _listDefinitions = Json.JTokenToListDefinitions (listDefsObj);
         //}
 
-        //_mainContentContainer = Json.JTokenToRuntimeObject (rootToken) as Container;
-        json_serialization::jtoken_to_runtime_object(rootToken);
+
+        let main_content_container = json_serialization::jtoken_to_runtime_object(rootToken);
 
         //ResetState ();
 
-        Ok(Story {})
+        Ok(Story {main_content_container})
     }
 }
 
