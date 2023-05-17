@@ -1,38 +1,36 @@
-use std::collections::HashMap;
-
-use serde_json::Value;
+use std::{collections::HashMap, rc::Rc, cell::RefCell};
 
 use crate::{
     container::Container,
-    ink_value::{BoolValue, FloatValue, IntValue, StringValue},
-    rt_object::{self, RTObject}, control_command::{ControlCommand, self},
+    object::{self, RTObject}, control_command::{CommandType, ControlCommand}, value::Value, object_enum::ObjectEnum,
 };
 
-pub fn jtoken_to_runtime_object(token: &Value) -> Result<Box<dyn RTObject>, String> {
+pub fn jtoken_to_runtime_object(token: &serde_json::Value) -> Result<ObjectEnum, String> {
     match token {
-        Value::Null =>  Ok(Box::new(rt_object::Null)),
-        Value::Bool(value) => Ok(BoolValue::new(value.clone())),
-        Value::Number(_) => {
+        serde_json::Value::Null =>  Ok(ObjectEnum::Null(Rc::new(RefCell::new(object::Null::new())))),
+        serde_json::Value::Bool(value) => Ok(ObjectEnum::Value(Rc::new(RefCell::new(Value::new_bool(value.to_owned()))))),
+        serde_json::Value::Number(_) => {
             if token.is_i64() {
-                Ok(IntValue::new(token.as_i64().unwrap().try_into().unwrap()))
+                let val:i32 = token.as_i64().unwrap().try_into().unwrap();
+                Ok(ObjectEnum::Value(Rc::new(RefCell::new(Value::new_int(val)))))
             } else {
                 let val: f32 = token.as_f64().unwrap() as f32;
-                Ok(FloatValue::new(val))
+                Ok(ObjectEnum::Value(Rc::new(RefCell::new(Value::new_float(val)))))
             }
         }
 
-        Value::String(value) => {
+        serde_json::Value::String(value) => {
             let str = value;
             // String value
-            let firstChar = str.chars().next().unwrap();
-            if firstChar == '^' {return Ok(StringValue::new(str[1..].to_string()));}     
-            else if firstChar == '\n' && str.len() == 1 {return Ok(StringValue::new("\n".to_string()));}
+            let first_char = str.chars().next().unwrap();
+            if first_char == '^' {return Ok(ObjectEnum::Value(Rc::new(RefCell::new(Value::new_string(&str[1..])))));}     
+            else if first_char == '\n' && str.len() == 1 {return Ok(ObjectEnum::Value(Rc::new(RefCell::new(Value::new_string("\n")))));}
 
             // Glue
             // TODO if "<>".eq(str) {return new Glue();}
 
-            if let Some(controlCommand) = create_control_command(str) {
-                return Ok(Box::new(controlCommand));
+            if let Some(control_command) = create_control_command(str) {
+                return Ok(ObjectEnum::ControlCommand(Rc::new(RefCell::new(control_command))));
             }
 
             /* TODO 
@@ -45,8 +43,8 @@ pub fn jtoken_to_runtime_object(token: &Value) -> Result<Box<dyn RTObject>, Stri
             if NativeFunctionCall.callExistsWithName(str) {return NativeFunctionCall.callWithName(str);}
 
             // Pop
-            if ("->->".eq(str)) {return ControlCommand.popTunnel();}
-            else if ("~ret".eq(str)) {return ControlCommand.popFunction();}
+            if ("->->".eq(str)) {return CommandType.popTunnel();}
+            else if ("~ret".eq(str)) {return CommandType.popFunction();}
 
             // Void
             if ("void".eq(str)) {return new Void();}
@@ -54,35 +52,35 @@ pub fn jtoken_to_runtime_object(token: &Value) -> Result<Box<dyn RTObject>, Stri
 
             Err("Failed to convert token to runtime RTObject: ".to_string() + &token.to_string())
         },
-        Value::Array(value) => Ok(jarray_to_container(value)?),
-        Value::Object(_) => todo!(),
+        serde_json::Value::Array(value) => Ok(ObjectEnum::Container(jarray_to_container(value)?)),
+        serde_json::Value::Object(_) => todo!(),
     }
 }
 
-fn jarray_to_container(jarray: &Vec<Value>) -> Result<Box<Container>, String> {
-    let container_content = jarray_to_runtime_obj_list(jarray, true);
+fn jarray_to_container(jarray: &Vec<serde_json::Value>) -> Result<Rc<RefCell<Container>>, String> {
+    let container = Rc::new(RefCell::new(Container::new(None, 0)));
+    Container::add_contents(&container, &jarray_to_runtime_obj_list(jarray, true)?);
 
     // Final object in the array is always a combination of
     //  - named content
     //  - a "#f" key with the countFlags
     // (if either exists at all, otherwise null)
-    let terminatingObj = jarray[jarray.len() - 1].as_object();
+    let terminating_obj = jarray[jarray.len() - 1].as_object();
     let mut name: Option<String> = None;
     let mut flags = 0;
 
-    if terminatingObj.is_some() {
-        let terminatingObj = terminatingObj.unwrap();
-        let namedOnlyContent: HashMap<String, Box<dyn RTObject>> =
-            HashMap::with_capacity(terminatingObj.len());
+    if let Some(terminating_obj) = terminating_obj {
+        let named_only_content: HashMap<String, Box<dyn RTObject>> =
+            HashMap::with_capacity(terminating_obj.len());
 
-        for (k, v) in terminatingObj {
+        for (k, v) in terminating_obj {
             match k.as_str() {
-                "#f" => flags = v.as_i64().unwrap().try_into().unwrap(),
-                "#n" => name = Some(v.as_str().unwrap().to_string()),
+                "#f" => container.borrow_mut().count_flags = v.as_i64().unwrap().try_into().unwrap(),
+                "#n" => container.borrow_mut().name = Some(v.as_str().unwrap().to_string()),
                 _ => {
-                    let namedContentItem = jtoken_to_runtime_object(v);
+                    let named_content_item = jtoken_to_runtime_object(v);
                     /* TODO
-                    let namedSubContainer = namedContentItem as Container;
+                    let namedSubContainer = named_content_item as Container;
                     if namedSubContainer {
                         namedSubContainer.name = k;
                     }
@@ -96,59 +94,58 @@ fn jarray_to_container(jarray: &Vec<Value>) -> Result<Box<Container>, String> {
         // TODO container.namedOnlyContent = namedOnlyContent;
     }
 
-    Ok(Container::new(container_content?, name, flags))
+    Ok(container)
 }
 
-fn jarray_to_runtime_obj_list(jarray: &Vec<Value>, skip_last: bool) -> Result<Vec<Box<dyn RTObject>>, String> {
+fn jarray_to_runtime_obj_list(jarray: &Vec<serde_json::Value>, skip_last: bool) -> Result<Vec<ObjectEnum>, String> {
     let mut count = jarray.len();
 
     if skip_last {
         count -= 1;
     }
 
-    let mut list: Vec<Box<dyn RTObject>> = Vec::with_capacity(jarray.len());
+    let mut list: Vec<ObjectEnum> = Vec::with_capacity(jarray.len());
 
     for i in 0..count {
         let jtok = &jarray[i];
-        let runtime_obj = jtoken_to_runtime_object(&jtok);
+        let runtime_obj = jtoken_to_runtime_object(jtok);
         list.push(runtime_obj?);
     }
 
     Ok(list)
 }
 
-fn create_control_command(name: &str ) -> Option<ControlCommand> {
-    let result = match name {
-        "ev" => Some(ControlCommand::EvalStart),
-        "out" => Some(ControlCommand::EvalOutput),
-        "/ev" => Some(ControlCommand::EvalEnd),
-        "du" => Some(ControlCommand::Duplicate),
-        "pop" => Some(ControlCommand::PopEvaluatedValue),
-        "~ret" => Some(ControlCommand::PopFunction),
-        "->->" => Some(ControlCommand::PopTunnel),
-        "str" => Some(ControlCommand::BeginString),
-        "/str" => Some(ControlCommand::EndString),
-        "nop" => Some(ControlCommand::NoOp),
-        "choiceCnt" => Some(ControlCommand::ChoiceCount),
-        "turn" => Some(ControlCommand::Turns),
-        "turns" => Some(ControlCommand::TurnsSince),
-        "readc" => Some(ControlCommand::ReadCount),
-        "rnd" => Some(ControlCommand::Random),
-        "srnd" => Some(ControlCommand::SeedRandom),
-        "visit" => Some(ControlCommand::VisitIndex),
-        "seq" => Some(ControlCommand::SequenceShuffleIndex),
-        "thread" => Some(ControlCommand::StartThread),
-        "done" => Some(ControlCommand::Done),
-        "end" => Some(ControlCommand::End),
-        "listInt" => Some(ControlCommand::ListFromInt),
-        "range" => Some(ControlCommand::ListRange),
-        "lrnd" => Some(ControlCommand::ListRandom),
-        "#" => Some(ControlCommand::BeginTag),
-        "/#" => Some(ControlCommand::EndTag),
+fn create_control_command(name: &str) -> Option<ControlCommand> {
+    match name {
+        "ev" => Some(ControlCommand::new(CommandType::EvalStart)),
+        "out" => Some(ControlCommand::new(CommandType::EvalOutput)),
+        "/ev" => Some(ControlCommand::new(CommandType::EvalEnd)),
+        "du" => Some(ControlCommand::new(CommandType::Duplicate)),
+        "pop" => Some(ControlCommand::new(CommandType::PopEvaluatedValue)),
+        "~ret" => Some(ControlCommand::new(CommandType::PopFunction)),
+        "->->" => Some(ControlCommand::new(CommandType::PopTunnel)),
+        "str" => Some(ControlCommand::new(CommandType::BeginString)),
+        "/str" => Some(ControlCommand::new(CommandType::EndString)),
+        "nop" => Some(ControlCommand::new(CommandType::NoOp)),
+        "choiceCnt" => Some(ControlCommand::new(CommandType::ChoiceCount)),
+        "turn" => Some(ControlCommand::new(CommandType::Turns)),
+        "turns" => Some(ControlCommand::new(CommandType::TurnsSince)),
+        "readc" => Some(ControlCommand::new(CommandType::ReadCount)),
+        "rnd" => Some(ControlCommand::new(CommandType::Random)),
+        "srnd" => Some(ControlCommand::new(CommandType::SeedRandom)),
+        "visit" => Some(ControlCommand::new(CommandType::VisitIndex)),
+        "seq" => Some(ControlCommand::new(CommandType::SequenceShuffleIndex)),
+        "thread" => Some(ControlCommand::new(CommandType::StartThread)),
+        "done" => Some(ControlCommand::new(CommandType::Done)),
+        "end" => Some(ControlCommand::new(CommandType::End)),
+        "listInt" => Some(ControlCommand::new(CommandType::ListFromInt)),
+        "range" => Some(ControlCommand::new(CommandType::ListRange)),
+        "lrnd" => Some(ControlCommand::new(CommandType::ListRandom,)),
+        "#" => Some(ControlCommand::new(CommandType::BeginTag)),
+        "/#" => Some(ControlCommand::new(CommandType::EndTag)),
         _ => None,
-    };
+    }
 
-    result
 }
 
 #[cfg(test)]
