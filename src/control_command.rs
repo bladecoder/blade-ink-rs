@@ -1,8 +1,11 @@
-use std::any::Any;
+use std::{any::Any, fmt, rc::Rc};
 
-use crate::rt_object::RTObject;
+use strum::Display;
 
-pub enum ControlCommand {
+use crate::{object::{RTObject, Object}, container::Container};
+
+#[derive(Display)]
+pub enum CommandType {
     NotSet,
     EvalStart,
     EvalOutput,
@@ -32,13 +35,27 @@ pub enum ControlCommand {
     EndTag
 }
 
-impl ControlCommand {
+pub(crate) struct ControlCommand {
+    obj: Object,
+    command_type: CommandType
+}
 
+impl ControlCommand {
+    pub(crate) fn new(command_type: CommandType) -> Self {
+        ControlCommand {obj: Object::new(), command_type}
+    }
 }
 
 impl RTObject for ControlCommand {
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn get_object(&self) -> &Object {
+        &self.obj
+     }
+}
+
+impl fmt::Display for ControlCommand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.command_type.to_string())
     }
 }
+
 
