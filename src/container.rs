@@ -1,41 +1,37 @@
 use std::{
-    cell::{RefCell, Ref},
+    cell::{Ref, RefCell},
     fmt,
     rc::Rc,
 };
 
+use as_any::{AsAny, Downcast};
+
 use crate::{
-    object::{Object, RTObject},
+    object::{Object, RTObject, Null},
     object_enum::ObjectEnum,
-    value::ValueType,
+    value::{ValueType, Value}, control_command::ControlCommand,
 };
 
 pub struct Container {
     obj: Object,
-    pub content: Vec<ObjectEnum>,
+    pub content: Vec<Rc<dyn RTObject>>,
     pub name: Option<String>,
     pub count_flags: i32,
     //named_content: HashMap<String, Container>
 }
 
 impl Container {
-    pub fn new(name: Option<String>, count_flags: i32) -> Container {
-        Container {
+    pub fn new(name: Option<String>, count_flags: i32, content: Vec<Rc<dyn RTObject>>) -> Rc<Container> {
+        let c = Rc::new(Container {
             obj: Object::new(),
-            content: Vec::new(),
+            content,
             name,
             count_flags,
-        }
-    }
+        });
 
-    pub fn add_contents(container: &Rc<RefCell<Container>>, objs: &Vec<ObjectEnum>) {
-        objs.iter()
-            .for_each(|o| Container::add_content(container, o));
-    }
+        c.content.iter().for_each(|o| o.get_object().set_parent(&c));
 
-    pub fn add_content(container: &Rc<RefCell<Container>>, obj: &ObjectEnum) {
-        container.as_ref().borrow_mut().content.push(obj.clone());
-        obj.get_obj_mut().parent = Some(container.clone());
+        c
     }
 
     pub fn has_valid_name(&self) -> bool {
@@ -50,7 +46,7 @@ impl Container {
         &self,
         sb: &mut String,
         indentation: usize,
-        pointed_obj: Option<ObjectEnum>,
+        pointed_obj: Option<&dyn RTObject>,
     ) {
         Container::append_indentation(sb, indentation);
 
@@ -63,8 +59,8 @@ impl Container {
         }
 
         if let Some(pointed_obj) = pointed_obj {
-            if let ObjectEnum::Container(obj) = pointed_obj {
-                if std::ptr::eq(obj.as_ptr(), self) {
+            if let Some(c) = pointed_obj.downcast_ref::<Container>() {
+                if std::ptr::eq(c, self) {
                     sb.push_str("  <---");
                 }
             }
@@ -74,31 +70,27 @@ impl Container {
         let indentation = indentation + 1;
 
         for (i, obj) in self.content.iter().enumerate() {
-            match obj {
-                ObjectEnum::Container(c) => {
-                    c.as_ref()
-                        .borrow()
-                        .build_string_of_hierarchy(sb, indentation, pointed_obj);
-                }
+            if let Some(c) = obj.downcast_ref::<Container>() {
+                c.build_string_of_hierarchy(sb, indentation, pointed_obj);
+            }
 
-                ObjectEnum::Value(v) => {
-                    Container::append_indentation(sb, indentation);
-                    if let ValueType::String(s) = v.as_ref().borrow().value {
-                        sb.push('\"');
-                        sb.push_str(&s.clone().replace('\n', "\\n"));
-                        sb.push('\"');
-                    } else {
-                        sb.push_str(&v.as_ref().borrow().to_string());
-                    }
+            if let Some(v) = obj.downcast_ref::<Value>() {
+                Container::append_indentation(sb, indentation);
+                if let ValueType::String(s) = &v.value {
+                    sb.push('\"');
+                    sb.push_str(&s.clone().replace('\n', "\\n"));
+                    sb.push('\"');
+                } else {
+                    sb.push_str(&v.to_string());
                 }
+            }
 
-                ObjectEnum::ControlCommand(o) => {
-                    sb.push_str(&o.as_ref().borrow().to_string());
-                }
+            if let Some(v) = obj.downcast_ref::<ControlCommand>() {
+                sb.push_str(&v.to_string());
+            }
 
-                ObjectEnum::Null(o) => {
-                    sb.push_str(&o.as_ref().borrow().to_string());
-                }
+            if let Some(n) = obj.downcast_ref::<Null>() {
+                sb.push_str(&n.to_string());
             }
 
             if i != self.content.len() - 1 {
@@ -106,11 +98,9 @@ impl Container {
             }
 
             if let Some(pointed_obj) = pointed_obj {
-                if let ObjectEnum::Container(pointed_obj) = pointed_obj {
-                    if let ObjectEnum::Container(obj) = obj {
-                        if &obj.as_ref().borrow() as *const _
-                            == &pointed_obj.as_ref().borrow() as *const _
-                        {
+                if let Some(pointed_obj) = pointed_obj.downcast_ref::<Container>() {
+                    if let Some(obj) = obj.downcast_ref::<Container>() {
+                        if std::ptr::eq(obj, pointed_obj) {
                             sb.push_str("  <---");
                         }
                     }

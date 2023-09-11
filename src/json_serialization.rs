@@ -5,17 +5,17 @@ use crate::{
     object::{self, RTObject}, control_command::{CommandType, ControlCommand}, value::Value, object_enum::ObjectEnum,
 };
 
-pub fn jtoken_to_runtime_object(token: &serde_json::Value) -> Result<ObjectEnum, String> {
+pub fn jtoken_to_runtime_object(token: &serde_json::Value) -> Result<Rc<dyn RTObject>, String> {
     match token {
-        serde_json::Value::Null =>  Ok(ObjectEnum::Null(Rc::new(RefCell::new(object::Null::new())))),
-        serde_json::Value::Bool(value) => Ok(ObjectEnum::Value(Rc::new(RefCell::new(Value::new_bool(value.to_owned()))))),
+        serde_json::Value::Null =>  Ok(Rc::new(object::Null::new())),
+        serde_json::Value::Bool(value) => Ok(Rc::new(Value::new_bool(value.to_owned()))),
         serde_json::Value::Number(_) => {
             if token.is_i64() {
                 let val:i32 = token.as_i64().unwrap().try_into().unwrap();
-                Ok(ObjectEnum::Value(Rc::new(RefCell::new(Value::new_int(val)))))
+                Ok(Rc::new(Value::new_int(val)))
             } else {
                 let val: f32 = token.as_f64().unwrap() as f32;
-                Ok(ObjectEnum::Value(Rc::new(RefCell::new(Value::new_float(val)))))
+                Ok(Rc::new(Value::new_float(val)))
             }
         }
 
@@ -23,14 +23,14 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value) -> Result<ObjectEnum,
             let str = value;
             // String value
             let first_char = str.chars().next().unwrap();
-            if first_char == '^' {return Ok(ObjectEnum::Value(Rc::new(RefCell::new(Value::new_string(&str[1..])))));}     
-            else if first_char == '\n' && str.len() == 1 {return Ok(ObjectEnum::Value(Rc::new(RefCell::new(Value::new_string("\n")))));}
+            if first_char == '^' {return Ok(Rc::new(Value::new_string(&str[1..])));}     
+            else if first_char == '\n' && str.len() == 1 {return Ok(Rc::new(Value::new_string("\n")));}
 
             // Glue
             // TODO if "<>".eq(str) {return new Glue();}
 
             if let Some(control_command) = create_control_command(str) {
-                return Ok(ObjectEnum::ControlCommand(Rc::new(RefCell::new(control_command))));
+                return Ok(Rc::new(control_command));
             }
 
             /* TODO 
@@ -52,15 +52,12 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value) -> Result<ObjectEnum,
 
             Err("Failed to convert token to runtime RTObject: ".to_string() + &token.to_string())
         },
-        serde_json::Value::Array(value) => Ok(ObjectEnum::Container(jarray_to_container(value)?)),
+        serde_json::Value::Array(value) => Ok(jarray_to_container(value)?),
         serde_json::Value::Object(_) => todo!(),
     }
 }
 
-fn jarray_to_container(jarray: &Vec<serde_json::Value>) -> Result<Rc<RefCell<Container>>, String> {
-    let container = Rc::new(RefCell::new(Container::new(None, 0)));
-    Container::add_contents(&container, &jarray_to_runtime_obj_list(jarray, true)?);
-
+fn jarray_to_container(jarray: &Vec<serde_json::Value>) -> Result<Rc<Container>, String> {
     // Final object in the array is always a combination of
     //  - named content
     //  - a "#f" key with the countFlags
@@ -75,8 +72,8 @@ fn jarray_to_container(jarray: &Vec<serde_json::Value>) -> Result<Rc<RefCell<Con
 
         for (k, v) in terminating_obj {
             match k.as_str() {
-                "#f" => container.borrow_mut().count_flags = v.as_i64().unwrap().try_into().unwrap(),
-                "#n" => container.borrow_mut().name = Some(v.as_str().unwrap().to_string()),
+                "#f" => flags = v.as_i64().unwrap().try_into().unwrap(),
+                "#n" => name = Some(v.as_str().unwrap().to_string()),
                 _ => {
                     let named_content_item = jtoken_to_runtime_object(v);
                     /* TODO
@@ -94,17 +91,18 @@ fn jarray_to_container(jarray: &Vec<serde_json::Value>) -> Result<Rc<RefCell<Con
         // TODO container.namedOnlyContent = namedOnlyContent;
     }
 
+    let container = Container::new(name, flags, jarray_to_runtime_obj_list(jarray, true)?);
     Ok(container)
 }
 
-fn jarray_to_runtime_obj_list(jarray: &Vec<serde_json::Value>, skip_last: bool) -> Result<Vec<ObjectEnum>, String> {
+fn jarray_to_runtime_obj_list(jarray: &Vec<serde_json::Value>, skip_last: bool) -> Result<Vec<Rc<dyn RTObject>>, String> {
     let mut count = jarray.len();
 
     if skip_last {
         count -= 1;
     }
 
-    let mut list: Vec<ObjectEnum> = Vec::with_capacity(jarray.len());
+    let mut list: Vec<Rc<dyn RTObject>> = Vec::with_capacity(jarray.len());
 
     for i in 0..count {
         let jtok = &jarray[i];

@@ -1,3 +1,3 @@
-pub(crate) struct SearchResult {
+pub struct SearchResult {
 
 }
