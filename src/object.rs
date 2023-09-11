@@ -1,73 +1,88 @@
 use core::fmt;
-use std::{fmt::Display, rc::Rc, cell::RefCell};
+use std::{fmt::Display, rc::{Weak, Rc}, cell::RefCell};
 
-use as_any::AsAny;
+use as_any::{AsAny, Downcast};
 
 use crate::{
     container::Container,
     path::{Component, Path},
-    search_result::SearchResult, object_enum::ObjectEnum,
+    search_result::SearchResult
 };
 
 pub struct Object {
-    pub parent: Option<Rc<RefCell<Container>>>,
-    path: Option<Path>,
+    parent: RefCell<Weak<Container>>,
+    path: RefCell<Option<Rc<Path>>>,
     //debug_metadata: DebugMetadata,
 }
 
 impl Object {
     pub fn new() -> Object {
         Object {
-            parent: None,
-            path: None
+            parent: RefCell::new(Weak::new()),
+            path: RefCell::new(None),
         }
     }
 
     pub fn is_root(&self) -> bool {
-        self.parent.is_none()
+        self.parent.borrow().upgrade().is_none()
     }
 
-    pub fn get_path(oe: ObjectEnum) -> &'static Path {
-        match oe.get_obj().parent {
+    pub fn get_parent(&self) -> Option<Rc<Container>> {
+        self.parent.borrow().upgrade()
+    }
+
+    pub(crate) fn set_parent(&self, parent: &Rc<Container>) {
+        self.parent.replace(Rc::downgrade(parent));
+    }
+
+    pub fn get_path(rtobject: Rc<dyn RTObject>) -> Rc<Path> {
+        if let Some(p) = rtobject.get_object().path.borrow().as_ref() {
+            return p.clone();
+        }
+
+        match rtobject.get_object().get_parent() {
             Some(_) => {
                 let mut comps: Vec<Component> = Vec::new();
-                let mut child = oe;
-
-                let mut container = child.get_obj().parent;
+                
+                let mut container = rtobject.get_object().get_parent();
+                let mut child = rtobject.clone();
 
                 while let Some(c) = container {
                     let mut child_valid_name = false;
 
-                    if let ObjectEnum::Container(cc) = child {
-                        if cc.borrow().has_valid_name() {
+                    if let Some(cc) = child.downcast_ref::<Container>() {
+                        if cc.has_valid_name() {
                             child_valid_name = true;
-                            comps.push(Component::new(cc.borrow().get_name()));
+                            comps.push(Component::new(cc.get_name()));
                         }
                     }
 
                     if !child_valid_name {
                         comps.push(Component::new_i(
-                            c.borrow().content
+                            c.content
                                 .iter()
-                                .position(|r| r as *const _ == &child )
+                                .position(|r| std::ptr::eq(r.as_ref(), child.as_ref()))
                                 .unwrap(),
                         ));
                     }
 
 
-                    child = ObjectEnum::Container(c);
-                    container = c.borrow().get_object().parent;
+                    container = c.get_object().get_parent();
+                    child = c;
+
                 }
 
                 // Reverse list because components are searched in reverse order.
                 comps.reverse();
 
-                oe.get_obj().path = Some(Path::new(&comps, Path::default().is_relative()))
+                rtobject.get_object().path.replace(Some(Rc::new(Path::new(&comps, Path::default().is_relative()))));
             },
-            None => oe.get_obj().path = Some(Path::new_with_defaults()),
+            None => {
+                rtobject.get_object().path.replace(Some(Rc::new(Path::new_with_defaults())));
+            },
         }
 
-        oe.get_obj().path.as_ref().unwrap()
+        rtobject.get_object().path.borrow().as_ref().unwrap().clone()
     }
 
 
@@ -83,15 +98,15 @@ impl Object {
         todo!()
     }
 
-    pub fn get_root_container(oe: ObjectEnum) -> Rc<RefCell<Container>> {
-        let mut ancestor = oe;
+    pub fn get_root_container(rtobject: Rc<dyn RTObject>) -> Rc<Container> {
+        let mut ancestor = rtobject;
 
-        while let Some(p) = ancestor.get_obj().parent {
-            ancestor =  ObjectEnum::Container(p);
+        while let Some(p) = ancestor.get_object().get_parent() {
+            ancestor =  p;
         }
 
-        match ancestor {
-            ObjectEnum::Container(c) => c,
+        match ancestor.downcast_ref::<Rc<Container>>() {
+            Some(c) => c.clone(),
             _ => panic!("Impossible")
         }
     }

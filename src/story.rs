@@ -2,13 +2,15 @@
 
 use std::{rc::Rc, cell::RefCell};
 
-use crate::{json_serialization, container::Container, story_state::StoryState, object_enum::ObjectEnum};
+use as_any::Downcast;
+
+use crate::{json_serialization, container::{Container, self}, story_state::StoryState, object_enum::ObjectEnum};
 
 const INK_VERSION_CURRENT: i32 = 21;
 const INK_VERSION_MINIMUM_COMPATIBLE: i32 = 18;
 
 pub struct Story{
-    pub main_content_container: Rc<RefCell<Container>>,
+    pub main_content_container: Rc<Container>,
     state: StoryState,
 }
 
@@ -56,12 +58,11 @@ impl Story {
 
         let main_content_container = json_serialization::jtoken_to_runtime_object(rootToken)?;
 
-        let main_content_container = match main_content_container {
-            ObjectEnum::Container(container) => container,
-            _ => return Err("Root node for ink is not a container?".to_string()),
+        if main_content_container.as_any().downcast_ref::<Container>().is_none() {
+            return Err("Root node for ink is not a container?".to_string());
         };
 
-        let mut story = Story {main_content_container, state: StoryState::new()};
+        let mut story = Story { main_content_container: main_content_container.downcast_ref::<Rc<Container>>().unwrap().clone(), state: StoryState::new()};
 
         story.reset_state();
 
@@ -99,7 +100,7 @@ impl Story {
     pub fn build_string_of_hierarchy(&self) -> String {
         let mut sb = String::new();
 
-        self.main_content_container.borrow()
+        self.main_content_container
                 .build_string_of_hierarchy(&mut sb, 0, None);// TODO state.getCurrentPointer().resolve());
 
         sb
