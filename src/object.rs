@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{fmt::Display, rc::{Weak, Rc}, cell::RefCell};
+use std::{fmt::Display, rc::{Weak, Rc}, cell::RefCell, any::Any};
 
 use as_any::{AsAny, Downcast};
 
@@ -105,14 +105,25 @@ impl Object {
             ancestor =  p;
         }
 
-        match ancestor.downcast_ref::<Rc<Container>>() {
-            Some(c) => c.clone(),
+        match ancestor.into_any().downcast::<Container>() {
+            Ok(c) => c.clone(),
             _ => panic!("Impossible")
         }
     }
 }
 
-pub trait RTObject: Display + AsAny {
+pub trait IntoAny: AsAny {
+    fn into_any(self: Rc<Self>) -> Rc<dyn Any>;
+}
+
+impl<T: Any> IntoAny for T {
+    #[inline(always)]
+    fn into_any(self: Rc<Self>) -> Rc<dyn Any> {
+        self
+    }
+}
+
+pub trait RTObject: Display + IntoAny {
     fn get_object(&self) -> &Object;
 }
 

@@ -1,8 +1,7 @@
 #![allow(unused_variables, dead_code)]
 
-use std::{rc::Rc, cell::RefCell};
-
-use as_any::Downcast;
+use std::{rc::Rc, cell::RefCell, any::Any};
+use as_any::{AsAny, Downcast};
 
 use crate::{json_serialization, container::{Container, self}, story_state::StoryState, object_enum::ObjectEnum};
 
@@ -40,7 +39,7 @@ impl Story {
             log::debug!("WARNING: Version of ink used to build story doesn't match current version of engine. Non-critical, but recommend synchronising.");
         }
 
-        let rootToken = match json.get("root") {
+        let root_token = match json.get("root") {
             Some(value) => value,
             None => {
                 return Err(
@@ -56,13 +55,15 @@ impl Story {
         //}
 
 
-        let main_content_container = json_serialization::jtoken_to_runtime_object(rootToken)?;
+        let main_content_container= json_serialization::jtoken_to_runtime_object(root_token)?;
 
-        if main_content_container.as_any().downcast_ref::<Container>().is_none() {
+        let main_content_container = main_content_container.into_any().downcast::<Container>();
+
+        if main_content_container.is_err() {
             return Err("Root node for ink is not a container?".to_string());
         };
 
-        let mut story = Story { main_content_container: main_content_container.downcast_ref::<Rc<Container>>().unwrap().clone(), state: StoryState::new()};
+        let mut story = Story { main_content_container: main_content_container.unwrap(), state: StoryState::new()};
 
         story.reset_state();
 
