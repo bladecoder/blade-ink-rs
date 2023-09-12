@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{fmt::Display, rc::{Weak, Rc}, cell::RefCell, any::Any};
+use std::{fmt::Display, rc::{Weak, Rc}, cell::RefCell, any::Any, borrow::BorrowMut};
 
 use as_any::{AsAny, Downcast};
 
@@ -50,7 +50,7 @@ impl Object {
                 while let Some(c) = container {
                     let mut child_valid_name = false;
 
-                    if let Some(cc) = child.downcast_ref::<Container>() {
+                    if let Some(cc) = child.as_ref().downcast_ref::<Container>() {
                         if cc.has_valid_name() {
                             child_valid_name = true;
                             comps.push(Component::new(cc.get_name()));
@@ -61,15 +61,13 @@ impl Object {
                         comps.push(Component::new_i(
                             c.content
                                 .iter()
-                                .position(|r| std::ptr::eq(r.as_ref(), child.as_ref()))
+                                .position(|r| Rc::ptr_eq( r, &child) )
                                 .unwrap(),
                         ));
                     }
 
-
                     container = c.get_object().get_parent();
                     child = c;
-
                 }
 
                 // Reverse list because components are searched in reverse order.
@@ -149,5 +147,34 @@ impl RTObject for Null {
 impl fmt::Display for Null {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "**Null**")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_path_test() {
+        let container1 = Container::new(None, 0, Vec::new());
+        let container21 = Container::new(None, 0, Vec::new());
+        let container2 = Container::new(None, 0, vec![container21.clone()]);
+        let root = Container::new(None, 0, vec![container1.clone(), container2.clone()]);
+
+        let mut sb = String::new();
+
+        root.build_string_of_hierarchy(&mut  sb, 0, None);
+
+        println!("root c:{:p}", &*root);
+        println!("container1 p:{:p} c:{:p}", &*(container1.get_object().get_parent().unwrap()), &*container1);
+        println!("container2 p:{:p} c:{:p}", &*(container2.get_object().get_parent().unwrap()), &*container2);
+        println!("container21 p:{:p} c:{:p}", &*(container21.get_object().get_parent().unwrap()), &*container21);
+
+        println!("root: {}", sb);
+
+        assert_eq!(Object::get_path(container1).to_string(), "0");
+        assert_eq!(Object::get_path(container2).to_string(), "1");
+        assert_eq!(Object::get_path(container21).to_string(), "1.0");
+        assert_eq!(Object::get_path(root).to_string(), "");
     }
 }
