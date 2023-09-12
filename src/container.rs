@@ -70,26 +70,27 @@ impl Container {
         let indentation = indentation + 1;
 
         for (i, obj) in self.content.iter().enumerate() {
-            if let Some(c) = obj.downcast_ref::<Container>() {
+            if let Some(c) = obj.as_ref().downcast_ref::<Container>() {
                 c.build_string_of_hierarchy(sb, indentation, pointed_obj);
             }
 
-            if let Some(v) = obj.downcast_ref::<Value>() {
+            if let Some(v) = obj.as_ref().downcast_ref::<Value>() {
                 Container::append_indentation(sb, indentation);
                 if let ValueType::String(s) = &v.value {
                     sb.push('\"');
-                    sb.push_str(&s.clone().replace('\n', "\\n"));
+                    sb.push_str(&&s.replace('\n', "\\n"));
                     sb.push('\"');
                 } else {
                     sb.push_str(&v.to_string());
                 }
             }
 
-            if let Some(v) = obj.downcast_ref::<ControlCommand>() {
-                sb.push_str(&v.to_string());
+            if let Some(cc) = obj.as_ref().downcast_ref::<ControlCommand>() {
+                Container::append_indentation(sb, indentation);
+                sb.push_str(&cc.to_string());
             }
 
-            if let Some(n) = obj.downcast_ref::<Null>() {
+            if let Some(n) = obj.as_ref().downcast_ref::<Null>() {
                 sb.push_str(&n.to_string());
             }
 
@@ -99,7 +100,7 @@ impl Container {
 
             if let Some(pointed_obj) = pointed_obj {
                 if let Some(pointed_obj) = pointed_obj.downcast_ref::<Container>() {
-                    if let Some(obj) = obj.downcast_ref::<Container>() {
+                    if let Some(obj) = obj.as_ref().downcast_ref::<Container>() {
                         if std::ptr::eq(obj, pointed_obj) {
                             sb.push_str("  <---");
                         }
