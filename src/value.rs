@@ -10,11 +10,26 @@ pub enum ValueType {
     Int(i32),
     Float(f32),
     //List(List),
-    String(String),
+    String(StringValue),
 
     // Not used for coersion described above
     //DivertTarget,
     //VariablePointer,
+}
+
+
+#[derive(Clone)]
+pub struct StringValue {
+    pub string: String,
+    pub is_inline_whitespace: bool,
+    pub is_newline: bool
+}
+
+impl StringValue {
+    pub(crate) fn is_non_whitespace(&self) -> bool {
+        return !self.is_newline && !self.is_inline_whitespace;
+    }
+
 }
 
 pub struct Value {
@@ -34,7 +49,7 @@ impl fmt::Display for Value {
             ValueType::Bool(v) => write!(f, "{}", v),
             ValueType::Int(v) => write!(f, "{}", v),
             ValueType::Float(v) => write!(f, "{}", v),
-            ValueType::String(v) => write!(f, "{}", v),
+            ValueType::String(v) => write!(f, "{}", v.string),
         }
     }
 }
@@ -53,7 +68,7 @@ impl Value {
     }
 
     pub fn new_string(v:&str) -> Value {
-        Value { obj: Object::new(), value: ValueType::String(v.to_string()) }
+        Value { obj: Object::new(), value: ValueType::String(StringValue {string: v.to_string(), is_inline_whitespace: false, is_newline: false}) }
     }
 
     pub fn is_truthy(&self) -> bool {
@@ -61,7 +76,7 @@ impl Value {
             ValueType::Bool(v) => *v,
             ValueType::Int(v) => *v != 0,
             ValueType::Float(v) => *v != 0.0,
-            ValueType::String(v) => v.len() > 0,
+            ValueType::String(v) => v.string.len() > 0,
         }      
     }
 }

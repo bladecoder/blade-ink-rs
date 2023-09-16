@@ -1,32 +1,41 @@
 use std::{
-    cell::{Ref, RefCell},
     fmt,
     rc::Rc,
 };
 
-use as_any::{AsAny, Downcast};
+use as_any::Downcast;
 
 use crate::{
     object::{Object, RTObject, Null},
-    object_enum::ObjectEnum,
     value::{ValueType, Value}, control_command::ControlCommand,
 };
 
+const COUNTFLAGS_VISITS: i32 = 1;
+const COUNTFLAGS_TURNS: i32 = 2;
+const COUNTFLAGS_COUNTSTARTONLY: i32 = 4;
+
 pub struct Container {
     obj: Object,
-    pub content: Vec<Rc<dyn RTObject>>,
     pub name: Option<String>,
-    pub count_flags: i32,
+    pub content: Vec<Rc<dyn RTObject>>,
     //named_content: HashMap<String, Container>
+    pub visits_should_be_counted: bool,
+    pub turn_index_should_be_counted: bool,
+    pub counting_at_start_only: bool,
 }
 
 impl Container {
-    pub fn new(name: Option<String>, count_flags: i32, content: Vec<Rc<dyn RTObject>>) -> Rc<Container> {
+    pub fn new(name: Option<String>, count_flags: i32, content: Vec<Rc<dyn RTObject>>, ) -> Rc<Container> {
+
+        let (visits_should_be_counted, turn_index_should_be_counted, counting_at_start_only) = Container::split_count_flags(count_flags);
+
         let c = Rc::new(Container {
             obj: Object::new(),
             content,
             name,
-            count_flags,
+            visits_should_be_counted: visits_should_be_counted,
+            turn_index_should_be_counted: turn_index_should_be_counted,
+            counting_at_start_only: counting_at_start_only,
         });
 
         c.content.iter().for_each(|o| o.get_object().set_parent(&c));
@@ -78,7 +87,7 @@ impl Container {
                 Container::append_indentation(sb, indentation);
                 if let ValueType::String(s) = &v.value {
                     sb.push('\"');
-                    sb.push_str(&&s.replace('\n', "\\n"));
+                    sb.push_str(&&s.string.replace('\n', "\\n"));
                     sb.push('\"');
                 } else {
                     sb.push_str(&v.to_string());
@@ -149,6 +158,45 @@ impl Container {
             sb.push(' ');
         }
     }
+
+    pub(crate) fn get_count_flags(&self) -> i32 {
+        let mut flags: i32 = 0;
+    
+        if self.visits_should_be_counted {
+            flags |= COUNTFLAGS_VISITS 
+        }
+    
+        if self.turn_index_should_be_counted {
+             flags |= COUNTFLAGS_TURNS;
+        }
+    
+        if self.counting_at_start_only {
+            flags |= COUNTFLAGS_COUNTSTARTONLY;
+        }
+    
+        // If we're only storing CountStartOnly, it serves no purpose,
+        // since it's dependent on the other two to be used at all.
+        // (e.g. for setting the fact that *if* a gather or choice's
+        // content is counted, then is should only be counter at the start)
+        // So this is just an optimisation for storage.
+        if flags == COUNTFLAGS_COUNTSTARTONLY {
+            flags = 0;
+        }
+    
+        return flags;
+    }
+
+    fn split_count_flags(value: i32) -> (bool, bool, bool) {
+
+        let visits_should_be_counted = if (value & COUNTFLAGS_VISITS) > 0 { true } else { false} ;
+    
+        let turn_index_should_be_counted = if (value & COUNTFLAGS_TURNS) > 0 { true } else { false} ;
+    
+        let counting_at_start_only = if (value & COUNTFLAGS_COUNTSTARTONLY) > 0 { true } else { false} ;
+    
+        (visits_should_be_counted, turn_index_should_be_counted, counting_at_start_only)
+    }
+    
 }
 
 impl RTObject for Container {

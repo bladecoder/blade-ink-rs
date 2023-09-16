@@ -5,6 +5,7 @@ use strum::Display;
 use crate::{object::{RTObject, Object}, container::Container};
 
 #[derive(Display)]
+#[derive(PartialEq)]
 pub enum CommandType {
     NotSet,
     EvalStart,
@@ -37,7 +38,7 @@ pub enum CommandType {
 
 pub(crate) struct ControlCommand {
     obj: Object,
-    command_type: CommandType
+    pub command_type: CommandType
 }
 
 impl ControlCommand {
