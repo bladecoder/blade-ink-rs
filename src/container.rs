@@ -108,11 +108,9 @@ impl Container {
             }
 
             if let Some(pointed_obj) = pointed_obj {
-                if let Some(pointed_obj) = pointed_obj.downcast_ref::<Container>() {
-                    if let Some(obj) = obj.as_ref().downcast_ref::<Container>() {
-                        if std::ptr::eq(obj, pointed_obj) {
-                            sb.push_str("  <---");
-                        }
+                if !pointed_obj.is::<Container>() {
+                    if std::ptr::eq(obj.as_ref(), pointed_obj) {
+                        sb.push_str("  <---");
                     }
                 }
             }

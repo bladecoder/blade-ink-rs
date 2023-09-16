@@ -1,6 +1,6 @@
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
 pub(crate) enum PushPopType {
     Tunnel,
     Function,
-    FunctionEvaluationFromGa
+    FunctionEvaluationFromGame
 }

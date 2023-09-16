@@ -44,4 +44,8 @@ impl VariablesState {
             self.changed_variables_for_batch_obs = None;
         }    
     }
+
+    pub(crate) fn snapshot_default_globals(&mut self) {
+        self.default_global_variables = Some(self.global_variables.clone());
+    }
 }

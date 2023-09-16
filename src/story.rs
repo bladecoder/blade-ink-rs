@@ -7,7 +7,7 @@ use crate::{
     error::{ErrorType},
     json_serialization,
     push_pop::PushPopType,
-    story_state::StoryState, pointer::{Pointer, self}, object::RTObject, void::Void,
+    story_state::StoryState, pointer::{Pointer, self}, object::RTObject, void::Void, path::Path, control_command::ControlCommand, choice::Choice,
 };
 
 const INK_VERSION_CURRENT: i32 = 21;
@@ -101,36 +101,42 @@ impl Story {
     fn reset_state(&mut self) {
         //TODO ifAsyncWeCant("ResetState");
 
-        self.state = Some(StoryState::new(self));
+        self.state = Some(StoryState::new(self.main_content_container.clone()));
 
         // TODO state.getVariablesState().setVariableChangedEvent(this);
 
         self.reset_globals();
     }
 
-    fn reset_globals(&self) {
-        /* TODO
-        if (mainContentContainer.getNamedContent().containsKey("global decl")) {
-            final Pointer originalPointer = new Pointer(state.getCurrentPointer());
+    fn reset_globals(&mut self) {
+        // TODO
+        // if (self.main_content_container.get_named_content().containsKey("global decl")) {
+        //     let originalPointer = self.state.as_ref().unwrap().get_current_pointer().clone();
 
-            choosePath(new Path("global decl"), false);
+        //     self.choose_path(Path::new_with_components_string(Some("global decl".to_string())), false);
 
-            // Continue, but without validating external bindings,
-            // since we may be doing this reset at initialisation time.
-            continueInternal();
+        //     // Continue, but without validating external bindings,
+        //     // since we may be doing this reset at initialisation time.
+        //     self.continue_internal();
 
-            state.setCurrentPointer(originalPointer);
-        }
+        //     self.state.as_ref().unwrap().set_current_pointer(originalPointer);
+        // }
 
-        state.getVariablesState().snapshotDefaultGlobals();
-        */
+        self.state.as_mut().unwrap().get_variables_state_mut().snapshot_default_globals();
     }
 
     pub fn build_string_of_hierarchy(&self) -> String {
         let mut sb = String::new();
 
+        let cp = self.state.as_ref().unwrap().get_current_pointer().resolve();
+
+        let cp = match cp {
+            Some(_) => Some(cp.as_ref().unwrap().as_ref()),
+            None => None,
+        };
+
         self.main_content_container
-            .build_string_of_hierarchy(&mut sb, 0, None); // TODO state.getCurrentPointer().resolve());
+            .build_string_of_hierarchy(&mut sb, 0, cp);
 
         sb
     }
@@ -139,15 +145,17 @@ impl Story {
         self.state.as_ref().unwrap().can_continue()
     }
 
-    pub fn cont(&mut self) -> String {
-        self.continue_async(0.0);
-        self.get_current_text()
+    pub fn cont(&mut self) -> Result<String, String> {
+        self.continue_async(0.0)?;
+        Ok(self.get_current_text())
     }
 
-    pub fn continue_async(&mut self, millisecs_limit_async: f32) {
+    pub fn continue_async(&mut self, millisecs_limit_async: f32) -> Result<(), String> {
         // TODO: if (!hasValidatedExternals) validateExternalBindings();
 
-        self.continue_internal(millisecs_limit_async);
+        self.continue_internal(millisecs_limit_async)?;
+
+        Ok(())
     }
 
     fn continue_internal(&mut self, millisecs_limit_async: f32) -> Result<(), String> {
@@ -196,6 +204,8 @@ impl Story {
                     break;
                 }
             }
+
+            println!("{}", self.build_string_of_hierarchy());
 
             if output_stream_ends_in_newline {
                 break;
@@ -369,14 +379,15 @@ impl Story {
 
             // We previously found a newline, but were we just double checking that
             // it wouldn't immediately be removed by glue?
-            if let Some(state_snapshot_at_last_new_line) = self.state_snapshot_at_last_new_line.as_ref() {
+            if let Some(state_snapshot_at_last_new_line) = self.state_snapshot_at_last_new_line.as_mut() {
 
                 // Has proper text or a tag been added? Then we know that the newline
                 // that was previously added is definitely the end of the line.
-                let change = self.calculate_newline_output_state_change(
-                        state_snapshot_at_last_new_line.get_current_text(), self.state.as_ref().unwrap().get_current_text(),
-                        state_snapshot_at_last_new_line.get_current_tags().len(),
-                        self.state.as_ref().unwrap().get_current_tags().len());
+                let change = Story::calculate_newline_output_state_change(
+                        &state_snapshot_at_last_new_line.get_current_text(), 
+                        &self.state.as_mut().unwrap().get_current_text(),
+                        state_snapshot_at_last_new_line.get_current_tags().len() as i32,
+                        self.state.as_ref().unwrap().get_current_tags().len() as i32);
 
                 // The last time we saw a newline, it was definitely the end of the line, so we
                 // want to rewind to that point.
@@ -425,8 +436,9 @@ impl Story {
         return Ok(false);    
     }
 
-    pub fn get_current_text(&self) -> String {
-        todo!()
+    pub fn get_current_text(&mut self) -> String {
+        //TODO ifAsyncWeCant("call currentText since it's a work in progress");
+        self.state.as_mut().unwrap().get_current_text()
     }
 
     pub(crate) fn get_main_content_container(&self) -> Rc<Container> {
@@ -581,12 +593,82 @@ impl Story {
     }
 
     fn try_follow_default_invisible_choice(&self) {
-        todo!()
+        let all_choices = match self.state.as_ref().unwrap().get_current_choices() {
+            Some(c) => c,
+            None => return,
+        };
+
+        // Is a default invisible choice the ONLY choice?
+        // var invisibleChoices = allChoices.Where (c =>
+        // c.choicePoint.isInvisibleDefault).ToList();
+        let mut invisible_choices:Vec<Rc<Choice>>  = Vec::new();
+        for c in all_choices {
+            if c.is_invisible_default {
+                invisible_choices.push(c.clone());
+            }
+        }
+
+        if invisible_choices.len() == 0 || all_choices.len() > invisible_choices.len() {
+            return;
+        }
+
+        let choice = &invisible_choices[0];
+
+        // Invisible choice may have been generated on a different thread,
+        // in which case we need to restore it before we continue
+        self.state.as_ref().unwrap().get_callstack().as_ref().borrow_mut().set_current_thread(choice.thread_at_generation.copy());
+
+        // If there's a chance that this state will be rolled back to before
+        // the invisible choice then make sure that the choice thread is
+        // left intact, and it isn't re-entered in an old state.
+        if self.state_snapshot_at_last_new_line.is_some() {
+            let fork_thread = self.state.as_ref().unwrap().get_callstack().as_ref().borrow_mut().fork_thread();
+            self.state.as_ref().unwrap().get_callstack().as_ref().borrow_mut().set_current_thread(fork_thread);
+        }
+
+        self.choose_path(&choice.target_path, false);
     }
 
-    fn calculate_newline_output_state_change(&self, get_current_text_1: String, get_current_text_2: String, len_1: usize, len_2: usize) -> OutputStateChange {
-        todo!()
-    }
+    fn calculate_newline_output_state_change(
+        prev_text: &str,
+        curr_text: &str,
+        prev_tag_count: i32,
+        curr_tag_count: i32,
+    ) -> OutputStateChange {
+        // Simple case: nothing's changed, and we still have a newline
+        // at the end of the current content
+        let newline_still_exists = curr_text.len() >= prev_text.len()
+            && prev_text.len() > 0
+            && curr_text.chars().nth(prev_text.len() - 1) == Some('\n');
+        if prev_tag_count == curr_tag_count
+            && prev_text.len() == curr_text.len()
+            && newline_still_exists
+        {
+            return OutputStateChange::NoChange;
+        }
+    
+        // Old newline has been removed, it wasn't the end of the line after all
+        if !newline_still_exists {
+            return OutputStateChange::NewlineRemoved;
+        }
+    
+        // Tag added - definitely the start of a new line
+        if curr_tag_count > prev_tag_count {
+            return OutputStateChange::ExtendedBeyondNewline;
+        }
+    
+        // There must be new content - check whether it's just whitespace
+        for c in curr_text.chars().skip(prev_text.len()) {
+            if c != ' ' && c != '\t' {
+                return OutputStateChange::ExtendedBeyondNewline;
+            }
+        }
+    
+        // There's new text but it's just spaces and tabs, so there's still the
+        // potential
+        // for glue to kill the newline.
+        OutputStateChange::NoChange
+    }    
 
     fn state_snapshot(&self) {
         todo!()
@@ -608,14 +690,62 @@ impl Story {
         }
     }
 
-    fn perform_logic_and_flow_control(&self, current_content_obj: &Option<Rc<dyn RTObject>>) -> bool {
-        match current_content_obj {
-            Some(current_content_obj) => {
-                // TODO
-                return false;
+    fn perform_logic_and_flow_control(&mut self, content_obj: &Option<Rc<dyn RTObject>>) -> bool {
+        let content_obj = match content_obj {
+            Some(content_obj) => {
+                content_obj.clone()
             },
             None => return false,
+        };
+
+        if let Some(eval_command) = content_obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
+            match eval_command.command_type {
+                crate::control_command::CommandType::NotSet => todo!(),
+                crate::control_command::CommandType::EvalStart => todo!(),
+                crate::control_command::CommandType::EvalOutput => todo!(),
+                crate::control_command::CommandType::EvalEnd => todo!(),
+                crate::control_command::CommandType::Duplicate => todo!(),
+                crate::control_command::CommandType::PopEvaluatedValue => todo!(),
+                crate::control_command::CommandType::PopFunction => todo!(),
+                crate::control_command::CommandType::PopTunnel => todo!(),
+                crate::control_command::CommandType::BeginString => todo!(),
+                crate::control_command::CommandType::EndString => todo!(),
+                crate::control_command::CommandType::NoOp => todo!(),
+                crate::control_command::CommandType::ChoiceCount => todo!(),
+                crate::control_command::CommandType::Turns => todo!(),
+                crate::control_command::CommandType::TurnsSince => todo!(),
+                crate::control_command::CommandType::ReadCount => todo!(),
+                crate::control_command::CommandType::Random => todo!(),
+                crate::control_command::CommandType::SeedRandom => todo!(),
+                crate::control_command::CommandType::VisitIndex => todo!(),
+                crate::control_command::CommandType::SequenceShuffleIndex => todo!(),
+                crate::control_command::CommandType::StartThread => todo!(),
+                crate::control_command::CommandType::Done => {
+                   // We may exist in the context of the initial
+                    // act of creating the thread, or in the context of
+                    // evaluating the content.
+                    if self.state.as_ref().unwrap().get_callstack().borrow().can_pop_thread() {
+                        self.state.as_ref().unwrap().get_callstack().as_ref().borrow_mut().pop_thread();
+                    }
+
+                    // In normal flow - allow safe exit without warning
+                    else {
+                        self.state.as_mut().unwrap().set_did_safe_exit(true);
+
+                        // Stop flow in current thread
+                        self.state.as_ref().unwrap().set_current_pointer(pointer::NULL);
+                    } 
+                },
+                crate::control_command::CommandType::End => todo!(),
+                crate::control_command::CommandType::ListFromInt => todo!(),
+                crate::control_command::CommandType::ListRange => todo!(),
+                crate::control_command::CommandType::ListRandom => todo!(),
+                crate::control_command::CommandType::BeginTag => todo!(),
+                crate::control_command::CommandType::EndTag => todo!(),
+            }
         }
+
+        false
     }
 
     fn next_content(&mut self) {
@@ -727,6 +857,10 @@ impl Story {
 
         return successful_increment;
     }
+
+    fn choose_path(&self, target_path: &Path, arg: bool) {
+        todo!()
+    }
 }
 
 
@@ -737,17 +871,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn oneline_test() {
+    fn oneline_test() -> Result<(), String>  {
         let json_string =
             fs::read_to_string("examples/inkfiles/basictext/oneline.ink.json").unwrap();
         let mut story = Story::new(&json_string).unwrap();
         println!("{}", story.build_string_of_hierarchy());
 
         assert!(story.can_continue());
-        let line = story.cont();
+        let line = story.cont()?;
         println!("{}", line);
-        assert_eq!("Line.", line);
+        assert_eq!("Line.", line.trim());
         assert!(!story.can_continue());
+
+        Ok(())
     }
 
     #[test]
@@ -758,9 +894,9 @@ mod tests {
         println!("{}", story.build_string_of_hierarchy());
     }
 
-    fn next_all(story: &mut Story, text: &mut Vec<String>) {
+    fn next_all(story: &mut Story, text: &mut Vec<String>) -> Result<(), String> {
         while story.can_continue() {
-            let line = story.cont();
+            let line = story.cont()?;
             print!("{line}");
 
             if !line.trim().is_empty() {
@@ -773,5 +909,7 @@ mod tests {
             fail(TestUtils.joinText(story.getCurrentErrors()));
         }
         */
+
+        Ok(())
     }
 }

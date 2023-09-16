@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::{pointer::{Pointer, self}, object::RTObject, push_pop::PushPopType, story::Story};
+use crate::{pointer::{Pointer, self}, object::RTObject, push_pop::PushPopType, story::Story, container::Container};
 
 pub(crate) struct Element {
     pub current_pointer: Pointer,
@@ -22,6 +22,15 @@ impl Element {
             function_start_in_output_stream: 0
         }
     }
+
+    fn copy(&self) -> Element {
+        let mut copy = Element::new(self.push_pop_type, self.current_pointer.clone(), self.in_expression_evaluation);
+        copy.temporary_variables = self.temporary_variables.clone();
+        copy.evaluation_stack_height_when_pushed = self.evaluation_stack_height_when_pushed;
+        copy.function_start_in_output_stream = self.function_start_in_output_stream;
+        
+        copy
+    }
 }
 
 pub(crate) struct Thread {
@@ -38,6 +47,19 @@ impl Thread {
             thread_index: 0,
         }
     }
+
+    pub(crate) fn copy(&self) -> Thread {
+        let mut copy = Thread::new();
+        copy.thread_index = self.thread_index;
+        
+        for e in self.callstack.iter() {
+            copy.callstack.push(e.copy());
+        }
+
+        copy.previous_pointer = self.previous_pointer.clone();
+        
+        copy
+    }
 }
 
 pub(crate) struct CallStack {
@@ -47,10 +69,10 @@ pub(crate) struct CallStack {
 }
 
 impl CallStack {
-    pub fn new(story: &Story) -> CallStack {
+    pub fn new(main_content_container: Rc<Container>) -> CallStack {
         let mut cs = CallStack {
             thread_counter: 0,
-            start_of_root: Pointer::start_of(story.get_main_content_container().clone()),
+            start_of_root: Pointer::start_of(main_content_container),
             threads: Vec::new(),
         };
 
@@ -78,11 +100,16 @@ impl CallStack {
     }
 
     pub(crate) fn can_pop_thread(&self) -> bool {
-        todo!()
+        return self.threads.len() > 1 && !self.element_is_evaluate_from_game();
     }
 
-    pub(crate) fn pop_thread(&mut self) {
-        todo!()
+    pub(crate) fn pop_thread(&mut self) -> Result<(), String> {
+        if self.can_pop_thread() {
+            self.threads.remove(self.threads.len() - 1);
+            Ok(())
+        } else {
+            Err("Can't pop thread".to_string())
+        }
     }
 
     pub(crate) fn can_pop(&self) -> bool {
@@ -94,7 +121,7 @@ impl CallStack {
     }
 
     pub(crate) fn element_is_evaluate_from_game(&self) -> bool {
-        todo!()
+        self.get_current_element().push_pop_type == PushPopType::FunctionEvaluationFromGame
     }
 
     pub(crate) fn get_elements(&self) -> &Vec<Element> {
@@ -119,5 +146,19 @@ impl CallStack {
 
     pub(crate) fn get_current_thread_mut(&mut self) -> &mut Thread {
         self.threads.last_mut().unwrap()
+    }
+
+    pub(crate) fn set_current_thread(&mut self, value: Thread) {
+        // Debug.Assert (threads.Count == 1, "Shouldn't be directly setting the
+        // current thread when we have a stack of them");
+        self.threads.clear();
+        self.threads.push(value);
+    }
+
+    pub(crate) fn fork_thread(&mut self) -> Thread {
+        let mut forked_thread = self.get_current_thread().copy();
+        self.thread_counter += 1;
+        forked_thread.thread_index = self.thread_counter;
+        forked_thread
     }
 }
