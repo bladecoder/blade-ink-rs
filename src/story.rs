@@ -886,5 +886,21 @@ impl Story {
     fn choose_path(&self, target_path: &Path, arg: bool) {
         todo!()
     }
+
+    pub fn get_current_choices(&self) -> Vec<Choice> {
+        todo!()
+    }
+
+    pub fn has_error(&self) -> bool {
+        self.state.as_ref().unwrap().has_error()
+    }
+
+    pub fn get_current_errors(&self) -> &Vec<String> {
+        self.state.as_ref().unwrap().get_current_errors()
+    }
+
+    pub fn choose_choice_index(&self, choice_list_index: usize) {
+        todo!()
+    }
 }
 

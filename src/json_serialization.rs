@@ -2,7 +2,7 @@ use std::{collections::HashMap, rc::Rc, cell::RefCell};
 
 use crate::{
     container::Container,
-    object::{self, RTObject}, control_command::{CommandType, ControlCommand}, value::Value, object_enum::ObjectEnum,
+    object::{self, RTObject}, control_command::{CommandType, ControlCommand}, value::Value, object_enum::ObjectEnum, glue::Glue,
 };
 
 pub fn jtoken_to_runtime_object(token: &serde_json::Value) -> Result<Rc<dyn RTObject>, String> {
@@ -27,7 +27,9 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value) -> Result<Rc<dyn RTOb
             else if first_char == '\n' && str.len() == 1 {return Ok(Rc::new(Value::new_string("\n")));}
 
             // Glue
-            // TODO if "<>".eq(str) {return new Glue();}
+            if "<>".eq(str) {
+                return  Ok(Rc::new(Glue::new()));
+            }
 
             if let Some(control_command) = create_control_command(str) {
                 return Ok(Rc::new(control_command));
