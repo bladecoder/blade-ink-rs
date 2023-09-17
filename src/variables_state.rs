@@ -1,16 +1,16 @@
 use std::{collections::{HashMap, HashSet}, rc::Rc, cell::RefCell};
 
-use crate::{object::RTObject, callstack::CallStack};
+use crate::{object::RTObject, callstack::CallStack, state_patch::StatePatch};
 
-pub struct VariablesState {
-    global_variables: HashMap<String, Rc<dyn RTObject>>,
-    default_global_variables: Option<HashMap<String, Rc<dyn RTObject>>>,
-    batch_observing_variable_changes: bool,
-    callstack: Rc<RefCell<CallStack>>,
-    changed_variables_for_batch_obs: Option<HashSet<String>>,
-    variable_changed_event: Option<fn(variable_name: &str, newValue: &dyn RTObject)>,
+pub(crate) struct VariablesState {
+    pub global_variables: HashMap<String, Rc<dyn RTObject>>,
+    pub default_global_variables: Option<HashMap<String, Rc<dyn RTObject>>>,
+    pub batch_observing_variable_changes: bool,
+    pub callstack: Rc<RefCell<CallStack>>,
+    pub changed_variables_for_batch_obs: Option<HashSet<String>>,
+    pub variable_changed_event: Option<fn(variable_name: &str, newValue: &dyn RTObject)>,
     //TODO listDefsOrigin: ListDefinitionsOrigin
-    //TODO patch: StatePatch
+    pub patch: Option<StatePatch>,
 }
 
 impl VariablesState {
@@ -22,6 +22,7 @@ impl VariablesState {
             callstack: callstack,
             changed_variables_for_batch_obs: None,
             variable_changed_event: None,
+            patch: None,
         }
     }
 
@@ -47,5 +48,9 @@ impl VariablesState {
 
     pub(crate) fn snapshot_default_globals(&mut self) {
         self.default_global_variables = Some(self.global_variables.clone());
+    }
+
+    pub(crate) fn apply_patch(&self) {
+        todo!()
     }
 }

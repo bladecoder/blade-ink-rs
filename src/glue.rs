@@ -3,12 +3,7 @@ use std::{
     rc::Rc,
 };
 
-use as_any::Downcast;
-
-use crate::{
-    object::{Object, RTObject, Null},
-    value::{ValueType, Value}, control_command::ControlCommand,
-};
+use crate::object::{Object, RTObject};
 
 
 pub struct Glue {

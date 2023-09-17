@@ -68,7 +68,23 @@ impl Value {
     }
 
     pub fn new_string(v:&str) -> Value {
-        Value { obj: Object::new(), value: ValueType::String(StringValue {string: v.to_string(), is_inline_whitespace: false, is_newline: false}) }
+
+        let mut inline_ws = true;
+
+        for c in v.chars() {
+            if c != ' ' && c != '\t' {
+                inline_ws = false;
+                break;
+            }
+        }
+        
+        Value { 
+            obj: Object::new(), 
+            value: ValueType::String(StringValue {
+                string: v.to_string(), 
+                is_inline_whitespace: inline_ws, 
+                is_newline: v.eq("\n")}) 
+            }
     }
 
     pub fn is_truthy(&self) -> bool {

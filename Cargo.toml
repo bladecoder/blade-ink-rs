@@ -20,4 +20,5 @@ log = "0.4.17"
 strum_macros = "0.25.2"
 strum = { version = "0.25.0", features = ["derive"] }
 as-any = "0.3.0"
+rand = "0.8.5"
 

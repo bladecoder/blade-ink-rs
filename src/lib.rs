@@ -1,4 +1,4 @@
-mod story;
+pub mod story;
 mod json_serialization;
 mod object;
 mod value;
@@ -17,5 +17,6 @@ mod choice;
 mod error;
 mod glue;
 mod void;
+mod state_patch;
 
 
