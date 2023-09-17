@@ -11,8 +11,8 @@ pub struct Glue {
 }
 
 impl Glue {
-    pub fn new() -> Rc<Glue> {
-        Rc::new(Glue {obj: Object::new()})
+    pub fn new() -> Self {
+        Glue {obj: Object::new()}
     }
 }
 

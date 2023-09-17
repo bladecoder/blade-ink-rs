@@ -95,4 +95,14 @@ impl Value {
             ValueType::String(v) => v.string.len() > 0,
         }      
     }
+
+    pub fn get_string_value(o: &dyn RTObject) -> Option<&StringValue> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::String(v) => Some(&v),
+                _ => None,
+            },
+            None => None,
+        }
+    }
 }

@@ -423,7 +423,7 @@ impl StoryState {
 
     fn push_to_output_stream_individual(&mut self, obj: Rc<dyn RTObject>) {
         let glue = obj.clone().into_any().downcast::<Glue>();
-        let text = obj.clone().into_any().downcast::<Value>();
+        let text = Value::get_string_value(obj.as_ref());
         let mut include_in_output = true;
     
         // New glue, so chomp away any whitespace from the end of the stream
@@ -437,12 +437,15 @@ impl StoryState {
         // - Function start/end trimming
         // - User-defined glue: <>
         // We also need to know when to stop trimming when there's non-whitespace.
-        else if let Ok(text) = text {
+        else if let Some(text) = text {
             let mut function_trim_index = -1;
-            let cs = self.get_callstack().borrow();
-            let curr_el = cs.get_current_element();
-            if curr_el.push_pop_type == PushPopType::Function {
-                function_trim_index = curr_el.function_start_in_output_stream as i32;
+
+            { // block to release cs borrow
+                let cs = self.get_callstack().borrow();
+                let curr_el = cs.get_current_element();
+                if curr_el.push_pop_type == PushPopType::Function {
+                    function_trim_index = curr_el.function_start_in_output_stream as i32;
+                }
             }
     
             let mut glue_trim_index = -1;
@@ -470,35 +473,31 @@ impl StoryState {
                 trim_index = function_trim_index;
             }
     
-            if trim_index != -1 {
-                if let ValueType::String(t) = &text.value {
-                    if t.is_newline {
-                        include_in_output = false;
-                    } else if t.is_non_whitespace() {
-                        if glue_trim_index > -1 {
-                            self.remove_existing_glue();
-                        }
-    
-                        if function_trim_index > -1 {
-                            let mut cs = self.get_callstack().as_ref().borrow_mut();
-                            let callstack_elements = cs.get_elements_mut();
-                            for i in (0..callstack_elements.len()).rev() {
-                                if let Some(el) = callstack_elements.get_mut(i) {
-                                    if el.push_pop_type == PushPopType::Function {
-                                        el.function_start_in_output_stream = -1;
-                                    } else {
-                                        break;
-                                    }
+            if trim_index != -1 {    
+                if text.is_newline {
+                    include_in_output = false;
+                } else if text.is_non_whitespace() {
+                    if glue_trim_index > -1 {
+                        self.remove_existing_glue();
+                    }
+
+                    if function_trim_index > -1 {
+                        let mut cs = self.get_callstack().as_ref().borrow_mut();
+                        let callstack_elements = cs.get_elements_mut();
+                        for i in (0..callstack_elements.len()).rev() {
+                            if let Some(el) = callstack_elements.get_mut(i) {
+                                if el.push_pop_type == PushPopType::Function {
+                                    el.function_start_in_output_stream = -1;
+                                } else {
+                                    break;
                                 }
                             }
                         }
                     }
                 }
-            } else if let ValueType::String(t) = &text.value {
-                if t.is_newline {
-                    if self.output_stream_ends_in_newline() || !self.output_stream_contains_content() {
-                        include_in_output = false;
-                    }
+            } else if text.is_newline {
+                if self.output_stream_ends_in_newline() || !self.output_stream_contains_content() {
+                    include_in_output = false;
                 }
             }
         }
@@ -509,12 +508,65 @@ impl StoryState {
         }
     }
 
-    fn trim_newlines_from_output_stream(&self) {
-        todo!()
+    fn trim_newlines_from_output_stream(&mut self) {
+        let mut remove_whitespace_from = -1;
+        let output_stream = self.get_output_stream_mut();
+
+        // Work back from the end, and try to find the point where
+        // we need to start removing content.
+        // - Simply work backwards to find the first newline in a String of
+        // whitespace
+        // e.g. This is the content \n \n\n
+        // ^---------^ whitespace to remove
+        // ^--- first while loop stops here
+        let mut i = output_stream.len() as i32 - 1;
+        while i >= 0 {
+            if let Some(obj) = output_stream.get(i as usize) {
+                if obj.as_ref().as_any().is::<ControlCommand>() {
+                    break;
+                } else if let Some(sv) = Value::get_string_value(obj.as_ref()) {
+
+                    if sv.is_non_whitespace() {
+                        break;
+                    } else if sv.is_newline {
+                        remove_whitespace_from = i;
+                    }
+                }
+            }
+            i -= 1;
+        }
+
+        // Remove the whitespace
+        if remove_whitespace_from >= 0 {
+            i = remove_whitespace_from;
+            while i < output_stream.len() as i32 {
+                if let Some(text) =  Value::get_string_value(output_stream[i as usize].as_ref()) {
+                    output_stream.remove(i as usize);
+                } else {
+                    i += 1;
+                }
+            }
+        }
+
+        self.output_stream_dirty();
     }
 
-    fn remove_existing_glue(&self) {
-        todo!()
+    fn remove_existing_glue(&mut self) {
+        let output_stream = self.get_output_stream_mut();
+
+        let mut i = output_stream.len() as i32 - 1;
+        while i >= 0 {
+            if let Some(c) = output_stream.get(i as usize) {
+                if c.as_ref().as_any().is::<Glue>() {
+                    output_stream.remove(i as usize);
+                } else if c.as_ref().as_any().is::<ControlCommand>() {
+                    break;
+                }
+            }
+            i -= 1;
+        }
+
+        self.output_stream_dirty();
     }
 
     fn output_stream_contains_content(&self) -> bool {

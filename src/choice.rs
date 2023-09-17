@@ -2,7 +2,7 @@ use core::fmt;
 
 use crate::{path::Path, callstack::Thread, object::{Object, RTObject}};
 
-pub(crate) struct Choice {
+pub struct Choice {
     obj: Object,
     pub target_path: Path,
     pub is_invisible_default: bool,
@@ -10,12 +10,12 @@ pub(crate) struct Choice {
     pub index: usize,
     pub original_thread_index: usize,
     pub text: String,
-    pub thread_at_generation: Thread,
+    pub(crate) thread_at_generation: Thread,
     pub source_path: String
 }
 
 impl Choice {
-    pub fn new(target_path: Path, source_path: String, is_invisible_default: bool, tags: Vec<String>, thread_at_generation: Thread, text: String, index: usize, original_thread_index: usize) -> Choice {
+    pub(crate) fn new(target_path: Path, source_path: String, is_invisible_default: bool, tags: Vec<String>, thread_at_generation: Thread, text: String, index: usize, original_thread_index: usize) -> Choice {
         Choice {
             obj: Object::new(),
             target_path: target_path,
