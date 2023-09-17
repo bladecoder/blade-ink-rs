@@ -1,10 +1,10 @@
 #![allow(unused_variables, dead_code)]
 
-use std::{rc::Rc, time::Instant, borrow::BorrowMut};
+use std::{rc::Rc, time::Instant};
 
 use crate::{
-    container::{Container},
-    error::{ErrorType},
+    container::Container,
+    error::ErrorType,
     json_serialization,
     push_pop::PushPopType,
     story_state::StoryState, pointer::{Pointer, self}, object::RTObject, void::Void, path::Path, control_command::ControlCommand, choice::Choice,
@@ -387,7 +387,7 @@ impl Story {
                         &state_snapshot_at_last_new_line.get_current_text(), 
                         &self.state.as_mut().unwrap().get_current_text(),
                         state_snapshot_at_last_new_line.get_current_tags().len() as i32,
-                        self.state.as_ref().unwrap().get_current_tags().len() as i32);
+                        self.state.as_mut().unwrap().get_current_tags().len() as i32);
 
                 // The last time we saw a newline, it was definitely the end of the line, so we
                 // want to rewind to that point.
@@ -419,7 +419,7 @@ impl Story {
                     // e.g.:
                     // Hello world\n // record state at the end of here
                     // ~ complexCalculation() // don't actually need this unless it generates text
-                    if self.state_snapshot_at_last_new_line.is_some() {
+                    if self.state_snapshot_at_last_new_line.is_none() {
                         self.state_snapshot();
                     }
                 }
@@ -448,8 +448,22 @@ impl Story {
         }
     }
 
-    fn restore_state_snapshot(&self) {
-        todo!()
+    fn restore_state_snapshot(&mut self) {
+        // Patched state had temporarily hijacked our
+        // VariablesState and set its own callstack on it,
+        // so we need to restore that.
+        // If we're in the middle of saving, we may also
+        // need to give the VariablesState the old patch.
+        self.state_snapshot_at_last_new_line.as_mut().unwrap().restore_after_patch();
+
+        self.state = self.state_snapshot_at_last_new_line.take();
+
+        // If save completed while the above snapshot was
+        // active, we need to apply any changes made since
+        // the save was started but before the snapshot was made.
+        if !self.async_saving {
+            self.state.as_mut().unwrap().apply_any_patch();
+        }
     }
 
     fn add_error(&self, arg: &str) {
@@ -668,14 +682,25 @@ impl Story {
         // potential
         // for glue to kill the newline.
         OutputStateChange::NoChange
-    }    
-
-    fn state_snapshot(&self) {
-        todo!()
     }
 
-    fn discard_snapshot(&self) {
-        todo!()
+    fn state_snapshot(&mut self) {
+        self.state_snapshot_at_last_new_line = self.state.take();
+        self.state = Some(self.state_snapshot_at_last_new_line.as_ref().unwrap().copy_and_start_patching());
+    }
+
+    fn discard_snapshot(&mut self) {
+        // Normally we want to integrate the patch
+        // into the main global/counts dictionaries.
+        // However, if we're in the middle of async
+        // saving, we simply stay in a "patching" state,
+        // albeit with the newer cloned patch.
+        
+        // TODO
+        //if (!asyncSaving) state.applyAnyPatch();
+
+        // No longer need the snapshot.
+        self.state_snapshot_at_last_new_line = None;    
     }
 
     fn visit_container(&mut self, container: &Container, at_start: bool) {
@@ -863,53 +888,3 @@ impl Story {
     }
 }
 
-
-#[cfg(test)]
-mod tests {
-    use std::fs;
-
-    use super::*;
-
-    #[test]
-    fn oneline_test() -> Result<(), String>  {
-        let json_string =
-            fs::read_to_string("examples/inkfiles/basictext/oneline.ink.json").unwrap();
-        let mut story = Story::new(&json_string).unwrap();
-        println!("{}", story.build_string_of_hierarchy());
-
-        assert!(story.can_continue());
-        let line = story.cont()?;
-        println!("{}", line);
-        assert_eq!("Line.", line.trim());
-        assert!(!story.can_continue());
-
-        Ok(())
-    }
-
-    #[test]
-    fn twolines_test() {
-        let json_string =
-            fs::read_to_string("examples/inkfiles/basictext/twolines.ink.json").unwrap();
-        let story = Story::new(&json_string).unwrap();
-        println!("{}", story.build_string_of_hierarchy());
-    }
-
-    fn next_all(story: &mut Story, text: &mut Vec<String>) -> Result<(), String> {
-        while story.can_continue() {
-            let line = story.cont()?;
-            print!("{line}");
-
-            if !line.trim().is_empty() {
-                text.push(line.trim().to_string());
-            }
-        }
-
-        /* TODO
-        if story.has_error() {
-            fail(TestUtils.joinText(story.getCurrentErrors()));
-        }
-        */
-
-        Ok(())
-    }
-}

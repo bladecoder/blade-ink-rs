@@ -81,6 +81,20 @@ impl CallStack {
         cs
     }
 
+    pub fn new_from(to_copy: &CallStack) -> CallStack {
+        let mut cs = CallStack {
+            thread_counter: to_copy.thread_counter,
+            start_of_root: to_copy.start_of_root.clone(),
+            threads: Vec::new(),
+        };
+
+        for  other_thread in &to_copy.threads {
+            cs.threads.push(other_thread.copy());
+        }
+
+        cs
+    }
+
     pub(crate) fn get_current_element(&self) -> &Element {
         let thread = self.threads.last().unwrap();
         let cs = &thread.callstack;

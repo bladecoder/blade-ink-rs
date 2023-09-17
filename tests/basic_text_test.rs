@@ -1,0 +1,36 @@
+use std::fs;
+use bladeink::story::Story;
+
+mod test_utils;
+
+#[test]
+fn oneline_test() -> Result<(), String>  {
+    let json_string =
+        fs::read_to_string("examples/inkfiles/basictext/oneline.ink.json").unwrap();
+    let mut story = Story::new(&json_string).unwrap();
+    println!("{}", story.build_string_of_hierarchy());
+
+    assert!(story.can_continue());
+    let line = story.cont()?;
+    println!("{}", line);
+    assert_eq!("Line.", line.trim());
+    assert!(!story.can_continue());
+
+    Ok(())
+}
+
+#[test]
+fn twolines_test() -> Result<(), String> {
+    let json_string =
+        fs::read_to_string("examples/inkfiles/basictext/twolines.ink.json").unwrap();
+    let mut story = Story::new(&json_string).unwrap();
+    println!("{}", story.build_string_of_hierarchy());
+
+    let mut text: Vec<String> = Vec::new();
+    test_utils::next_all(&mut story, &mut text)?;
+    assert_eq!(2, text.len());
+    assert_eq!("Line.", text[0]);
+    assert_eq!("Other line.", text[1]);
+
+    Ok(())
+}

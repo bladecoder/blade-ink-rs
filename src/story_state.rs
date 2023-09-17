@@ -1,17 +1,19 @@
 #![allow(unused_variables, dead_code)]
 
-use std::{rc::Rc, borrow::BorrowMut, cell::RefCell, collections::VecDeque};
+use std::{rc::Rc, cell::RefCell, collections::HashMap};
 
-use crate::{pointer::Pointer, callstack::CallStack, story::Story, flow::Flow, variables_state::VariablesState, choice::Choice, object::RTObject, value::{Value, ValueType}, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container};
+use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::RTObject, value::{Value, ValueType}, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch};
+
+use rand::Rng;
 
 pub const INK_SAVE_STATE_VERSION: u32 = 10;
 pub const MIN_COMPATIBLE_LOAD_VERSION: u32 = 8;
 
 static DEFAULT_FLOW_NAME: &str = "DEFAULT_FLOW";
 
-pub struct StoryState {
-    pub(crate) current_flow: Flow,
-    pub(crate) did_safe_exit: bool,
+pub(crate) struct StoryState {
+    pub current_flow: Flow,
+    pub did_safe_exit: bool,
     output_stream_text_dirty: bool,
     output_stream_tags_dirty: bool,
     variables_state: VariablesState,
@@ -21,12 +23,23 @@ pub struct StoryState {
     current_errors: Vec<String>,
     current_warnings: Vec<String>,
     current_text: Option<String>,
+    patch: Option<StatePatch>,
+    named_flows: Option<HashMap<String, Flow>>,
+    diverted_pointer: Pointer,
+    visit_counts: HashMap<String, usize>,
+    turn_indices: HashMap<String, usize>,
+    current_turn_index: i32,
+    story_seed: i32,
+    previous_random: i32,
 }
 
 impl StoryState {
     pub fn new(main_content_container: Rc<Container>) -> StoryState {
         let current_flow = Flow::new(DEFAULT_FLOW_NAME, main_content_container.clone());
         let callstack = current_flow.callstack.clone();
+
+        let mut rng = rand::thread_rng();
+        let story_seed = rng.gen_range(0..100);
 
         let mut state = StoryState { 
             current_flow: current_flow, 
@@ -40,18 +53,15 @@ impl StoryState {
             current_errors: Vec::with_capacity(0),
             current_warnings: Vec::with_capacity(0),
             current_text: None,
+            patch: None,
+            named_flows: None,
+            diverted_pointer: pointer::NULL.clone(),
+            visit_counts: HashMap::new(),
+            turn_indices: HashMap::new(),
+            current_turn_index: -1,
+            story_seed: story_seed,
+            previous_random: 0,
         };
-
-        // TODO
-        // visitCounts = new HashMap<>();
-        // turnIndices = new HashMap<>();
-        // currentTurnIndex = -1;
-
-        // // Seed the shuffle random numbers
-        // long timeSeed = System.currentTimeMillis();
-
-        // storySeed = new Random(timeSeed).nextInt() % 100;
-        // previousRandom = 0;
 
         state.go_to_start();
 
@@ -175,9 +185,97 @@ impl StoryState {
         self.current_text.as_ref().unwrap().to_string()
     }
 
-    pub(crate) fn get_current_tags(&self) -> Vec<String> {
-        todo!()
+    pub(crate) fn get_current_tags(&mut self) -> Vec<String> {
+        if self.output_stream_tags_dirty {
+            let mut current_tags = Vec::new();
+            let mut in_tag = false;
+            let mut sb = String::new();
+
+            // TODO
+    
+            // for output_obj in self.get_output_stream().iter() {
+            //     match output_obj {
+            //         RTObject::ControlCommand(control_command) => {
+            //             match control_command.get_command_type() {
+            //                 ControlCommandType::BeginTag => {
+            //                     if in_tag && !sb.is_empty() {
+            //                         let txt = clean_output_whitespace(&sb);
+            //                         current_tags.push(txt);
+            //                         sb.clear();
+            //                     }
+            //                     in_tag = true;
+            //                 }
+            //                 ControlCommandType::EndTag => {
+            //                     if !sb.is_empty() {
+            //                         let txt = clean_output_whitespace(&sb);
+            //                         current_tags.push(txt);
+            //                         sb.clear();
+            //                     }
+            //                     in_tag = false;
+            //                 }
+            //                 _ => {}
+            //             }
+            //         }
+            //         RTObject::StringValue(str_val) => {
+            //             if in_tag {
+            //                 sb.push_str(&str_val.value);
+            //             }
+            //         }
+            //         RTObject::Tag(tag) => {
+            //             if let Some(text) = &tag.get_text() {
+            //                 if !text.is_empty() {
+            //                     current_tags.push(text.clone()); // tag.text has whitespace already cleaned
+            //                 }
+            //             }
+            //         }
+            //         _ => {}
+            //     }
+            // }
+    
+            if !sb.is_empty() {
+                let txt = StoryState::clean_output_whitespace(&sb);
+                current_tags.push(txt);
+                sb.clear();
+            }
+    
+            self.output_stream_tags_dirty = false;
+            current_tags
+        } else {
+            Vec::new()
+        }
     }
+
+    fn clean_output_whitespace(input_str: &str) -> String {
+        let mut sb = String::with_capacity(input_str.len());
+        let mut current_whitespace_start = -1;
+        let mut start_of_line = 0;
+    
+        for (i, c) in input_str.chars().enumerate() {
+            let is_inline_whitespace = c == ' ' || c == '\t';
+    
+            if is_inline_whitespace && current_whitespace_start == -1 {
+                current_whitespace_start = i as i32;
+            }
+    
+            if !is_inline_whitespace {
+                if c != '\n' && current_whitespace_start > 0 && current_whitespace_start != start_of_line {
+                    sb.push(' ');
+                }
+                current_whitespace_start = -1;
+            }
+    
+            if c == '\n' {
+                start_of_line = i as i32 + 1;
+            }
+    
+            if !is_inline_whitespace {
+                sb.push(c);
+            }
+        }
+    
+        sb
+    }
+    
 
     pub(crate) fn output_stream_ends_in_newline(&self) -> bool {
         if !self.get_output_stream().is_empty() {
@@ -420,11 +518,23 @@ impl StoryState {
     }
 
     fn output_stream_contains_content(&self) -> bool {
-        todo!()
+        for content in self.get_output_stream() {
+            if let Some(v) = content.as_any().downcast_ref::<Value>() {
+                if let ValueType::String(_) = v.value {
+                    return true;
+                }
+            }
+        }
+        
+        false
     }
 
     pub(crate) fn set_previous_pointer(&self, p: Pointer) {
         self.get_callstack().as_ref().borrow_mut().get_current_thread_mut().previous_pointer = p.clone();
+    }
+
+    pub(crate) fn get_previous_pointer(&self) -> Pointer {
+        self.get_callstack().as_ref().borrow_mut().get_current_thread_mut().previous_pointer.clone()
     }
 
     pub(crate) fn try_exit_function_evaluation_from_game(&self) {
@@ -450,35 +560,104 @@ impl StoryState {
         Some(&self.current_flow.current_choices)
     }
 
-    fn clean_output_whitespace(input_str: &str) -> String {
-        let mut result = String::with_capacity(input_str.len());
-        let mut current_whitespace_start = -1;
-        let mut start_of_line = 0;
+    pub(crate) fn copy_and_start_patching(&self) -> StoryState {
+        let mut copy = StoryState::new(self.main_content_container.clone());
+
+        copy.patch = Some(StatePatch::new(self.patch.as_ref()));
+
+        // Hijack the new default flow to become a copy of our current one
+        // If the patch is applied, then this new flow will replace the old one in
+        // _namedFlows
+        copy.current_flow.name = self.current_flow.name.clone();
+        copy.current_flow.callstack = Rc::new(RefCell::new(CallStack::new_from(&self.current_flow.callstack.as_ref().borrow())));
+        copy.current_flow.current_choices = self.current_flow.current_choices.clone();
+        copy.current_flow.output_stream = self.current_flow.output_stream.clone();
+        copy.output_stream_dirty();
+
+        // The copy of the state has its own copy of the named flows dictionary,
+        // except with the current flow replaced with the copy above
+        // (Assuming we're in multi-flow mode at all. If we're not then
+        // the above copy is simply the default flow copy and we're done)
+        if let Some(named_flows) = &self.named_flows {
+            // TODO
+            // copy.namedFlows = new HashMap<>();
+            // for (Map.Entry<String, Flow> namedFlow : namedFlows.entrySet())
+            //     copy.namedFlows.put(namedFlow.getKey(), namedFlow.getValue());
+            // copy.namedFlows.put(currentFlow.name, copy.currentFlow);
+            // copy.aliveFlowNamesDirty = true;
+        }
+
+        if self.has_error() {
+            copy.current_errors = self.current_errors.clone();
+        }
+
+        if self.has_warning() {
+            copy.current_warnings = self.current_warnings.clone();
+
+        }
+
+        // ref copy - exactly the same variables state!
+        // we're expecting not to read it only while in patch mode
+        // (though the callstack will be modified)
+        
+        //TODO
+        // copy.variables_state = self.variables_state.;
+        // copy.variablesState.setCallStack(copy.getCallStack());
+        // copy.variablesState.setPatch(copy.patch);
+
+        copy.evaluation_stack = self.evaluation_stack.clone();
+
+        if !self.diverted_pointer.is_null() {
+            copy.diverted_pointer = self.diverted_pointer.clone();
+        }
+
+        copy.set_previous_pointer(self.get_previous_pointer().clone());
+
+        // visit counts and turn indicies will be read only, not modified
+        // while in patch mode
+        copy.visit_counts = self.visit_counts.clone();
+        copy.turn_indices = self.turn_indices.clone();
+
+        copy.current_turn_index = self.current_turn_index;
+        copy.story_seed = self.story_seed;
+        copy.previous_random = self.previous_random;
+
+        copy.set_did_safe_exit(self.did_safe_exit);
+
+        copy
+    }
+
+    pub(crate) fn restore_after_patch(&mut self) {
+        // VariablesState was being borrowed by the patched
+        // state, so restore it with our own callstack.
+        // _patch will be null normally, but if you're in the
+        // middle of a save, it may contain a _patch for save purpsoes.
+        self.variables_state.callstack = self.get_callstack().clone();
+        self.variables_state.patch = self.patch.clone(); // usually null
+    }
+
+    pub(crate) fn apply_any_patch(&mut self) {
+        if self.patch.is_none() {
+            return;
+        }
     
-        for (i, c) in input_str.chars().enumerate() {
-            let is_inline_whitespace = c == ' ' || c == '\t';
+        self.variables_state.apply_patch();
     
-            if is_inline_whitespace && current_whitespace_start == -1 {
-                current_whitespace_start = i as i32;
+        if let Some(patch) = &self.patch {
+            for (container, count) in &patch.visit_counts {
+                self.apply_count_changes(container.clone(), *count, true);
             }
     
-            if !is_inline_whitespace {
-                if c != '\n' && current_whitespace_start > 0 && current_whitespace_start != start_of_line {
-                    result.push(' ');
-                }
-                current_whitespace_start = -1;
-            }
-    
-            if c == '\n' {
-                start_of_line = i as i32 + 1;
-            }
-    
-            if !is_inline_whitespace {
-                result.push(c);
+            for (container, index) in &patch.turn_indices {
+                self.apply_count_changes(container.clone(), *index, false);
             }
         }
     
-        result
+        self.patch = None;
+    }
+
+    fn apply_count_changes(&self, clone: String, count: usize, arg: bool) {
+        todo!()
     }
     
 
