@@ -36,7 +36,7 @@ impl Pointer {
         self.container.is_none()
     }
 
-    pub fn get_path(&self) -> Option<Rc<Path>> {
+    pub fn get_path(&self) -> Option<Path> {
         if self.is_null() {
             return None;
         }
@@ -46,11 +46,11 @@ impl Pointer {
         if self.index >= 0 {
             let c = Component::new_i(self.index as usize);
 
-            return Some(Rc::new(Object::get_path(container.clone())
-                .path_by_appending_component(c))); 
+            return Some(container.get_path()
+                .path_by_appending_component(c)); 
         }
 
-        Some(Object::get_path(container.clone()))
+        Some(container.get_path())
     }
 
     pub(crate) fn start_of(container:Rc<Container>) -> Pointer {
@@ -61,7 +61,7 @@ impl Pointer {
 impl fmt::Display for Pointer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.container {
-            Some(container) => write!(f, "Ink Pointer -> {} -- index {}", Object::get_path(container.clone()).to_string(), self.index),
+            Some(container) => write!(f, "Ink Pointer -> {} -- index {}", container.get_path().to_string(), self.index),
             None => write!(f, "Ink Pointer (null)"),
         }
     }

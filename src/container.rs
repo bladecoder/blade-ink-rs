@@ -1,13 +1,13 @@
 use std::{
     fmt,
-    rc::Rc,
+    rc::Rc, collections::HashMap,
 };
 
 use as_any::Downcast;
 
 use crate::{
     object::{Object, RTObject, Null},
-    value::{ValueType, Value}, control_command::ControlCommand,
+    value::{ValueType, Value}, control_command::ControlCommand, path::{Path, Component}, search_result::SearchResult,
 };
 
 const COUNTFLAGS_VISITS: i32 = 1;
@@ -18,20 +18,21 @@ pub struct Container {
     obj: Object,
     pub name: Option<String>,
     pub content: Vec<Rc<dyn RTObject>>,
-    //named_content: HashMap<String, Container>
+    pub named_content: HashMap<String, Rc<Container>>,
     pub visits_should_be_counted: bool,
     pub turn_index_should_be_counted: bool,
     pub counting_at_start_only: bool,
 }
 
 impl Container {
-    pub fn new(name: Option<String>, count_flags: i32, content: Vec<Rc<dyn RTObject>>, ) -> Rc<Container> {
+    pub fn new(name: Option<String>, count_flags: i32, content: Vec<Rc<dyn RTObject>>, named_content: HashMap<String, Rc<Container>>) -> Rc<Container> {
 
         let (visits_should_be_counted, turn_index_should_be_counted, counting_at_start_only) = Container::split_count_flags(count_flags);
 
         let c = Rc::new(Container {
             obj: Object::new(),
             content,
+            named_content,
             name,
             visits_should_be_counted: visits_should_be_counted,
             turn_index_should_be_counted: turn_index_should_be_counted,
@@ -81,26 +82,19 @@ impl Container {
         for (i, obj) in self.content.iter().enumerate() {
             if let Some(c) = obj.as_ref().downcast_ref::<Container>() {
                 c.build_string_of_hierarchy(sb, indentation, pointed_obj);
-            }
-
-            if let Some(v) = obj.as_ref().downcast_ref::<Value>() {
+            } else if let Some(v) = obj.as_ref().downcast_ref::<Value>() {
                 Container::append_indentation(sb, indentation);
                 if let ValueType::String(s) = &v.value {
                     sb.push('\"');
                     sb.push_str(&&s.string.replace('\n', "\\n"));
                     sb.push('\"');
                 } else {
+                    Container::append_indentation(sb, indentation);
                     sb.push_str(&v.to_string());
                 }
-            }
-
-            if let Some(cc) = obj.as_ref().downcast_ref::<ControlCommand>() {
+            } else {
                 Container::append_indentation(sb, indentation);
-                sb.push_str(&cc.to_string());
-            }
-
-            if let Some(n) = obj.as_ref().downcast_ref::<Null>() {
-                sb.push_str(&n.to_string());
+                sb.push_str(&obj.to_string());
             }
 
             if i != self.content.len() - 1 {
@@ -118,31 +112,30 @@ impl Container {
             sb.push('\n');
         }
 
-        /* TODO
-        HashMap<String, INamedContent> onlyNamed = new HashMap<String, INamedContent>();
+        // HashMap<String, INamedContent> onlyNamed = new HashMap<String, INamedContent>();
 
-        for (Entry<String, INamedContent> objKV : getNamedContent().entrySet()) {
-            if (getContent().contains(objKV.getValue())) {
-                continue;
-            } else {
-                onlyNamed.put(objKV.getKey(), objKV.getValue());
-            }
-        }
+        // for (Entry<String, INamedContent> objKV : getNamedContent().entrySet()) {
+        //     if (getContent().contains(objKV.getValue())) {
+        //         continue;
+        //     } else {
+        //         onlyNamed.put(objKV.getKey(), objKV.getValue());
+        //     }
+        // }
 
-        if (onlyNamed.size() > 0) {
-            appendIndentation(sb, indentation);
+        let only_named = &self.named_content;
 
-            sb.append("-- named: --\n");
+        if only_named.len() > 0 {
+            Container::append_indentation(sb, indentation);
 
-            for (Entry<String, INamedContent> objKV : onlyNamed.entrySet()) {
+            sb.push_str("-- named: --\n");
+
+            for v in only_named.values() {
                 // Debug.Assert(objKV.Value instanceof Container, "Can only
                 // print out named Containers");
-                Container container = (Container) objKV.getValue();
-                container.buildStringOfHierarchy(sb, indentation, pointedObj);
-                sb.append("\n");
+                v.build_string_of_hierarchy(sb, indentation, pointed_obj);
+                sb.push('\n');
             }
         }
-        */
 
         let indentation = indentation - 1;
         Container::append_indentation(sb, indentation);
@@ -156,6 +149,58 @@ impl Container {
             sb.push(' ');
         }
     }
+
+    pub(crate) fn get_path(self: &Rc<Self>) -> Path {
+        Object::get_path(self.clone())
+    }
+
+    pub(crate) fn content_at_path(
+        self: &Rc<Self>,
+        path: &Path,
+        partial_path_start: usize,
+        mut partial_path_length: i32,
+    ) -> SearchResult {
+
+        if partial_path_length == -1 {
+            partial_path_length = path.len() as i32;
+        }  
+       
+        let mut approximate = false;
+    
+        let mut current_container = Some(self.clone());
+        let mut current_obj:Rc<dyn RTObject> = self.clone();
+    
+        for i in partial_path_start..partial_path_length as usize {
+            let comp = path.get_component(i);
+    
+            // Path component was wrong type
+            if current_container.is_none() {
+                approximate = true;
+                break;
+            }
+    
+            let found_obj = current_container
+                .unwrap()
+                .content_with_path_component(comp.unwrap());
+    
+            // Couldn't resolve entire path?
+            if found_obj.is_none() {
+                approximate = true;
+                break;
+            }
+
+            current_obj = found_obj.unwrap().clone();
+            current_container = if let Ok(container) = current_obj.clone().into_any().downcast::<Container>() {
+                Some(container)
+            } else {
+                None
+            };
+        }
+
+    
+        SearchResult::new(current_obj, approximate)
+    }
+    
 
     pub(crate) fn get_count_flags(&self) -> i32 {
         let mut flags: i32 = 0;
@@ -193,6 +238,30 @@ impl Container {
         let counting_at_start_only = if (value & COUNTFLAGS_COUNTSTARTONLY) > 0 { true } else { false} ;
     
         (visits_should_be_counted, turn_index_should_be_counted, counting_at_start_only)
+    }
+
+    fn content_with_path_component(&self, component: &Component) -> Option<Rc<dyn RTObject>> {
+        if component.is_index() {
+            if let Some(index) = component.index {
+                if (index >= 0) && (index < self.content.len()) {
+                    return Some(self.content[index].clone());
+                }
+            }
+        } else if component.is_parent() {
+            // When path is out of range, quietly return None
+            // (useful as we step/increment forwards through content)
+            return match self.get_object().get_parent() {
+                Some(o) => Some(o as Rc<dyn RTObject>),
+                None => None,
+            };
+        
+        //TODO
+        
+        // } else if let Some(found_content) = self.get_named_content().get(&component.get_name()) {
+        //     return Some(found_content.clone().into());
+        }
+
+        None    
     }
     
 }

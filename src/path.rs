@@ -14,7 +14,7 @@ pub struct Path {
 }
 
 impl Path {
-    pub fn new(components: &[Component], relative: bool) -> Path {
+    pub(crate) fn new(components: &[Component], relative: bool) -> Path {
         let mut comp: Vec<Component> = Vec::new();
         comp.extend_from_slice(components);
         Path {
@@ -30,7 +30,7 @@ impl Path {
         }
     }
 
-    pub fn new_with_components_string(components_string: Option<String>) -> Path {
+    pub fn new_with_components_string(components_string: Option<&str>) -> Path {
         let cs = components_string;
         let mut is_relative = false;
 
@@ -42,7 +42,7 @@ impl Path {
             };
         }
 
-        let mut cs = cs.unwrap();
+        let mut cs = cs.unwrap().to_string();
 
         // When components start with ".", it indicates a relative path, e.g.
         // .^.^.hello.5
@@ -74,7 +74,7 @@ impl Path {
         }
     }
 
-    pub fn get_component(&self, index: usize) -> Option<&Component> {
+    pub(crate) fn get_component(&self, index: usize) -> Option<&Component> {
         self.components.get(index)
     }
 
@@ -82,7 +82,7 @@ impl Path {
         self.is_relative
     }
 
-    fn get_tail(&self) -> Path {
+    pub fn get_tail(&self) -> Path {
         if self.components.len() >= 2 {
             let tail_comps = &self.components[1..];
 
@@ -103,7 +103,7 @@ impl Path {
         }
     }
 
-    pub fn get_last_component(&self) -> Option<&Component> {
+    pub(crate) fn get_last_component(&self) -> Option<&Component> {
         if self.components.len() > 0 {
             return self.components.get(self.components.len() - 1);
         }
@@ -111,10 +111,10 @@ impl Path {
         None
     }
 
-    pub fn path_by_appending_path(&self, path_to_append: Path) -> Path {
+    pub fn path_by_appending_path(&self, path_to_append: &Path) -> Path {
         let mut upward_moves = 0;
 
-        for component in path_to_append.components {
+        for component in path_to_append.components.iter() {
             if component.is_parent() {
                 upward_moves += 1;
             } else {
@@ -139,7 +139,7 @@ impl Path {
         }
     }
 
-    fn get_components_string(&self) -> String {
+    pub(crate) fn get_components_string(&self) -> String {
         let mut sb = String::new();
 
         if self.components.len() > 0 {
@@ -213,9 +213,9 @@ impl PartialEq for Path {
 }
 
 #[derive(Eq, Clone)]
-pub struct Component {
-    index: Option<usize>,
-    name: Option<String>,
+pub(crate) struct Component {
+    pub index: Option<usize>,
+    pub name: Option<String>,
 }
 
 impl Component {
@@ -233,15 +233,15 @@ impl Component {
         }
     }
 
-    fn to_parent() -> Component {
+    pub(crate) fn to_parent() -> Component {
         Component::new(PARENT_ID)
     }
 
-    fn is_index(&self) -> bool {
+    pub(crate) fn is_index(&self) -> bool {
         self.index.is_some()
     }
 
-    fn is_parent(&self) -> bool {
+    pub(crate) fn is_parent(&self) -> bool {
         match &self.name {
             Some(name) => name.eq(PARENT_ID),
             None => false,

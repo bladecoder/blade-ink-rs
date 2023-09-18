@@ -18,14 +18,14 @@ pub(crate) struct StoryState {
     output_stream_tags_dirty: bool,
     variables_state: VariablesState,
     alive_flow_names_dirty: bool,
-    evaluation_stack: Vec<Rc<dyn RTObject>>,
+    pub evaluation_stack: Vec<Rc<dyn RTObject>>,
     main_content_container: Rc<Container>,
     current_errors: Vec<String>,
     current_warnings: Vec<String>,
     current_text: Option<String>,
     patch: Option<StatePatch>,
     named_flows: Option<HashMap<String, Flow>>,
-    diverted_pointer: Pointer,
+    pub diverted_pointer: Pointer,
     visit_counts: HashMap<String, usize>,
     turn_indices: HashMap<String, usize>,
     current_turn_index: i32,
@@ -106,8 +106,8 @@ impl StoryState {
         &mut self.variables_state
     }
 
-    pub(crate) fn get_generated_choices(&self) -> &Vec<Rc<Choice>> {
-        &self.current_flow.current_choices
+    pub(crate) fn get_generated_choices(&self) -> Vec<Rc<Choice>> {
+        self.current_flow.current_choices.clone()
     }
 
     pub(crate) fn is_did_safe_exit(&self) -> bool {
@@ -126,7 +126,7 @@ impl StoryState {
         &self.current_warnings
     }
 
-    fn get_output_stream(&self) -> &Vec<Rc<(dyn RTObject)>> {
+    pub(crate) fn get_output_stream(&self) -> &Vec<Rc<(dyn RTObject)>> {
         &self.current_flow.output_stream
     }
 
@@ -307,8 +307,40 @@ impl StoryState {
         self.get_callstack().borrow().get_current_element().in_expression_evaluation
     }
 
-    pub(crate) fn push_evaluation_stack(&self, content_obj: Option<Rc<dyn RTObject>>) {
-        todo!()
+    pub(crate) fn set_in_expression_evaluation(&self, value: bool) {
+        self.get_callstack().borrow_mut().get_current_element_mut().in_expression_evaluation = value;
+    }
+
+    pub(crate) fn push_evaluation_stack(&mut self, obj: Rc<dyn RTObject>) {
+
+        // TODO
+
+        // let list_value = if let RTObject::ListValue(list_val) = &obj {
+        //     Some(list_val)
+        // } else {
+        //     None
+        // };
+    
+        // if let Some(list_val) = list_value {
+        //     if let InkList {
+        //         origin_names: Some(origin_names),
+        //         origins: Some(origins),
+        //         ..
+        //     } = &mut list_val.value
+        //     {
+        //         origins.clear();
+    
+        //         for name in origin_names.iter() {
+        //             if let Some(def) = self.story.list_definitions.get_list_definition(name) {
+        //                 if !origins.contains(def) {
+        //                     origins.push(def.clone());
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+    
+        self.evaluation_stack.push(obj);
     }
 
     pub(crate) fn push_to_output_stream(&mut self, obj: Option<Rc<dyn RTObject>>) {
@@ -711,6 +743,27 @@ impl StoryState {
     fn apply_count_changes(&self, clone: String, count: usize, arg: bool) {
         todo!()
     }
-    
+
+    pub(crate) fn pop_from_output_stream(&mut self, count: usize) {
+        let len = self.get_output_stream().len();
+
+        if count <= len {
+            let start = len - count;
+            self.get_output_stream_mut().drain(start..len);
+        }
+
+        self.output_stream_dirty();
+    }
+
+    pub(crate) fn pop_evaluation_stack(&mut self) -> Rc<dyn RTObject> {
+        let obj = self.evaluation_stack.last().unwrap().clone();
+        self.evaluation_stack.remove(self.evaluation_stack.len() - 1);
+
+        obj
+    }
+
+    pub(crate) fn set_diverted_pointer(&mut self, p: Pointer) {
+        self.diverted_pointer = p;
+    }
 
 }

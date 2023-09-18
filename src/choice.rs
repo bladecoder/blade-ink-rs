@@ -1,4 +1,5 @@
 use core::fmt;
+use std::cell::RefCell;
 
 use crate::{path::Path, callstack::Thread, object::{Object, RTObject}};
 
@@ -7,10 +8,10 @@ pub struct Choice {
     pub target_path: Path,
     pub is_invisible_default: bool,
     pub tags: Vec<String>,
-    pub index: usize,
+    pub index: RefCell<usize>,
     pub original_thread_index: usize,
     pub text: String,
-    pub(crate) thread_at_generation: Thread,
+    pub(crate) thread_at_generation: RefCell<Option<Thread>>,
     pub source_path: String
 }
 
@@ -21,10 +22,25 @@ impl Choice {
             target_path: target_path,
             is_invisible_default: is_invisible_default,
             tags: tags,
-            index: index,
+            index: RefCell::new(index),
             original_thread_index: original_thread_index,
             text: text,
-            thread_at_generation: thread_at_generation,
+            thread_at_generation: RefCell::new(Some(thread_at_generation)),
+            source_path: source_path,
+        }
+    }
+
+    pub(crate) fn new_from_json(path_string_on_choice: &str, source_path: String, text: &str, index: usize, original_thread_index: usize) -> Choice {
+        
+        Choice {
+            obj: Object::new(),
+            target_path: Path::new_with_components_string(Some(path_string_on_choice)),
+            is_invisible_default: false,
+            tags: Vec::new(),
+            index: RefCell::new(index),
+            original_thread_index: original_thread_index,
+            text: text.to_string(),
+            thread_at_generation: RefCell::new(None),
             source_path: source_path,
         }
     }

@@ -11,7 +11,7 @@ use crate::{
 
 pub struct Object {
     parent: RefCell<Weak<Container>>,
-    path: RefCell<Option<Rc<Path>>>,
+    path: RefCell<Option<Path>>,
     //debug_metadata: DebugMetadata,
 }
 
@@ -35,7 +35,7 @@ impl Object {
         self.parent.replace(Rc::downgrade(parent));
     }
 
-    pub fn get_path(rtobject: Rc<dyn RTObject>) -> Rc<Path> {
+    pub fn get_path(rtobject: Rc<dyn RTObject>) -> Path {
         if let Some(p) = rtobject.get_object().path.borrow().as_ref() {
             return p.clone();
         }
@@ -73,10 +73,10 @@ impl Object {
                 // Reverse list because components are searched in reverse order.
                 comps.reverse();
 
-                rtobject.get_object().path.replace(Some(Rc::new(Path::new(&comps, Path::default().is_relative()))));
+                rtobject.get_object().path.replace(Some(Path::new(&comps, Path::default().is_relative())));
             },
             None => {
-                rtobject.get_object().path.replace(Some(Rc::new(Path::new_with_defaults())));
+                rtobject.get_object().path.replace(Some(Path::new_with_defaults()));
             },
         }
 
@@ -84,16 +84,79 @@ impl Object {
     }
 
 
-    pub fn resolve_path(&self) -> Result<SearchResult, String> {
-        todo!()
+    pub fn resolve_path(rtobject: Rc<dyn RTObject>, path: &Path) -> SearchResult {
+        if path.is_relative() {
+            let mut p = path.clone();
+            let mut nearest_container = rtobject.clone().into_any().downcast::<Container>().ok();
+            
+            if nearest_container.is_none() {
+                nearest_container = rtobject.get_object().get_parent();
+                p = path.get_tail();
+            };
+
+            return nearest_container.unwrap().content_at_path(&p, 0, -1);
+    
+        } else {
+            Object::get_root_container(rtobject).content_at_path(path, 0, -1)
+        }
     }
 
-    pub fn convert_path_to_relative(&self, global_path: Path) -> Path {
-        todo!()
+    pub fn convert_path_to_relative(rtobject: &Rc<dyn RTObject>, global_path: &Path) -> Path {
+        // 1. Find last shared ancestor
+        // 2. Drill up using ".." style (actually represented as "^")
+        // 3. Re-build downward chain from common ancestor
+        let own_path = rtobject.get_object().path.borrow();
+        let min_path_length = std::cmp::min(global_path.len(), own_path.as_ref().unwrap().len());
+        let mut last_shared_path_comp_index:i32 = -1;
+
+        for i in 0..min_path_length {
+            let own_comp = &own_path.as_ref().unwrap().get_component(i as usize);
+            let other_comp = &global_path.get_component(i);
+
+            if own_comp == other_comp {
+                last_shared_path_comp_index = i as i32;
+            } else {
+                break;
+            }
+        }
+
+        // No shared path components, so just use the global path
+        if last_shared_path_comp_index == -1 {
+            return global_path.clone();
+        }
+
+        let num_upwards_moves = (own_path.as_ref().unwrap().len() - 1) - last_shared_path_comp_index as usize;
+        let mut new_path_comps = Vec::new();
+
+        for _ in 0..num_upwards_moves {
+            new_path_comps.push(Component::to_parent());
+        }
+
+        for down in (last_shared_path_comp_index as usize + 1)..global_path.len() {
+            new_path_comps.push(global_path.get_component(down).unwrap().clone());
+        }
+
+        Path::new(&new_path_comps, true)
     }
 
-    pub fn compact_path_string(&self, other_path: Path) -> Path {
-        todo!()
+    pub fn compact_path_string(rtobject: Rc<dyn RTObject>, other_path: Path) -> String {
+        let global_path_str: String;
+        let relative_path_str: String;
+    
+        if other_path.is_relative() {
+            relative_path_str = other_path.get_components_string();
+            global_path_str = Object::get_path(rtobject.clone()).path_by_appending_path(&other_path).get_components_string();
+        } else {
+            let relative_path = Object::convert_path_to_relative(&rtobject, &other_path);
+            relative_path_str = relative_path.get_components_string();
+            global_path_str = other_path.get_components_string();
+        }
+    
+        if relative_path_str.len() < global_path_str.len() {
+            relative_path_str
+        } else {
+            global_path_str
+        }
     }
 
     pub fn get_root_container(rtobject: Rc<dyn RTObject>) -> Rc<Container> {
@@ -152,14 +215,16 @@ impl fmt::Display for Null {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
 
     #[test]
     fn get_path_test() {
-        let container1 = Container::new(None, 0, Vec::new());
-        let container21 = Container::new(None, 0, Vec::new());
-        let container2 = Container::new(None, 0, vec![container21.clone()]);
-        let root = Container::new(None, 0, vec![container1.clone(), container2.clone()]);
+        let container1 = Container::new(None, 0, Vec::new(), HashMap::new());
+        let container21 = Container::new(None, 0, Vec::new(), HashMap::new());
+        let container2 = Container::new(None, 0, vec![container21.clone()], HashMap::new());
+        let root = Container::new(None, 0, vec![container1.clone(), container2.clone()], HashMap::new());
 
         let mut sb = String::new();
 

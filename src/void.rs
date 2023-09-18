@@ -10,7 +10,7 @@ pub struct Void {
 }
 
 impl Void {
-    pub fn new() -> Rc<Void> {
+    pub fn new() -> Rc<Self> {
         Rc::new(Void {obj: Object::new()})
     }
 }
