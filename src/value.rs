@@ -2,7 +2,7 @@
 
 use std::{fmt};
 
-use crate::{object::{RTObject, Object}};
+use crate::{object::{RTObject, Object}, path::Path};
 
 #[repr(i8)]
 pub enum ValueType {
@@ -13,7 +13,7 @@ pub enum ValueType {
     String(StringValue),
 
     // Not used for coersion described above
-    //DivertTarget,
+    DivertTarget(Path),
     //VariablePointer,
 }
 
@@ -50,6 +50,7 @@ impl fmt::Display for Value {
             ValueType::Int(v) => write!(f, "{}", v),
             ValueType::Float(v) => write!(f, "{}", v),
             ValueType::String(v) => write!(f, "{}", v.string),
+            ValueType::DivertTarget(p) => write!(f, "DivertTargetValue({})", p.to_string()),
         }
     }
 }
@@ -87,12 +88,17 @@ impl Value {
             }
     }
 
+    pub fn new_divert_target(p:Path) -> Value {
+        Value { obj: Object::new(), value: ValueType::DivertTarget(p) }
+    }
+
     pub fn is_truthy(&self) -> bool {
         match &self.value {
             ValueType::Bool(v) => *v,
             ValueType::Int(v) => *v != 0,
             ValueType::Float(v) => *v != 0.0,
             ValueType::String(v) => v.string.len() > 0,
+            ValueType::DivertTarget(p) => false, // exception Shouldn't be checking the truthiness of a divert target??
         }      
     }
 

@@ -1,13 +1,13 @@
 #![allow(unused_variables, dead_code)]
 
-use std::{rc::Rc, time::Instant};
+use std::{rc::Rc, time::Instant, collections::VecDeque};
 
 use crate::{
     container::Container,
     error::ErrorType,
     json_serialization,
     push_pop::PushPopType,
-    story_state::StoryState, pointer::{Pointer, self}, object::RTObject, void::Void, path::Path, control_command::ControlCommand, choice::Choice,
+    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint,
 };
 
 const INK_VERSION_CURRENT: i32 = 21;
@@ -73,7 +73,7 @@ impl Story {
         //    _listDefinitions = Json.JTokenToListDefinitions (listDefsObj);
         //}
 
-        let main_content_container = json_serialization::jtoken_to_runtime_object(root_token)?;
+        let main_content_container = json_serialization::jtoken_to_runtime_object(root_token, None)?;
 
         let main_content_container = main_content_container.into_any().downcast::<Container>();
 
@@ -527,7 +527,7 @@ impl Story {
         // Stop flow if we hit a stack pop when we're unable to pop (e.g.
         // return/done statement in knot
         // that was diverted to rather than called as a function)
-        let current_content_obj = pointer.resolve();
+        let mut current_content_obj = pointer.resolve();
         let is_logic_or_flow_control = self.perform_logic_and_flow_control(&current_content_obj);
 
         // Has flow been forced to end by flow control above?
@@ -540,18 +540,16 @@ impl Story {
         }
 
         // Choice with condition?
-        // TODO
-        // ChoicePoint choicePoint = currentContentObj instanceof ChoicePoint ? (ChoicePoint) currentContentObj : null;
+        if let Ok(choicePoint) =  current_content_obj.clone().unwrap().into_any().downcast::<ChoicePoint>() {
 
-        // if (choicePoint != null) {
-        //     Choice choice = processChoice(choicePoint);
-        //     if (choice != null) {
-        //         state.getGeneratedChoices().add(choice);
-        //     }
+            let choice = self.process_choice(&choicePoint);
+            if choice.is_some() {
+                self.state.as_mut().unwrap().get_generated_choices().push(choice.unwrap());
+            }
 
-        //     currentContentObj = null;
-        //     should_add_to_stream = false;
-        // }
+            current_content_obj = None;
+            should_add_to_stream = false;
+        }
 
         // If the container has no content, then it will be
         // the "content" itself, but we skip over it.
@@ -582,7 +580,7 @@ impl Story {
 
             // Expression evaluation content
             if self.state.as_ref().unwrap().get_in_expression_evaluation() {
-                self.state.as_mut().unwrap().push_evaluation_stack(current_content_obj);
+                self.state.as_mut().unwrap().push_evaluation_stack(current_content_obj.unwrap());
             }
             // Output stream content (i.e. not expression evaluation)
             else {
@@ -630,7 +628,7 @@ impl Story {
 
         // Invisible choice may have been generated on a different thread,
         // in which case we need to restore it before we continue
-        self.state.as_ref().unwrap().get_callstack().as_ref().borrow_mut().set_current_thread(choice.thread_at_generation.copy());
+        self.state.as_ref().unwrap().get_callstack().as_ref().borrow_mut().set_current_thread(choice.thread_at_generation.borrow().as_ref().unwrap().copy());
 
         // If there's a chance that this state will be rolled back to before
         // the invisible choice then make sure that the choice thread is
@@ -723,18 +721,143 @@ impl Story {
             None => return false,
         };
 
+        // Divert
+        if let Some(current_divert) = content_obj.as_ref().as_any().downcast_ref::<Divert>() {
+            if current_divert.is_conditional {
+                let o = self.state.as_mut().unwrap().pop_evaluation_stack();
+                if !self.is_truthy(o) {
+                    return true;
+                }
+            }
+
+            if current_divert.has_variable_target() {
+                // let var_name = current_divert.variable_divert_name;
+                // if let Some(var_contents) = self.state.as_ref().unwrap().get_variables_state().get_variable_with_name(var_name) {
+                //     if let Some(target) = var_contents.downcast_ref::<DivertTargetValue>() {
+                //         self.state.as_ref().unwrap().set_diverted_pointer(pointer_at_path(&target.get_target_path()));
+                //     } else {
+                //         let int_content = var_contents.downcast_ref::<IntValue>();
+                //         let error_message = format!(
+                //             "Tried to divert to a target from a variable, but the variable ({}) didn't contain a divert target, it ",
+                //             var_name
+                //         );
+                //         let error_message = if let Some(int_content) = int_content {
+                //             if int_content.value == 0 {
+                //                 format!("{}was empty/null (the value 0).", error_message)
+                //             } else {
+                //                 format!("{}contained '{}'.", error_message, var_contents)
+                //             }
+                //         } else {
+                //             error_message
+                //         };
+
+                //         error(error_message);
+                //     }
+                // } else {
+                //     error(format!(
+                //         "Tried to divert using a target from a variable that could not be found ({})",
+                //         var_name
+                //     ));
+                // }
+            } else if current_divert.is_external {
+                //call_external_function(&current_divert.get_target_path_string(), current_divert.get_external_args());
+                return true;
+            } else {
+                self.state.as_mut().unwrap().set_diverted_pointer(current_divert.target_pointer.clone());
+            }
+
+            if current_divert.pushes_to_stack {
+            //     self.state.as_ref().unwrap()
+            //         .get_call_stack()
+            //         .push(current_divert.stack_push_type, 0, state.get_output_stream().len());
+            // 
+            }
+
+            if self.state.as_ref().unwrap().diverted_pointer.is_null() && !current_divert.is_external {
+                // if let Some(source_name) = &current_divert.get_debug_metadata().source_name {
+                //     error(format!("Divert target doesn't exist: {}", source_name));
+                // } else {
+                //     error(format!("Divert resolution failed: {:?}", current_divert));
+                // }
+            }
+
+            return true;
+        }
+
         if let Some(eval_command) = content_obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
             match eval_command.command_type {
                 crate::control_command::CommandType::NotSet => todo!(),
-                crate::control_command::CommandType::EvalStart => todo!(),
+                crate::control_command::CommandType::EvalStart => {
+                    assert!(!self.state.as_ref().unwrap().get_in_expression_evaluation(), "Already in expression evaluation?");
+                    self.state.as_ref().unwrap().set_in_expression_evaluation(true);
+                },
                 crate::control_command::CommandType::EvalOutput => todo!(),
-                crate::control_command::CommandType::EvalEnd => todo!(),
+                crate::control_command::CommandType::EvalEnd => {
+                    assert!(self.state.as_ref().unwrap().get_in_expression_evaluation(), "Not in expression evaluation mode");
+                    self.state.as_ref().unwrap().set_in_expression_evaluation(false);
+                },
                 crate::control_command::CommandType::Duplicate => todo!(),
                 crate::control_command::CommandType::PopEvaluatedValue => todo!(),
                 crate::control_command::CommandType::PopFunction => todo!(),
                 crate::control_command::CommandType::PopTunnel => todo!(),
-                crate::control_command::CommandType::BeginString => todo!(),
-                crate::control_command::CommandType::EndString => todo!(),
+                crate::control_command::CommandType::BeginString => {
+                    self.state.as_mut().unwrap().push_to_output_stream(Some(content_obj.clone()));
+
+                    assert!(self.state.as_ref().unwrap().get_in_expression_evaluation(),
+                            "Expected to be in an expression when evaluating a string");
+                            self.state.as_ref().unwrap().set_in_expression_evaluation(false);
+                },
+                crate::control_command::CommandType::EndString => {
+
+                    // Since we're iterating backward through the content,
+                    // build a stack so that when we build the string,
+                    // it's in the right order
+                    let mut content_stack_for_string: VecDeque<Rc<dyn RTObject>> = VecDeque::new();
+                    let mut content_to_retain: VecDeque<Rc<dyn RTObject>> = VecDeque::new();
+
+                    let mut output_count_consumed = 0;
+
+                    for i in (0..self.state.as_ref().unwrap().get_output_stream().len()).rev() {
+                        let obj = &self.state.as_ref().unwrap().get_output_stream()[i];
+                        output_count_consumed += 1;
+
+                        if let Some(command) = obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
+                            if command.command_type == CommandType::BeginString {
+                                break;
+                            }
+                        }
+
+                        if let Some(tag) = obj.as_ref().as_any().downcast_ref::<Tag>() {
+                            content_to_retain.push_back(obj.clone());
+                        }
+
+                        if let Some(sv) = Value::get_string_value(obj.as_ref()) {
+                            content_stack_for_string.push_back(obj.clone());
+                        }
+                    }
+
+                    // Consume the content that was produced for this string
+                    self.state.as_mut().unwrap().pop_from_output_stream(output_count_consumed);
+
+                    // Rescue the tags that we want actually to keep on the output stack
+                    // rather than consume as part of the string we're building.
+                    // At the time of writing, this only applies to Tag objects generated
+                    // by choices, which are pushed to the stack during string generation.
+                    for rescued_tag in content_to_retain.iter() {
+                        self.state.as_mut().unwrap().push_to_output_stream(Some(rescued_tag.clone()));
+                    }
+
+                    // Build string out of the content we collected
+                    let mut sb = String::new();
+
+                    while let Some(c) = content_stack_for_string.pop_back() {
+                        sb.push_str(&c.to_string());
+                    }
+
+                    // Return to expression evaluation (from content mode)
+                    self.state.as_ref().unwrap().set_in_expression_evaluation(true);
+                    self.state.as_mut().unwrap().push_evaluation_stack(Rc::new(Value::new_string(&sb)));
+                },
                 crate::control_command::CommandType::NoOp => todo!(),
                 crate::control_command::CommandType::ChoiceCount => todo!(),
                 crate::control_command::CommandType::Turns => todo!(),
@@ -820,7 +943,7 @@ impl Story {
                 // so in this case, we make sure that the evaluator has
                 // something to chomp on if it needs it
                 if self.state.as_ref().unwrap().get_in_expression_evaluation() {
-                    self.state.as_mut().unwrap().push_evaluation_stack(Some(Void::new()));
+                    self.state.as_mut().unwrap().push_evaluation_stack(Void::new());
                 }
 
                 didPop = true;
@@ -887,8 +1010,20 @@ impl Story {
         todo!()
     }
 
-    pub fn get_current_choices(&self) -> Vec<Choice> {
-        todo!()
+    pub fn get_current_choices(&self) -> Vec<Rc<Choice>> {
+        // Don't include invisible choices for external usage.
+        let mut choices = Vec::new();
+
+        if let Some(current_choices) = self.state.as_ref().unwrap().get_current_choices() {
+            for c in current_choices {
+                if !c.is_invisible_default {
+                    c.index.replace(choices.len());
+                    choices.push(c.clone());
+                }
+            }
+        }
+
+        choices
     }
 
     pub fn has_error(&self) -> bool {
@@ -901,6 +1036,86 @@ impl Story {
 
     pub fn choose_choice_index(&self, choice_list_index: usize) {
         todo!()
+    }
+
+    fn is_truthy(&self, obj: Rc<dyn RTObject>) -> bool {
+        let truthy = false;
+        
+        if let Ok(val) = obj.into_any().downcast::<Value>() {
+            // TODO
+
+            // if (val instanceof DivertTargetValue) {
+            //     DivertTargetValue divTarget = (DivertTargetValue) val;
+            //     error("Shouldn't use a divert target (to " + divTarget.getTargetPath()
+            //             + ") as a conditional value. Did you intend a function call 'likeThis()' or a read count "
+            //             + "check 'likeThis'? (no arrows)");
+            //     return false;
+            // }
+
+            return val.is_truthy();
+        }
+
+        return truthy;
+    }
+
+    fn process_choice(&mut self, choice_point: &Rc<ChoicePoint>) -> Option<Rc<Choice>> {
+        let mut showChoice = true;
+
+        // Don't create choice if choice point doesn't pass conditional
+        if choice_point.has_condition() {
+            let condition_value = self.state.as_mut().unwrap().pop_evaluation_stack();
+            if !self.is_truthy(condition_value) {
+                showChoice = false;
+            }
+        }
+
+        let mut start_text = String::new();
+        let mut choice_only_text = String::new();
+        let mut tags: Vec<String> = Vec::with_capacity(0);
+
+        if choice_point.has_choice_only_content() {
+            choice_only_text = self.pop_choice_string_and_tags(&mut tags);
+        }
+
+        if choice_point.has_start_content() {
+            start_text = self.pop_choice_string_and_tags(&mut tags);
+        }
+
+        // Don't create choice if player has already read this content
+        if choice_point.once_only() {
+            //TODO
+            // let visitCount = state.visitCountForContainer(choicePoint.getChoiceTarget());
+            // if (visitCount > 0) {
+            //     showChoice = false;
+            // }
+        }
+
+        // We go through the full process of creating the choice above so
+        // that we consume the content for it, since otherwise it'll
+        // be shown on the output stream.
+        if !showChoice {
+            return None;
+        }
+
+        start_text.push_str(&choice_only_text);
+
+        let choice = Rc::new(Choice::new(choice_point.get_path_on_choice(), Object::get_path(choice_point.clone()).to_string(), choice_point.is_invisible_default(), tags, self.state.as_ref().unwrap().get_callstack().borrow_mut().fork_thread(), start_text.trim().to_string(), 0, 0));
+
+        Some(choice)
+    }
+
+    fn pop_choice_string_and_tags(&mut self, tags: &[String]) -> String {
+        let obj = self.state.as_mut().unwrap().pop_evaluation_stack();
+        let choiceOnlyStrVal = Value::get_string_value(obj.as_ref()).unwrap();
+
+        // TODO
+
+        // while (self.state.as_ref().unwrap().evaluation_stack.len() > 0 && self.state.as_ref().unwrap().peek_evaluation_stack() instanceof Tag) {
+        //     Tag tag = (Tag) state.popEvaluationStack();
+        //     tags.add(0, tag.getText()); // popped in reverse order
+        // }
+
+        return choiceOnlyStrVal.string.to_string();
     }
 }
 

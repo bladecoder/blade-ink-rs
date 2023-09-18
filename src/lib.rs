@@ -18,5 +18,8 @@ mod error;
 mod glue;
 mod void;
 mod state_patch;
+mod choice_point;
+mod tag;
+mod divert;
 
 
