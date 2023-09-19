@@ -43,7 +43,7 @@ impl Thread {
     fn new() -> Thread {
         Thread {
             callstack: Vec::new(),
-            previous_pointer: pointer::NULL,
+            previous_pointer: pointer::NULL.clone(),
             thread_index: 0,
         }
     }

@@ -7,7 +7,7 @@ use crate::{
     error::ErrorType,
     json_serialization,
     push_pop::PushPopType,
-    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint,
+    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult,
 };
 
 const INK_VERSION_CURRENT: i32 = 21;
@@ -30,6 +30,7 @@ pub struct Story {
     saw_lookahead_unsafe_function_after_new_line: bool,
     state_snapshot_at_last_new_line: Option<StoryState>,
     on_error: Option<fn(message: &str, error_type: ErrorType)>,
+    prev_containers: Vec<Rc<Container>>,
 }
 
 impl Story {
@@ -91,6 +92,7 @@ impl Story {
             saw_lookahead_unsafe_function_after_new_line: false,
             state_snapshot_at_last_new_line: None,
             on_error: None,
+            prev_containers: Vec::new(),
         };
 
         story.reset_state();
@@ -168,7 +170,7 @@ impl Story {
         // - Starting async run-through
         if !self.async_continue_active {
             self.async_continue_active = is_async_time_limited;
-            if (!self.can_continue()) {
+            if !self.can_continue() {
                 return Err(
                     "Can't continue - should check canContinue before calling Continue".to_string(),
                 );
@@ -540,11 +542,11 @@ impl Story {
         }
 
         // Choice with condition?
-        if let Ok(choicePoint) =  current_content_obj.clone().unwrap().into_any().downcast::<ChoicePoint>() {
+        if let Ok(choice_point) =  current_content_obj.clone().unwrap().into_any().downcast::<ChoicePoint>() {
 
-            let choice = self.process_choice(&choicePoint);
+            let choice = self.process_choice(&choice_point);
             if choice.is_some() {
-                self.state.as_mut().unwrap().get_generated_choices().push(choice.unwrap());
+                self.state.as_mut().unwrap().get_generated_choices_mut().push(choice.unwrap());
             }
 
             current_content_obj = None;
@@ -604,7 +606,7 @@ impl Story {
         // }
     }
 
-    fn try_follow_default_invisible_choice(&self) {
+    fn try_follow_default_invisible_choice(&mut self) {
         let all_choices = match self.state.as_ref().unwrap().get_current_choices() {
             Some(c) => c,
             None => return,
@@ -628,7 +630,7 @@ impl Story {
 
         // Invisible choice may have been generated on a different thread,
         // in which case we need to restore it before we continue
-        self.state.as_ref().unwrap().get_callstack().as_ref().borrow_mut().set_current_thread(choice.thread_at_generation.borrow().as_ref().unwrap().copy());
+        self.state.as_ref().unwrap().get_callstack().as_ref().borrow_mut().set_current_thread(choice.get_thread_at_generation().unwrap().copy());
 
         // If there's a chance that this state will be rolled back to before
         // the invisible choice then make sure that the choice thread is
@@ -701,7 +703,7 @@ impl Story {
         self.state_snapshot_at_last_new_line = None;    
     }
 
-    fn visit_container(&mut self, container: &Container, at_start: bool) {
+    fn visit_container(&mut self, container: &Rc<Container>, at_start: bool) {
         if !container.counting_at_start_only || at_start {
             if container.visits_should_be_counted {
                 self.state.as_mut().unwrap().increment_visit_count_for_container(container);
@@ -881,7 +883,7 @@ impl Story {
                         self.state.as_mut().unwrap().set_did_safe_exit(true);
 
                         // Stop flow in current thread
-                        self.state.as_ref().unwrap().set_current_pointer(pointer::NULL);
+                        self.state.as_ref().unwrap().set_current_pointer(pointer::NULL.clone());
                     } 
                 },
                 crate::control_command::CommandType::End => todo!(),
@@ -891,6 +893,7 @@ impl Story {
                 crate::control_command::CommandType::BeginTag => todo!(),
                 crate::control_command::CommandType::EndTag => todo!(),
             }
+            return true;
         }
 
         false
@@ -947,7 +950,7 @@ impl Story {
                 }
 
                 didPop = true;
-            } else if (self.state.as_ref().unwrap().get_callstack().as_ref().borrow().can_pop_thread()) {
+            } else if self.state.as_ref().unwrap().get_callstack().as_ref().borrow().can_pop_thread() {
                 self.state.as_ref().unwrap().get_callstack().as_ref().borrow_mut().pop_thread();
 
                 didPop = true;
@@ -1006,10 +1009,6 @@ impl Story {
         return successful_increment;
     }
 
-    fn choose_path(&self, target_path: &Path, arg: bool) {
-        todo!()
-    }
-
     pub fn get_current_choices(&self) -> Vec<Rc<Choice>> {
         // Don't include invisible choices for external usage.
         let mut choices = Vec::new();
@@ -1034,8 +1033,26 @@ impl Story {
         self.state.as_ref().unwrap().get_current_errors()
     }
 
-    pub fn choose_choice_index(&self, choice_list_index: usize) {
-        todo!()
+    pub fn choose_choice_index(&mut self, choice_index: usize) {
+        let choices = self.get_current_choices();
+        //assert!(choice_index < choices.len(), "choice out of range");
+
+        // Replace callstack with the one from the thread at the choosing point,
+        // so that we can jump into the right place in the flow.
+        // This is important in case the flow was forked by a new thread, which
+        // can create multiple leading edges for the story, each of
+        // which has its own context.
+        let choice_to_choose = choices.get(choice_index).unwrap();
+        self.state.as_ref().unwrap().get_callstack().borrow_mut().set_current_thread(choice_to_choose.get_thread_at_generation().unwrap());
+
+        self.choose_path(&choice_to_choose.target_path, true);
+    }
+
+    fn choose_path(&mut self, p: &Path, incrementing_turn_index: bool) {
+        self.state.as_mut().unwrap().set_chosen_path( &p,  incrementing_turn_index);
+
+        // Take a note of newly visited containers for read counts etc
+        self.visit_changed_containers_due_to_divert();
     }
 
     fn is_truthy(&self, obj: Rc<dyn RTObject>) -> bool {
@@ -1059,13 +1076,13 @@ impl Story {
     }
 
     fn process_choice(&mut self, choice_point: &Rc<ChoicePoint>) -> Option<Rc<Choice>> {
-        let mut showChoice = true;
+        let mut show_choice = true;
 
         // Don't create choice if choice point doesn't pass conditional
         if choice_point.has_condition() {
             let condition_value = self.state.as_mut().unwrap().pop_evaluation_stack();
             if !self.is_truthy(condition_value) {
-                showChoice = false;
+                show_choice = false;
             }
         }
 
@@ -1093,7 +1110,7 @@ impl Story {
         // We go through the full process of creating the choice above so
         // that we consume the content for it, since otherwise it'll
         // be shown on the output stream.
-        if !showChoice {
+        if !show_choice {
             return None;
         }
 
@@ -1106,7 +1123,7 @@ impl Story {
 
     fn pop_choice_string_and_tags(&mut self, tags: &[String]) -> String {
         let obj = self.state.as_mut().unwrap().pop_evaluation_stack();
-        let choiceOnlyStrVal = Value::get_string_value(obj.as_ref()).unwrap();
+        let choice_only_str_val = Value::get_string_value(obj.as_ref()).unwrap();
 
         // TODO
 
@@ -1115,7 +1132,128 @@ impl Story {
         //     tags.add(0, tag.getText()); // popped in reverse order
         // }
 
-        return choiceOnlyStrVal.string.to_string();
+        return choice_only_str_val.string.to_string();
     }
+
+    pub(crate) fn pointer_at_path(main_content_container: &Rc<Container>, path: &Path) -> Pointer {
+        if path.len() == 0 {
+            return pointer::NULL.clone();
+        }
+    
+        let mut p = Pointer::default();
+        let mut path_length_to_use = path.len() as i32;
+        
+        
+        let result: SearchResult = 
+            if path.get_last_component().unwrap().is_index() {
+                path_length_to_use -= 1;
+                let result = SearchResult::from_search_result(&main_content_container.content_at_path(path, 0, path_length_to_use));
+                p.container = result.get_container();
+                p.index = path.get_last_component().unwrap().index.unwrap() as i32;
+
+                result
+            } else {
+                let result = SearchResult::from_search_result(&main_content_container.content_at_path(path, 0, -1));
+                p.container = result.get_container();
+                p.index = -1;
+
+                result
+            };
+
+        let main_container: Rc<dyn RTObject> = main_content_container.clone();
+    
+        if Rc::ptr_eq(&result.obj, &main_container) && path_length_to_use > 0 {
+            // self.error(format!(
+            //     "Failed to find content at path '{}', and no approximation of it was possible.",
+            //     path
+            // ));
+        } else if result.approximate {
+            // warning(format!(
+            //     "Failed to find content at path '{}', so it was approximated to: '{}'.",
+            //     path,
+            //     result.obj.unwrap().get_path()
+            // ));
+        }
+    
+        p
+    }
+
+    fn visit_changed_containers_due_to_divert(&mut self) {
+        let previous_pointer = self.state.as_ref().unwrap().get_previous_pointer();
+        let pointer = self.state.as_ref().unwrap().get_current_pointer();
+    
+        // Unless we're pointing *directly* at a piece of content, we don't do counting here.
+        // Otherwise, the main stepping function will do the counting.
+        if pointer.is_null() || pointer.index == -1 {
+            return;
+        }
+    
+        // First, find the previously open set of containers
+        self.prev_containers.clear();
+    
+        if !previous_pointer.is_null() {
+            let mut prev_ancestor = None;
+    
+            let resolved = previous_pointer.resolve();
+            if resolved.is_some() && resolved.as_ref().unwrap().as_any().is::<Container>() {
+                prev_ancestor = resolved.unwrap().into_any().downcast::<Container>().ok();
+            } else if previous_pointer.container.is_some() {
+                prev_ancestor = previous_pointer.container.clone();
+            }
+    
+            while let Some(prev_anc) = prev_ancestor {
+                self.prev_containers.push(prev_anc.clone());
+                prev_ancestor = prev_anc.get_object().get_parent();
+            }
+        }
+    
+        // If the new Object is a container itself, it will be visited
+        // automatically at the next actual content step. However, we need to walk up the new ancestry to see if there
+        // are more new containers
+        let current_child_of_container = pointer.resolve();
+        
+        if current_child_of_container.is_none() {
+            return;
+        }
+
+        let mut current_child_of_container = current_child_of_container.unwrap();
+    
+        let mut current_container_ancestor = current_child_of_container
+            .get_object().get_parent();
+    
+        let mut all_children_entered_at_start = true;
+    
+        while let Some(current_container) = current_container_ancestor {
+            if !self.prev_containers.iter().any(|e| Rc::ptr_eq(e, &current_container))
+                || current_container.counting_at_start_only
+            {
+                // Check whether this ancestor container is being entered at the start,
+                // by checking whether the child Object is the first.
+                let entering_at_start = current_container
+                    .content
+                    .first()
+                    .map(|first_child| Rc::ptr_eq(first_child, &current_child_of_container) && all_children_entered_at_start)
+                    .unwrap_or(false);
+    
+                // Don't count it as entering at start if we're entering randomly somewhere within
+                // a container B that happens to be nested at index 0 of container A. It only
+                // counts
+                // if we're diverting directly to the first leaf node.
+                if !entering_at_start {
+                    all_children_entered_at_start = false;
+                }
+    
+                // Mark a visit to this container
+                self.visit_container(&current_container, entering_at_start);
+    
+                current_child_of_container = current_container.clone();
+                current_container_ancestor = current_container.get_object().get_parent();
+            } else {
+                break;
+            }
+        }
+    }
+    
+    
 }
 

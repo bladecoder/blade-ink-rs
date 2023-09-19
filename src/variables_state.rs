@@ -35,10 +35,10 @@ impl VariablesState {
             // Finished observing variables in a batch - now send
             // notifications for changed variables all in one go.
             if self.changed_variables_for_batch_obs.is_some() {
-                for variableName in self.changed_variables_for_batch_obs.as_ref().unwrap() {
-                    let current_value = self.global_variables.get(variableName).unwrap();
+                for variable_name in self.changed_variables_for_batch_obs.as_ref().unwrap() {
+                    let current_value = self.global_variables.get(variable_name).unwrap();
 
-                    (self.variable_changed_event.as_ref().unwrap())(variableName, current_value.as_ref());
+                    (self.variable_changed_event.as_ref().unwrap())(variable_name, current_value.as_ref());
                 }
             }
 

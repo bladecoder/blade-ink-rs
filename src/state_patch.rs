@@ -2,7 +2,7 @@ use std::{
     rc::Rc, collections::{HashMap, HashSet},
 };
 
-use crate::object::RTObject;
+use crate::{object::{RTObject, Object}, container::Container};
 
 #[derive(Clone)]
 pub(crate) struct StatePatch {
@@ -28,5 +28,15 @@ impl StatePatch {
                 turn_indices:  HashMap::new(),
             },
         }
+    }
+
+    pub(crate) fn get_visit_count(&self, container: &Rc<Container>) -> Option<usize> {
+        let key = Object::get_path(container.clone()).to_string();
+        self.visit_counts.get(&key).copied()
+    }
+
+    pub(crate) fn set_visit_count(&mut self, container: &Rc<Container>, count: usize) {
+        let key = Object::get_path(container.clone()).to_string();
+        self.visit_counts.insert(key, count);
     }
 }

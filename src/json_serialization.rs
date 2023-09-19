@@ -1,10 +1,10 @@
-use std::{collections::HashMap, rc::Rc, cell::RefCell};
+use std::{collections::HashMap, rc::Rc};
 
 use serde_json::Map;
 
 use crate::{
     container::Container,
-    object::{self, RTObject}, control_command::{CommandType, ControlCommand}, value::Value, object_enum::ObjectEnum, glue::Glue, path::Path, choice_point::ChoicePoint, choice::Choice, push_pop::PushPopType, divert::Divert,
+    object::{self, RTObject}, control_command::{CommandType, ControlCommand}, value::Value, glue::Glue, path::Path, choice_point::ChoicePoint, choice::Choice, push_pop::PushPopType, divert::Divert,
 };
 
 pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>) -> Result<Rc<dyn RTObject>, String> {
@@ -78,39 +78,39 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
             // }
 
             // // Divert
-            let mut isDivert = false;
-            let mut pushesToStack = false;
-            let mut divPushType = PushPopType::Function;
+            let mut is_divert = false;
+            let mut pushes_to_stack = false;
+            let mut div_push_type = PushPopType::Function;
             let mut external = false;
 
             let mut prop_value = obj.get("->");
             if prop_value.is_some() {
-                isDivert = true;
+                is_divert = true;
             } else {
                 prop_value = obj.get("f()");
                 if prop_value.is_some() {
-                    isDivert = true;
-                    pushesToStack = true;
-                    divPushType = PushPopType::Function;
+                    is_divert = true;
+                    pushes_to_stack = true;
+                    div_push_type = PushPopType::Function;
                 } else {
                     prop_value = obj.get("->t->");
                     if prop_value.is_some() {
-                        isDivert = true;
-                        pushesToStack = true;
-                        divPushType = PushPopType::Tunnel;
+                        is_divert = true;
+                        pushes_to_stack = true;
+                        div_push_type = PushPopType::Tunnel;
                     } else {
                         prop_value = obj.get("x()");
                         if prop_value.is_some() {
-                            isDivert = true;
+                            is_divert = true;
                             external = true;
-                            pushesToStack = false;
-                            divPushType = PushPopType::Function;
+                            pushes_to_stack = false;
+                            div_push_type = PushPopType::Function;
                         }
                     }
                 }
             }
 
-            if isDivert {
+            if is_divert {
                 let target = prop_value.unwrap().as_str().unwrap().to_string();
 
                 let mut var_divert_name: Option<String> = None;
@@ -135,7 +135,7 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
                     }
                 }
 
-                return Ok(Rc::new(Divert::new(pushesToStack, divPushType, external, external_args, conditional, var_divert_name, target_path.as_deref())));
+                return Ok(Rc::new(Divert::new(pushes_to_stack, div_push_type, external, external_args, conditional, var_divert_name, target_path.as_deref())));
             }
 
             // Choice
