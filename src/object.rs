@@ -31,7 +31,7 @@ impl Object {
         self.parent.borrow().upgrade()
     }
 
-    pub(crate) fn set_parent(&self, parent: &Rc<Container>) {
+    pub fn set_parent(&self, parent: &Rc<Container>) {
         self.parent.replace(Rc::downgrade(parent));
     }
 
@@ -193,7 +193,7 @@ pub struct Null {
 }
 
 impl Null {
-    pub(crate) fn new() -> Null {
+    pub fn new() -> Null {
         Null {
             obj: Object::new(),
         }

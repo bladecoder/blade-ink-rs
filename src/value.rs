@@ -26,7 +26,7 @@ pub struct StringValue {
 }
 
 impl StringValue {
-    pub(crate) fn is_non_whitespace(&self) -> bool {
+    pub fn is_non_whitespace(&self) -> bool {
         return !self.is_newline && !self.is_inline_whitespace;
     }
 

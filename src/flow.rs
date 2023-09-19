@@ -2,7 +2,7 @@ use std::{rc::Rc, cell::RefCell};
 
 use crate::{callstack::CallStack, choice::Choice, object::RTObject, container::Container};
 
-pub(crate) struct Flow {
+pub struct Flow {
     pub name: String,
     pub callstack: Rc<RefCell<CallStack>>,
     pub output_stream: Vec<Rc<dyn RTObject>>,

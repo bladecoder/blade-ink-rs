@@ -2,11 +2,11 @@ use std::{rc::Rc, fmt};
 
 use crate::{container::Container, object::{RTObject, Object}, path::{Path, Component}};
 
-pub(crate) const NULL: Pointer = Pointer::new(None, -1);
+pub const NULL: Pointer = Pointer::new(None, -1);
 
 
 #[derive(Clone)]
-pub(crate) struct Pointer {
+pub struct Pointer {
     pub container: Option<Rc<Container>>,
     pub index: i32,
 }
@@ -53,7 +53,7 @@ impl Pointer {
         Some(container.get_path())
     }
 
-    pub(crate) fn start_of(container:Rc<Container>) -> Pointer {
+    pub fn start_of(container:Rc<Container>) -> Pointer {
         return Pointer{container: Some(container), index:0};
     }
 }

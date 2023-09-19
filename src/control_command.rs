@@ -36,13 +36,13 @@ pub enum CommandType {
     EndTag
 }
 
-pub(crate) struct ControlCommand {
+pub struct ControlCommand {
     obj: Object,
     pub command_type: CommandType
 }
 
 impl ControlCommand {
-    pub(crate) fn new(command_type: CommandType) -> Self {
+    pub fn new(command_type: CommandType) -> Self {
         ControlCommand {obj: Object::new(), command_type}
     }
 }

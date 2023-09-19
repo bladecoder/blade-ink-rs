@@ -14,7 +14,7 @@ pub struct Path {
 }
 
 impl Path {
-    pub(crate) fn new(components: &[Component], relative: bool) -> Path {
+    pub fn new(components: &[Component], relative: bool) -> Path {
         let mut comp: Vec<Component> = Vec::new();
         comp.extend_from_slice(components);
         Path {
@@ -74,7 +74,7 @@ impl Path {
         }
     }
 
-    pub(crate) fn get_component(&self, index: usize) -> Option<&Component> {
+    pub fn get_component(&self, index: usize) -> Option<&Component> {
         self.components.get(index)
     }
 
@@ -103,7 +103,7 @@ impl Path {
         }
     }
 
-    pub(crate) fn get_last_component(&self) -> Option<&Component> {
+    pub fn get_last_component(&self) -> Option<&Component> {
         if self.components.len() > 0 {
             return self.components.get(self.components.len() - 1);
         }
@@ -139,7 +139,7 @@ impl Path {
         }
     }
 
-    pub(crate) fn get_components_string(&self) -> String {
+    pub fn get_components_string(&self) -> String {
         let mut sb = String::new();
 
         if self.components.len() > 0 {
@@ -158,7 +158,7 @@ impl Path {
         sb
     }
 
-    pub(crate) fn path_by_appending_component( &self, c: Component) -> Path {
+    pub fn path_by_appending_component( &self, c: Component) -> Path {
         let mut p = Path::new(self.components.as_ref(), false);
         p.components.push(c);
 
@@ -213,35 +213,35 @@ impl PartialEq for Path {
 }
 
 #[derive(Eq, Clone)]
-pub(crate) struct Component {
+pub struct Component {
     pub index: Option<usize>,
     pub name: Option<String>,
 }
 
 impl Component {
-    pub(crate) fn new(name: &str) -> Component {
+    pub fn new(name: &str) -> Component {
         Component {
             name: Some(name.to_string()),
             index: None,
         }
     }
 
-    pub(crate) fn new_i(index: usize) -> Component {
+    pub fn new_i(index: usize) -> Component {
         Component {
             name: None,
             index: Some(index),
         }
     }
 
-    pub(crate) fn to_parent() -> Component {
+    pub fn to_parent() -> Component {
         Component::new(PARENT_ID)
     }
 
-    pub(crate) fn is_index(&self) -> bool {
+    pub fn is_index(&self) -> bool {
         self.index.is_some()
     }
 
-    pub(crate) fn is_parent(&self) -> bool {
+    pub fn is_parent(&self) -> bool {
         match &self.name {
             Some(name) => name.eq(PARENT_ID),
             None => false,

@@ -443,7 +443,7 @@ impl Story {
         self.state.as_mut().unwrap().get_current_text()
     }
 
-    pub(crate) fn get_main_content_container(&self) -> Rc<Container> {
+    pub fn get_main_content_container(&self) -> Rc<Container> {
         match self.temporaty_evaluation_container.as_ref() {
             Some(c) => c.clone(),
             None => self.main_content_container.clone(),
@@ -1135,7 +1135,7 @@ impl Story {
         return choice_only_str_val.string.to_string();
     }
 
-    pub(crate) fn pointer_at_path(main_content_container: &Rc<Container>, path: &Path) -> Pointer {
+    pub fn pointer_at_path(main_content_container: &Rc<Container>, path: &Path) -> Pointer {
         if path.len() == 0 {
             return pointer::NULL.clone();
         }

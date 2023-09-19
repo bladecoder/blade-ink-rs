@@ -48,7 +48,7 @@ impl Container {
         self.name.is_some() && !self.name.as_ref().unwrap().is_empty()
     }
 
-    pub(crate) fn get_name(&self) -> &str {
+    pub fn get_name(&self) -> &str {
         todo!()
     }
 
@@ -150,11 +150,11 @@ impl Container {
         }
     }
 
-    pub(crate) fn get_path(self: &Rc<Self>) -> Path {
+    pub fn get_path(self: &Rc<Self>) -> Path {
         Object::get_path(self.clone())
     }
 
-    pub(crate) fn content_at_path(
+    pub fn content_at_path(
         self: &Rc<Self>,
         path: &Path,
         partial_path_start: usize,
@@ -205,7 +205,7 @@ impl Container {
     }
     
 
-    pub(crate) fn get_count_flags(&self) -> i32 {
+    pub fn get_count_flags(&self) -> i32 {
         let mut flags: i32 = 0;
     
         if self.visits_should_be_counted {
