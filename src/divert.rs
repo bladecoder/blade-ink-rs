@@ -6,7 +6,7 @@ use std::{
 use crate::{object::{Object, RTObject}, push_pop::PushPopType, pointer::{Pointer, self}, path::Path};
 
 
-pub(crate) struct Divert {
+pub struct Divert {
     obj: Object,
     pub external_args: i32,
     pub is_conditional: bool,
@@ -19,7 +19,7 @@ pub(crate) struct Divert {
 }
 
 impl Divert {
-    pub(crate) fn new(pushes_to_stack: bool, stack_push_type: PushPopType, is_external: bool, external_args: i32, is_conditional: bool, var_divert_name: Option<String>, target_path: Option<&str>) -> Self {
+    pub fn new(pushes_to_stack: bool, stack_push_type: PushPopType, is_external: bool, external_args: i32, is_conditional: bool, var_divert_name: Option<String>, target_path: Option<&str>) -> Self {
         Divert {
             obj: Object::new(),
             is_conditional,

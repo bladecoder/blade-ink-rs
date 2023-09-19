@@ -16,7 +16,7 @@ pub struct Choice {
 }
 
 impl Choice {
-    pub(crate) fn new(target_path: Path, source_path: String, is_invisible_default: bool, tags: Vec<String>, thread_at_generation: Thread, text: String, index: usize, original_thread_index: usize) -> Choice {
+    pub fn new(target_path: Path, source_path: String, is_invisible_default: bool, tags: Vec<String>, thread_at_generation: Thread, text: String, index: usize, original_thread_index: usize) -> Choice {
         Choice {
             obj: Object::new(),
             target_path: target_path,
@@ -30,7 +30,7 @@ impl Choice {
         }
     }
 
-    pub(crate) fn new_from_json(path_string_on_choice: &str, source_path: String, text: &str, index: usize, original_thread_index: usize) -> Choice {
+    pub fn new_from_json(path_string_on_choice: &str, source_path: String, text: &str, index: usize, original_thread_index: usize) -> Choice {
         
         Choice {
             obj: Object::new(),
@@ -45,11 +45,11 @@ impl Choice {
         }
     }
 
-    pub(crate) fn set_thread_at_generation(&mut self, thread: Thread) {
+    pub fn set_thread_at_generation(&mut self, thread: Thread) {
         self.thread_at_generation.replace(Some(thread));
     }
 
-    pub(crate) fn get_thread_at_generation(&self) -> Option<Thread> {
+    pub fn get_thread_at_generation(&self) -> Option<Thread> {
         match self.thread_at_generation.borrow().as_ref() {
             Some(t) => Some(t.copy()),
             None => None,

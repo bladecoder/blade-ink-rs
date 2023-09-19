@@ -2,7 +2,7 @@ use std::{collections::{HashMap, HashSet}, rc::Rc, cell::RefCell};
 
 use crate::{object::RTObject, callstack::CallStack, state_patch::StatePatch};
 
-pub(crate) struct VariablesState {
+pub struct VariablesState {
     pub global_variables: HashMap<String, Rc<dyn RTObject>>,
     pub default_global_variables: Option<HashMap<String, Rc<dyn RTObject>>>,
     pub batch_observing_variable_changes: bool,
@@ -14,7 +14,7 @@ pub(crate) struct VariablesState {
 }
 
 impl VariablesState {
-    pub(crate) fn new(callstack: Rc<RefCell<CallStack>>) -> VariablesState {
+    pub fn new(callstack: Rc<RefCell<CallStack>>) -> VariablesState {
         VariablesState {
             global_variables: HashMap::new(),
             default_global_variables: None,
@@ -26,7 +26,7 @@ impl VariablesState {
         }
     }
 
-    pub(crate) fn set_batch_observing_variable_changes(&mut self, value: bool) {
+    pub fn set_batch_observing_variable_changes(&mut self, value: bool) {
         self.batch_observing_variable_changes = value;
 
         if value {
@@ -46,11 +46,11 @@ impl VariablesState {
         }    
     }
 
-    pub(crate) fn snapshot_default_globals(&mut self) {
+    pub fn snapshot_default_globals(&mut self) {
         self.default_global_variables = Some(self.global_variables.clone());
     }
 
-    pub(crate) fn apply_patch(&self) {
+    pub fn apply_patch(&self) {
         todo!()
     }
 }

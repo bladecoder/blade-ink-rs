@@ -11,7 +11,7 @@ pub const MIN_COMPATIBLE_LOAD_VERSION: u32 = 8;
 
 static DEFAULT_FLOW_NAME: &str = "DEFAULT_FLOW";
 
-pub(crate) struct StoryState {
+pub struct StoryState {
     pub current_flow: Flow,
     pub did_safe_exit: bool,
     output_stream_text_dirty: bool,
@@ -76,19 +76,19 @@ impl StoryState {
         !self.current_errors.is_empty()
     }
 
-    pub(crate) fn get_current_pointer(&self) -> Pointer {
+    pub fn get_current_pointer(&self) -> Pointer {
         self.get_callstack().borrow().get_current_element().current_pointer.clone()
     }
 
-    pub(crate) fn get_callstack(&self) -> &Rc<RefCell<CallStack>> {
+    pub fn get_callstack(&self) -> &Rc<RefCell<CallStack>> {
         &self.current_flow.callstack
     }
 
-    pub(crate) fn set_did_safe_exit(&mut self, did_safe_exit: bool) {
+    pub fn set_did_safe_exit(&mut self, did_safe_exit: bool) {
         self.did_safe_exit = did_safe_exit;
     }
 
-    pub(crate) fn reset_output(&mut self, objs: Option<Vec<Rc<dyn RTObject>>>) {
+    pub fn reset_output(&mut self, objs: Option<Vec<Rc<dyn RTObject>>>) {
         self.get_output_stream_mut().clear();
         if let Some(objs) = objs {
             for o in objs {
@@ -98,39 +98,39 @@ impl StoryState {
         self.output_stream_dirty();
     }
 
-    pub(crate) fn get_variables_state(&self) -> &VariablesState {
+    pub fn get_variables_state(&self) -> &VariablesState {
         &self.variables_state
     }
 
-    pub(crate) fn get_variables_state_mut(&mut self) -> &mut VariablesState {
+    pub fn get_variables_state_mut(&mut self) -> &mut VariablesState {
         &mut self.variables_state
     }
 
-    pub(crate) fn get_generated_choices_mut(&mut self) -> &mut Vec<Rc<Choice>> {
+    pub fn get_generated_choices_mut(&mut self) -> &mut Vec<Rc<Choice>> {
         &mut self.current_flow.current_choices
     }
 
-    pub(crate) fn get_generated_choices(&self) -> &Vec<Rc<Choice>> {
+    pub fn get_generated_choices(&self) -> &Vec<Rc<Choice>> {
         &self.current_flow.current_choices
     }
 
-    pub(crate) fn is_did_safe_exit(&self) -> bool {
+    pub fn is_did_safe_exit(&self) -> bool {
         self.did_safe_exit
     }
 
-    pub(crate) fn has_warning(&self) -> bool {
+    pub fn has_warning(&self) -> bool {
         !self.current_warnings.is_empty()
     }
 
-    pub(crate) fn get_current_errors(&self) -> &Vec<String> {
+    pub fn get_current_errors(&self) -> &Vec<String> {
         &self.current_errors
     }
 
-    pub(crate) fn get_current_warnings(&self) -> &Vec<String> {
+    pub fn get_current_warnings(&self) -> &Vec<String> {
         &self.current_warnings
     }
 
-    pub(crate) fn get_output_stream(&self) -> &Vec<Rc<(dyn RTObject)>> {
+    pub fn get_output_stream(&self) -> &Vec<Rc<(dyn RTObject)>> {
         &self.current_flow.output_stream
     }
 
@@ -143,7 +143,7 @@ impl StoryState {
         self.output_stream_tags_dirty = true;
     }
 
-    pub(crate) fn in_string_evaluation(&self) -> bool {
+    pub fn in_string_evaluation(&self) -> bool {
         for e in self.get_output_stream().iter().rev() {
             if let Some(cmd) = e.as_any().downcast_ref::<ControlCommand>() {
                 if cmd.command_type == CommandType::BeginString {
@@ -189,7 +189,7 @@ impl StoryState {
         self.current_text.as_ref().unwrap().to_string()
     }
 
-    pub(crate) fn get_current_tags(&mut self) -> Vec<String> {
+    pub fn get_current_tags(&mut self) -> Vec<String> {
         if self.output_stream_tags_dirty {
             let mut current_tags = Vec::new();
             let mut in_tag = false;
@@ -281,7 +281,7 @@ impl StoryState {
     }
     
 
-    pub(crate) fn output_stream_ends_in_newline(&self) -> bool {
+    pub fn output_stream_ends_in_newline(&self) -> bool {
         if !self.get_output_stream().is_empty() {
             for e in self.get_output_stream().iter().rev() {
                 if let Some(cmd) = e.as_any().downcast_ref::<ControlCommand>() {
@@ -303,19 +303,19 @@ impl StoryState {
         false
     }
 
-    pub(crate) fn set_current_pointer(&self, pointer: Pointer) {
+    pub fn set_current_pointer(&self, pointer: Pointer) {
         self.get_callstack().as_ref().borrow_mut().get_current_element_mut().current_pointer = pointer;
     }
 
-    pub(crate) fn get_in_expression_evaluation(&self) -> bool {
+    pub fn get_in_expression_evaluation(&self) -> bool {
         self.get_callstack().borrow().get_current_element().in_expression_evaluation
     }
 
-    pub(crate) fn set_in_expression_evaluation(&self, value: bool) {
+    pub fn set_in_expression_evaluation(&self, value: bool) {
         self.get_callstack().borrow_mut().get_current_element_mut().in_expression_evaluation = value;
     }
 
-    pub(crate) fn push_evaluation_stack(&mut self, obj: Rc<dyn RTObject>) {
+    pub fn push_evaluation_stack(&mut self, obj: Rc<dyn RTObject>) {
 
         // TODO
 
@@ -348,7 +348,7 @@ impl StoryState {
         self.evaluation_stack.push(obj);
     }
 
-    pub(crate) fn push_to_output_stream(&mut self, obj: Option<Rc<dyn RTObject>>) {
+    pub fn push_to_output_stream(&mut self, obj: Option<Rc<dyn RTObject>>) {
         let text = match &obj {
             Some(obj) => {
                 let obj = obj.clone();
@@ -378,7 +378,7 @@ impl StoryState {
         self.push_to_output_stream_individual(obj.unwrap());
     }
 
-    pub(crate) fn increment_visit_count_for_container(&mut self, container: &Rc<Container>) {
+    pub fn increment_visit_count_for_container(&mut self, container: &Rc<Container>) {
         let has_patch = self.patch.is_some();
 
         if has_patch {
@@ -425,7 +425,7 @@ impl StoryState {
         0
     }
 
-    pub(crate) fn record_turn_index_visit_to_container(&self, container: &crate::container::Container) {
+    pub fn record_turn_index_visit_to_container(&self, container: &crate::container::Container) {
         todo!()
     }
 
@@ -661,19 +661,19 @@ impl StoryState {
         false
     }
 
-    pub(crate) fn set_previous_pointer(&self, p: Pointer) {
+    pub fn set_previous_pointer(&self, p: Pointer) {
         self.get_callstack().as_ref().borrow_mut().get_current_thread_mut().previous_pointer = p.clone();
     }
 
-    pub(crate) fn get_previous_pointer(&self) -> Pointer {
+    pub fn get_previous_pointer(&self) -> Pointer {
         self.get_callstack().as_ref().borrow_mut().get_current_thread_mut().previous_pointer.clone()
     }
 
-    pub(crate) fn try_exit_function_evaluation_from_game(&self) {
+    pub fn try_exit_function_evaluation_from_game(&self) {
         todo!()
     }
 
-    pub(crate) fn pop_callstack(&self, function: PushPopType) {
+    pub fn pop_callstack(&self, function: PushPopType) {
         todo!()
     }
 
@@ -681,7 +681,7 @@ impl StoryState {
         self.get_callstack().as_ref().borrow_mut().get_current_element_mut().current_pointer = Pointer::start_of(self.main_content_container.clone())
     }
 
-    pub(crate) fn get_current_choices(&self) -> Option<&Vec<Rc<Choice>>> {
+    pub fn get_current_choices(&self) -> Option<&Vec<Rc<Choice>>> {
         // If we can continue generating text content rather than choices,
         // then we reflect the choice list as being empty, since choices
         // should always come at the end.
@@ -692,7 +692,7 @@ impl StoryState {
         Some(&self.current_flow.current_choices)
     }
 
-    pub(crate) fn copy_and_start_patching(&self) -> StoryState {
+    pub fn copy_and_start_patching(&self) -> StoryState {
         let mut copy = StoryState::new(self.main_content_container.clone());
 
         copy.patch = Some(StatePatch::new(self.patch.as_ref()));
@@ -759,7 +759,7 @@ impl StoryState {
         copy
     }
 
-    pub(crate) fn restore_after_patch(&mut self) {
+    pub fn restore_after_patch(&mut self) {
         // VariablesState was being borrowed by the patched
         // state, so restore it with our own callstack.
         // _patch will be null normally, but if you're in the
@@ -768,7 +768,7 @@ impl StoryState {
         self.variables_state.patch = self.patch.clone(); // usually null
     }
 
-    pub(crate) fn apply_any_patch(&mut self) {
+    pub fn apply_any_patch(&mut self) {
         if self.patch.is_none() {
             return;
         }
@@ -792,7 +792,7 @@ impl StoryState {
         todo!()
     }
 
-    pub(crate) fn pop_from_output_stream(&mut self, count: usize) {
+    pub fn pop_from_output_stream(&mut self, count: usize) {
         let len = self.get_output_stream().len();
 
         if count <= len {
@@ -803,7 +803,7 @@ impl StoryState {
         self.output_stream_dirty();
     }
 
-    pub(crate) fn pop_evaluation_stack(&mut self) -> Rc<dyn RTObject> {
+    pub fn pop_evaluation_stack(&mut self) -> Rc<dyn RTObject> {
         let obj = self.evaluation_stack.last().unwrap().clone();
         self.evaluation_stack.remove(self.evaluation_stack.len() - 1);
 
@@ -812,11 +812,11 @@ impl StoryState {
         obj
     }
 
-    pub(crate) fn set_diverted_pointer(&mut self, p: Pointer) {
+    pub fn set_diverted_pointer(&mut self, p: Pointer) {
         self.diverted_pointer = p;
     }
 
-    pub(crate) fn set_chosen_path(&mut self, path: &Path, incrementing_turn_index: bool) {
+    pub fn set_chosen_path(&mut self, path: &Path, incrementing_turn_index: bool) {
         // Changing direction, assume we need to clear current set of choices
         self.current_flow.current_choices.clear();
 
