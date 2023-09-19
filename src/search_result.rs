@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{object::{RTObject, Object}, container::Container};
+use crate::{object::RTObject, container::Container};
 
 
 #[derive(Clone)]

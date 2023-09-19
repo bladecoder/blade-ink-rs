@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{fmt::Display, rc::{Weak, Rc}, cell::RefCell, any::Any, borrow::BorrowMut};
+use std::{fmt::Display, rc::{Weak, Rc}, cell::RefCell, any::Any};
 
 use as_any::{AsAny, Downcast};
 
@@ -82,7 +82,6 @@ impl Object {
 
         rtobject.get_object().path.borrow().as_ref().unwrap().clone()
     }
-
 
     pub fn resolve_path(rtobject: Rc<dyn RTObject>, path: &Path) -> SearchResult {
         if path.is_relative() {

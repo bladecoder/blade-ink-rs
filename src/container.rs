@@ -6,8 +6,8 @@ use std::{
 use as_any::Downcast;
 
 use crate::{
-    object::{Object, RTObject, Null},
-    value::{ValueType, Value}, control_command::ControlCommand, path::{Path, Component}, search_result::SearchResult,
+    object::{Object, RTObject},
+    value::{ValueType, Value}, path::{Path, Component}, search_result::SearchResult,
 };
 
 const COUNTFLAGS_VISITS: i32 = 1;
@@ -191,6 +191,9 @@ impl Container {
 
             current_obj = found_obj.unwrap().clone();
             current_container = if let Ok(container) = current_obj.clone().into_any().downcast::<Container>() {
+                let mut sb = String::new();
+                container.build_string_of_hierarchy(&mut sb, 0, None);
+                println!("CONTAINER NAME: {}", sb);
                 Some(container)
             } else {
                 None
@@ -243,7 +246,7 @@ impl Container {
     fn content_with_path_component(&self, component: &Component) -> Option<Rc<dyn RTObject>> {
         if component.is_index() {
             if let Some(index) = component.index {
-                if (index >= 0) && (index < self.content.len()) {
+                if index < self.content.len() {
                     return Some(self.content[index].clone());
                 }
             }
@@ -253,12 +256,9 @@ impl Container {
             return match self.get_object().get_parent() {
                 Some(o) => Some(o as Rc<dyn RTObject>),
                 None => None,
-            };
-        
-        //TODO
-        
-        // } else if let Some(found_content) = self.get_named_content().get(&component.get_name()) {
-        //     return Some(found_content.clone().into());
+            } 
+        } else if let Some(found_content) = self.named_content.get(component.name.as_ref().unwrap()) {
+            return Some(found_content.clone());
         }
 
         None    

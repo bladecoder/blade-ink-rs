@@ -2,7 +2,7 @@
 
 use std::{rc::Rc, cell::RefCell, collections::HashMap};
 
-use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::RTObject, value::{Value, ValueType}, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch};
+use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::RTObject, value::{Value, ValueType}, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch, story::Story, path::Path};
 
 use rand::Rng;
 
@@ -106,8 +106,12 @@ impl StoryState {
         &mut self.variables_state
     }
 
-    pub(crate) fn get_generated_choices(&self) -> Vec<Rc<Choice>> {
-        self.current_flow.current_choices.clone()
+    pub(crate) fn get_generated_choices_mut(&mut self) -> &mut Vec<Rc<Choice>> {
+        &mut self.current_flow.current_choices
+    }
+
+    pub(crate) fn get_generated_choices(&self) -> &Vec<Rc<Choice>> {
+        &self.current_flow.current_choices
     }
 
     pub(crate) fn is_did_safe_exit(&self) -> bool {
@@ -155,8 +159,8 @@ impl StoryState {
             let mut sb = String::new();
             let mut in_tag = false;
 
-            for outputObj in self.get_output_stream() {
-                let text_content = match outputObj.as_ref().as_any().downcast_ref::<Value>() {
+            for output_obj in self.get_output_stream() {
+                let text_content = match output_obj.as_ref().as_any().downcast_ref::<Value>() {
                     Some(v) => match &v.value {
                         ValueType::String(s) => Some(s),
                         _ => None,
@@ -167,10 +171,10 @@ impl StoryState {
                 if !in_tag && text_content.is_some() {
                     sb.push_str(&text_content.unwrap().string);
                 } else {
-                    if let Some(controlCommand) = outputObj.as_ref().as_any().downcast_ref::<ControlCommand>() {
-                        if controlCommand.command_type == CommandType::BeginTag {
+                    if let Some(control_command) = output_obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
+                        if control_command.command_type == CommandType::BeginTag {
                             in_tag = true;
-                        } else if controlCommand.command_type == CommandType::EndTag {
+                        } else if control_command.command_type == CommandType::EndTag {
                             in_tag = false;
                         }
                     }
@@ -340,6 +344,7 @@ impl StoryState {
         //     }
         // }
     
+        println!("PUSH: {}", obj.to_string());
         self.evaluation_stack.push(obj);
     }
 
@@ -373,8 +378,51 @@ impl StoryState {
         self.push_to_output_stream_individual(obj.unwrap());
     }
 
-    pub(crate) fn increment_visit_count_for_container(&self, container: &crate::container::Container) {
-        todo!()
+    pub(crate) fn increment_visit_count_for_container(&mut self, container: &Rc<Container>) {
+        let has_patch = self.patch.is_some();
+
+        if has_patch {
+            let curr_count = self.visit_count_for_container(container);
+            let new_count = curr_count + 1;
+            self.patch.as_mut().unwrap().set_visit_count(container, new_count);
+        } else {
+            let mut count = 0;
+            let container_path_str = container.get_path().to_string();
+    
+            if let Some(&existing_count) = self.visit_counts.get(&container_path_str) {
+                count = existing_count;
+            }
+    
+            count += 1;
+            self.visit_counts.insert(container_path_str, count);
+        }
+    }
+
+    fn visit_count_for_container(&mut self, container: &Rc<Container>) -> usize {
+        if !container.visits_should_be_counted {
+            // TODO
+
+            // story.error(format!(
+            //     "Read count for target ({:?} - on {:?}) unknown.",
+            //     container.get_name(),
+            //     container.get_debug_metadata()
+            // ));
+            return 0;
+        }
+    
+        if let Some(patch) = &self.patch {
+            if let Some(visit_count) = patch.get_visit_count(container) {
+                return visit_count;
+            }
+        }
+    
+        let container_path_str = container.get_path().to_string();
+    
+        if let Some(&count) = self.visit_counts.get(&container_path_str) {
+            return count;
+        }
+    
+        0
     }
 
     pub(crate) fn record_turn_index_visit_to_container(&self, container: &crate::container::Container) {
@@ -759,11 +807,29 @@ impl StoryState {
         let obj = self.evaluation_stack.last().unwrap().clone();
         self.evaluation_stack.remove(self.evaluation_stack.len() - 1);
 
+        println!("POP: {}", obj.to_string());
+
         obj
     }
 
     pub(crate) fn set_diverted_pointer(&mut self, p: Pointer) {
         self.diverted_pointer = p;
+    }
+
+    pub(crate) fn set_chosen_path(&mut self, path: &Path, incrementing_turn_index: bool) {
+        // Changing direction, assume we need to clear current set of choices
+        self.current_flow.current_choices.clear();
+
+        let mut new_pointer = Story::pointer_at_path(&self.main_content_container, &path);
+        if !new_pointer.is_null() && new_pointer.index == -1 {
+            new_pointer.index = 0;
+        }
+
+        self.set_current_pointer(new_pointer);
+
+        if incrementing_turn_index {
+            self.current_turn_index += 1;
+        }
     }
 
 }

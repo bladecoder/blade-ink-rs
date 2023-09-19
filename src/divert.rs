@@ -27,7 +27,7 @@ impl Divert {
             stack_push_type,
             is_external,
             external_args,
-            target_pointer: pointer::NULL,
+            target_pointer: pointer::NULL.clone(),
             target_path: Self::target_path_string(target_path),
             variable_divert_name: var_divert_name,
         }

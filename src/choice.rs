@@ -11,7 +11,7 @@ pub struct Choice {
     pub index: RefCell<usize>,
     pub original_thread_index: usize,
     pub text: String,
-    pub(crate) thread_at_generation: RefCell<Option<Thread>>,
+    thread_at_generation: RefCell<Option<Thread>>,
     pub source_path: String
 }
 
@@ -42,6 +42,17 @@ impl Choice {
             text: text.to_string(),
             thread_at_generation: RefCell::new(None),
             source_path: source_path,
+        }
+    }
+
+    pub(crate) fn set_thread_at_generation(&mut self, thread: Thread) {
+        self.thread_at_generation.replace(Some(thread));
+    }
+
+    pub(crate) fn get_thread_at_generation(&self) -> Option<Thread> {
+        match self.thread_at_generation.borrow().as_ref() {
+            Some(t) => Some(t.copy()),
+            None => None,
         }
     }
 }

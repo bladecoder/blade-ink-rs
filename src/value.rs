@@ -98,7 +98,7 @@ impl Value {
             ValueType::Int(v) => *v != 0,
             ValueType::Float(v) => *v != 0.0,
             ValueType::String(v) => v.string.len() > 0,
-            ValueType::DivertTarget(p) => false, // exception Shouldn't be checking the truthiness of a divert target??
+            ValueType::DivertTarget(_) => false, // exception Shouldn't be checking the truthiness of a divert target??
         }      
     }
 
