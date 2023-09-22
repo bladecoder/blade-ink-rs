@@ -7,7 +7,7 @@ use crate::{
     error::ErrorType,
     json_serialization,
     push_pop::PushPopType,
-    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult,
+    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment,
 };
 
 const INK_VERSION_CURRENT: i32 = 21;
@@ -207,7 +207,7 @@ impl Story {
                 }
             }
 
-            println!("{}", self.build_string_of_hierarchy());
+            //println!("{}", self.build_string_of_hierarchy());
 
             if output_stream_ends_in_newline {
                 break;
@@ -530,6 +530,7 @@ impl Story {
         // return/done statement in knot
         // that was diverted to rather than called as a function)
         let mut current_content_obj = pointer.resolve();
+
         let is_logic_or_flow_control = self.perform_logic_and_flow_control(&current_content_obj);
 
         // Has flow been forced to end by flow control above?
@@ -542,15 +543,17 @@ impl Story {
         }
 
         // Choice with condition?
-        if let Ok(choice_point) =  current_content_obj.clone().unwrap().into_any().downcast::<ChoicePoint>() {
+        if current_content_obj.is_some() {
+                if let Ok(choice_point) =  current_content_obj.clone().unwrap().into_any().downcast::<ChoicePoint>() {
 
-            let choice = self.process_choice(&choice_point);
-            if choice.is_some() {
-                self.state.as_mut().unwrap().get_generated_choices_mut().push(choice.unwrap());
+                let choice = self.process_choice(&choice_point);
+                if choice.is_some() {
+                    self.state.as_mut().unwrap().get_generated_choices_mut().push(choice.unwrap());
+                }
+
+                current_content_obj = None;
+                should_add_to_stream = false;
             }
-
-            current_content_obj = None;
-            should_add_to_stream = false;
         }
 
         // If the container has no content, then it will be
@@ -567,18 +570,16 @@ impl Story {
             // to our current (possibly temporary) context index. And make a
             // copy of the pointer
             // so that we're not editing the original runtime Object.
-            
-            // TODO
-            // VariablePointerValue varPointer =
-            //         currentContentObj instanceof VariablePointerValue ? (VariablePointerValue) currentContentObj : null;
+            let var_pointer =
+                Value::get_variable_pointer_value(current_content_obj.as_ref().unwrap().as_ref());
 
-            // if (varPointer != null && varPointer.getContextIndex() == -1) {
+            if var_pointer.is_some() && var_pointer.unwrap().context_index == -1 {
 
-            //     // Create new Object so we're not overwriting the story's own
-            //     // data
-            //     int contextIdx = state.getCallStack().contextForVariableNamed(varPointer.getVariableName());
-            //     currentContentObj = new VariablePointerValue(varPointer.getVariableName(), contextIdx);
-            // }
+                // Create new Object so we're not overwriting the story's own
+                // data
+                let context_idx = self.state.as_ref().unwrap().get_callstack().borrow().context_for_variable_named(&var_pointer.unwrap().variable_name);
+                current_content_obj = Some(Rc::new(Value::new_variable_pointer(&var_pointer.unwrap().variable_name, context_idx as i32)));
+            }
 
             // Expression evaluation content
             if self.state.as_ref().unwrap().get_in_expression_evaluation() {
@@ -586,7 +587,7 @@ impl Story {
             }
             // Output stream content (i.e. not expression evaluation)
             else {
-                self.state.as_mut().unwrap().push_to_output_stream(current_content_obj);
+                self.state.as_mut().unwrap().push_to_output_stream(current_content_obj.unwrap());
             }
         }
 
@@ -724,7 +725,7 @@ impl Story {
         };
 
         // Divert
-        if let Some(current_divert) = content_obj.as_ref().as_any().downcast_ref::<Divert>() {
+        if let Ok(current_divert) = content_obj.clone().into_any().downcast::<Divert>() {
             if current_divert.is_conditional {
                 let o = self.state.as_mut().unwrap().pop_evaluation_stack();
                 if !self.is_truthy(o) {
@@ -733,54 +734,54 @@ impl Story {
             }
 
             if current_divert.has_variable_target() {
-                // let var_name = current_divert.variable_divert_name;
-                // if let Some(var_contents) = self.state.as_ref().unwrap().get_variables_state().get_variable_with_name(var_name) {
-                //     if let Some(target) = var_contents.downcast_ref::<DivertTargetValue>() {
-                //         self.state.as_ref().unwrap().set_diverted_pointer(pointer_at_path(&target.get_target_path()));
-                //     } else {
-                //         let int_content = var_contents.downcast_ref::<IntValue>();
-                //         let error_message = format!(
-                //             "Tried to divert to a target from a variable, but the variable ({}) didn't contain a divert target, it ",
-                //             var_name
-                //         );
-                //         let error_message = if let Some(int_content) = int_content {
-                //             if int_content.value == 0 {
-                //                 format!("{}was empty/null (the value 0).", error_message)
-                //             } else {
-                //                 format!("{}contained '{}'.", error_message, var_contents)
-                //             }
-                //         } else {
-                //             error_message
-                //         };
+                let var_name = &current_divert.variable_divert_name;
+                if let Some(var_contents) = self.state.as_ref().unwrap().get_variables_state().get_variable_with_name(var_name.as_ref().unwrap(), -1) {
+                    if let Some(target) = Value::get_divert_target_value(var_contents.as_ref()) {
+                        self.state.as_mut().unwrap().set_diverted_pointer(Self::pointer_at_path(&self.main_content_container, target));
+                        println!("SET DIVERTED POINTER: {} PATH: {}", self.state.as_mut().unwrap().diverted_pointer, target);
+                    } else {
+                        // TODO
+                        // let int_content = var_contents.downcast_ref::<IntValue>();
+                        // let error_message = format!(
+                        //     "Tried to divert to a target from a variable, but the variable ({}) didn't contain a divert target, it ",
+                        //     var_name
+                        // );
+                        // let error_message = if let Some(int_content) = int_content {
+                        //     if int_content.value == 0 {
+                        //         format!("{}was empty/null (the value 0).", error_message)
+                        //     } else {
+                        //         format!("{}contained '{}'.", error_message, var_contents)
+                        //     }
+                        // } else {
+                        //     error_message
+                        // };
 
-                //         error(error_message);
-                //     }
-                // } else {
-                //     error(format!(
-                //         "Tried to divert using a target from a variable that could not be found ({})",
-                //         var_name
-                //     ));
-                // }
+                        // error(error_message);
+                        panic!();
+                    }
+                } else {
+                    // TODO
+                    // error(format!(
+                    //     "Tried to divert using a target from a variable that could not be found ({})",
+                    //     var_name
+                    // ));
+                    panic!();
+                }
             } else if current_divert.is_external {
                 //call_external_function(&current_divert.get_target_path_string(), current_divert.get_external_args());
                 return true;
             } else {
-                self.state.as_mut().unwrap().set_diverted_pointer(current_divert.target_pointer.clone());
+                self.state.as_mut().unwrap().set_diverted_pointer(current_divert.get_target_pointer());
             }
 
             if current_divert.pushes_to_stack {
-            //     self.state.as_ref().unwrap()
-            //         .get_call_stack()
-            //         .push(current_divert.stack_push_type, 0, state.get_output_stream().len());
-            // 
+                self.state.as_ref().unwrap()
+                    .get_callstack().borrow_mut()
+                    .push(current_divert.stack_push_type, 0, self.state.as_ref().unwrap().get_output_stream().len() as i32);
             }
 
             if self.state.as_ref().unwrap().diverted_pointer.is_null() && !current_divert.is_external {
-                // if let Some(source_name) = &current_divert.get_debug_metadata().source_name {
-                //     error(format!("Divert target doesn't exist: {}", source_name));
-                // } else {
                 //     error(format!("Divert resolution failed: {:?}", current_divert));
-                // }
             }
 
             return true;
@@ -803,7 +804,7 @@ impl Story {
                 crate::control_command::CommandType::PopFunction => todo!(),
                 crate::control_command::CommandType::PopTunnel => todo!(),
                 crate::control_command::CommandType::BeginString => {
-                    self.state.as_mut().unwrap().push_to_output_stream(Some(content_obj.clone()));
+                    self.state.as_mut().unwrap().push_to_output_stream(content_obj.clone());
 
                     assert!(self.state.as_ref().unwrap().get_in_expression_evaluation(),
                             "Expected to be in an expression when evaluating a string");
@@ -846,7 +847,7 @@ impl Story {
                     // At the time of writing, this only applies to Tag objects generated
                     // by choices, which are pushed to the stack during string generation.
                     for rescued_tag in content_to_retain.iter() {
-                        self.state.as_mut().unwrap().push_to_output_stream(Some(rescued_tag.clone()));
+                        self.state.as_mut().unwrap().push_to_output_stream(rescued_tag.clone());
                     }
 
                     // Build string out of the content we collected
@@ -886,7 +887,7 @@ impl Story {
                         self.state.as_ref().unwrap().set_current_pointer(pointer::NULL.clone());
                     } 
                 },
-                crate::control_command::CommandType::End => todo!(),
+                crate::control_command::CommandType::End => self.state.as_mut().unwrap().force_end(),
                 crate::control_command::CommandType::ListFromInt => todo!(),
                 crate::control_command::CommandType::ListRange => todo!(),
                 crate::control_command::CommandType::ListRandom => todo!(),
@@ -895,6 +896,22 @@ impl Story {
             }
             return true;
         }
+
+        // Variable assignment
+        if let Some(var_ass) = content_obj.as_ref().as_any().downcast_ref::<VariableAssignment>() {
+            let assigned_val = self.state.as_mut().unwrap().pop_evaluation_stack();
+
+            // When in temporary evaluation, don't create new variables purely
+            // within
+            // the temporary context, but attempt to create them globally
+            // var prioritiseHigherInCallStack = _temporaryEvaluationContainer
+            // != null;
+
+            self.state.as_mut().unwrap().get_variables_state_mut().assign( var_ass, assigned_val);
+
+            return true;
+        }
+        
 
         false
     }
@@ -906,27 +923,25 @@ impl Story {
         self.state.as_mut().unwrap().set_previous_pointer(cp);
 
         // Divert step?
+        if !self.state.as_ref().unwrap().diverted_pointer.is_null() {
+            let dp = self.state.as_ref().unwrap().diverted_pointer.clone();
+            self.state.as_mut().unwrap().set_current_pointer(dp);
+            self.state.as_mut().unwrap().set_diverted_pointer(pointer::NULL.clone());
 
-        // TODO
-        // if !self.state.as_ref().unwrap().get_diverted_pointer().is_null() {
+            // Internally uses state.previousContentObject and
+            // state.currentContentObject
+            self.visit_changed_containers_due_to_divert();
 
-        //     self.state.as_mut().unwrap().setCurrentPointer(state.getDivertedPointer());
-        //     self.state.as_mut().unwrap().setDivertedPointer(Pointer.Null);
+            // Diverted location has valid content?
+            if !self.state.as_ref().unwrap().get_current_pointer().is_null() {
+                return;
+            }
 
-        //     // Internally uses state.previousContentObject and
-        //     // state.currentContentObject
-        //     self.visitChangedContainersDueToDivert();
-
-        //     // Diverted location has valid content?
-        //     if !self.state.as_ref().unwrap().get_current_pointer().is_null() {
-        //         return;
-        //     }
-
-        //     // Otherwise, if diverted location doesn't have valid content,
-        //     // drop down and attempt to increment.
-        //     // This can happen if the diverted path is intentionally jumping
-        //     // to the end of a container - e.g. a Conditional that's re-joining
-        // }
+            // Otherwise, if diverted location doesn't have valid content,
+            // drop down and attempt to increment.
+            // This can happen if the diverted path is intentionally jumping
+            // to the end of a container - e.g. a Conditional that's re-joining
+        }
 
         let successful_pointer_increment = self.increment_content_pointer();
 
@@ -936,7 +951,8 @@ impl Story {
 
             let mut didPop = false;
 
-            if self.state.as_ref().unwrap().get_callstack().as_ref().borrow().can_pop_type(PushPopType::Function) {
+            let can_pop_type = self.state.as_ref().unwrap().get_callstack().as_ref().borrow().can_pop_type(PushPopType::Function);
+            if can_pop_type {
 
                 // Pop from the call stack
                 self.state.as_mut().unwrap().pop_callstack(PushPopType::Function);
@@ -946,7 +962,7 @@ impl Story {
                 // so in this case, we make sure that the evaluator has
                 // something to chomp on if it needs it
                 if self.state.as_ref().unwrap().get_in_expression_evaluation() {
-                    self.state.as_mut().unwrap().push_evaluation_stack(Void::new());
+                    self.state.as_mut().unwrap().push_evaluation_stack(Rc::new(Void::new()));
                 }
 
                 didPop = true;
@@ -962,7 +978,7 @@ impl Story {
             if didPop && !self.state.as_ref().unwrap().get_current_pointer().is_null() {
                 self.next_content();
             }
-        }     
+        }   
     }
 
     fn increment_content_pointer(&self) -> bool {
@@ -971,7 +987,7 @@ impl Story {
         let mut pointer = self.state.as_ref().unwrap().get_callstack().as_ref().borrow().get_current_element().current_pointer.clone();
         pointer.index += 1;
 
-        let container= pointer.container.as_ref().unwrap().clone();
+        let mut container= pointer.container.as_ref().unwrap().clone();
 
         // Each time we step off the end, we fall out to the next container, all
         // the
@@ -986,13 +1002,14 @@ impl Story {
                 break;
             }
 
-            let container: Rc<dyn RTObject> = container.clone();
-            let index_in_ancestor = next_ancestor.as_ref().unwrap().content.iter().position(|s| Rc::ptr_eq(s, &container));
+            let rto: Rc<dyn RTObject> = container;
+            let index_in_ancestor = next_ancestor.as_ref().unwrap().content.iter().position(|s| Rc::ptr_eq(s, &rto));
             if index_in_ancestor.is_none() {
                 break;
             }
 
             pointer = Pointer::new(next_ancestor, index_in_ancestor.unwrap() as i32);
+            container= pointer.container.as_ref().unwrap().clone();
 
             // Increment to next content in outer container
             pointer.index += 1;
@@ -1057,17 +1074,15 @@ impl Story {
 
     fn is_truthy(&self, obj: Rc<dyn RTObject>) -> bool {
         let truthy = false;
-        
-        if let Ok(val) = obj.into_any().downcast::<Value>() {
-            // TODO
 
-            // if (val instanceof DivertTargetValue) {
-            //     DivertTargetValue divTarget = (DivertTargetValue) val;
-            //     error("Shouldn't use a divert target (to " + divTarget.getTargetPath()
-            //             + ") as a conditional value. Did you intend a function call 'likeThis()' or a read count "
-            //             + "check 'likeThis'? (no arrows)");
-            //     return false;
-            // }
+        if let Some(val) = obj.as_ref().as_any().downcast_ref::<Value>() {
+        
+            if let Some(_) = Value::get_divert_target_value(obj.as_ref()) {
+                // self.error("Shouldn't use a divert target (to " + divTarget.getTargetPath()
+                //         + ") as a conditional value. Did you intend a function call 'likeThis()' or a read count "
+                //         + "check 'likeThis'? (no arrows)");
+                return false;
+            }
 
             return val.is_truthy();
         }
@@ -1116,7 +1131,7 @@ impl Story {
 
         start_text.push_str(&choice_only_text);
 
-        let choice = Rc::new(Choice::new(choice_point.get_path_on_choice(), Object::get_path(choice_point.clone()).to_string(), choice_point.is_invisible_default(), tags, self.state.as_ref().unwrap().get_callstack().borrow_mut().fork_thread(), start_text.trim().to_string(), 0, 0));
+        let choice = Rc::new(Choice::new(choice_point.get_path_on_choice(), Object::get_path(choice_point.as_ref()).to_string(), choice_point.is_invisible_default(), tags, self.state.as_ref().unwrap().get_callstack().borrow_mut().fork_thread(), start_text.trim().to_string(), 0, 0));
 
         Some(choice)
     }
@@ -1253,7 +1268,6 @@ impl Story {
             }
         }
     }
-    
     
 }
 

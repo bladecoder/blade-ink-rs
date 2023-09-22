@@ -48,6 +48,9 @@ pub fn run_story(
     let mut rng = rand::thread_rng();
 
     while story.can_continue() || !story.get_current_choices().is_empty() {
+
+        println!("{}", story.build_string_of_hierarchy());
+
         // 2) Game content, line by line
         while story.can_continue() {
             let line = story.cont()?;
@@ -94,4 +97,8 @@ pub fn get_json_string(filename: &str) -> Result<String, Box<dyn Error>> {
     let path = Path::new(filename);
     let json = fs::read_to_string(path)?;
     Ok(json)
+}
+
+pub fn is_ended(story: &Story) -> bool {
+    return !story.can_continue() && story.get_current_choices().is_empty();
 }

@@ -21,5 +21,6 @@ mod state_patch;
 mod choice_point;
 mod tag;
 mod divert;
+mod variable_assigment;
 
 

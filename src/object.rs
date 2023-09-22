@@ -35,7 +35,7 @@ impl Object {
         self.parent.replace(Rc::downgrade(parent));
     }
 
-    pub fn get_path(rtobject: Rc<dyn RTObject>) -> Path {
+    pub fn get_path(rtobject: &dyn RTObject) -> Path {
         if let Some(p) = rtobject.get_object().path.borrow().as_ref() {
             return p.clone();
         }
@@ -46,14 +46,15 @@ impl Object {
                 
                 let mut container = rtobject.get_object().get_parent();
                 let mut child = rtobject.clone();
+                let mut child_rc = None;
 
                 while let Some(c) = container {
                     let mut child_valid_name = false;
 
-                    if let Some(cc) = child.as_ref().downcast_ref::<Container>() {
+                    if let Some(cc) = child.downcast_ref::<Container>() {
                         if cc.has_valid_name() {
                             child_valid_name = true;
-                            comps.push(Component::new(cc.get_name()));
+                            comps.push(Component::new(cc.name.as_ref().unwrap()));
                         }
                     }
 
@@ -61,13 +62,17 @@ impl Object {
                         comps.push(Component::new_i(
                             c.content
                                 .iter()
-                                .position(|r| Rc::ptr_eq( r, &child) )
-                                .unwrap(),
+                                .position(|r| {
+                                    let a = r.as_ref() as *const _ as *const ();
+                                    let b = child as *const _ as *const ();
+                                    std::ptr::eq(a, b)
+                                }).unwrap(),
                         ));
                     }
 
                     container = c.get_object().get_parent();
-                    child = c;
+                    child_rc = Some(c);
+                    child = child_rc.as_ref().unwrap().as_ref();
                 }
 
                 // Reverse list because components are searched in reverse order.
@@ -144,7 +149,7 @@ impl Object {
     
         if other_path.is_relative() {
             relative_path_str = other_path.get_components_string();
-            global_path_str = Object::get_path(rtobject.clone()).path_by_appending_path(&other_path).get_components_string();
+            global_path_str = Object::get_path(rtobject.as_ref()).path_by_appending_path(&other_path).get_components_string();
         } else {
             let relative_path = Object::convert_path_to_relative(&rtobject, &other_path);
             relative_path_str = relative_path.get_components_string();
@@ -236,9 +241,9 @@ mod tests {
 
         println!("root: {}", sb);
 
-        assert_eq!(Object::get_path(container1).to_string(), "0");
-        assert_eq!(Object::get_path(container2).to_string(), "1");
-        assert_eq!(Object::get_path(container21).to_string(), "1.0");
-        assert_eq!(Object::get_path(root).to_string(), "");
+        assert_eq!(Object::get_path(container1.as_ref()).to_string(), "0");
+        assert_eq!(Object::get_path(container2.as_ref()).to_string(), "1");
+        assert_eq!(Object::get_path(container21.as_ref()).to_string(), "1.0");
+        assert_eq!(Object::get_path(root.as_ref()).to_string(), "");
     }
 }

@@ -1,7 +1,7 @@
 use std::fs;
 use bladeink::story::Story;
 
-mod test_utils;
+mod common;
 
 #[test]
 fn oneline_test() -> Result<(), String>  {
@@ -27,7 +27,7 @@ fn twolines_test() -> Result<(), String> {
     println!("{}", story.build_string_of_hierarchy());
 
     let mut text: Vec<String> = Vec::new();
-    test_utils::next_all(&mut story, &mut text)?;
+    common::next_all(&mut story, &mut text)?;
     assert_eq!(2, text.len());
     assert_eq!("Line.", text[0]);
     assert_eq!("Other line.", text[1]);

@@ -18,7 +18,7 @@ pub struct Container {
     obj: Object,
     pub name: Option<String>,
     pub content: Vec<Rc<dyn RTObject>>,
-    pub named_content: HashMap<String, Rc<Container>>,
+    named_content: HashMap<String, Rc<Container>>,
     pub visits_should_be_counted: bool,
     pub turn_index_should_be_counted: bool,
     pub counting_at_start_only: bool,
@@ -26,6 +26,16 @@ pub struct Container {
 
 impl Container {
     pub fn new(name: Option<String>, count_flags: i32, content: Vec<Rc<dyn RTObject>>, named_content: HashMap<String, Rc<Container>>) -> Rc<Container> {
+
+        let mut named_content = named_content;
+        
+        content.iter().for_each(|o| {
+            if let Ok(c) = o.clone().into_any().downcast::<Container>() {
+                if c.has_valid_name() {
+                    named_content.insert(c.name.as_ref().unwrap().to_string(), c);
+                }
+            }
+        });
 
         let (visits_should_be_counted, turn_index_should_be_counted, counting_at_start_only) = Container::split_count_flags(count_flags);
 
@@ -40,16 +50,13 @@ impl Container {
         });
 
         c.content.iter().for_each(|o| o.get_object().set_parent(&c));
+        c.named_content.values().for_each(|o| o.get_object().set_parent(&c));
 
         c
     }
 
     pub fn has_valid_name(&self) -> bool {
         self.name.is_some() && !self.name.as_ref().unwrap().is_empty()
-    }
-
-    pub fn get_name(&self) -> &str {
-        todo!()
     }
 
     pub fn build_string_of_hierarchy(
@@ -89,7 +96,6 @@ impl Container {
                     sb.push_str(&&s.string.replace('\n', "\\n"));
                     sb.push('\"');
                 } else {
-                    Container::append_indentation(sb, indentation);
                     sb.push_str(&v.to_string());
                 }
             } else {
@@ -109,20 +115,25 @@ impl Container {
                 }
             }
 
+            sb.push_str("  (");
+            sb.push_str(&Object::get_path(obj.as_ref()).to_string());
+            sb.push(')');
+
             sb.push('\n');
         }
 
-        // HashMap<String, INamedContent> onlyNamed = new HashMap<String, INamedContent>();
+        let mut only_named: HashMap<String,Rc<Container>> = HashMap::new();
 
-        // for (Entry<String, INamedContent> objKV : getNamedContent().entrySet()) {
-        //     if (getContent().contains(objKV.getValue())) {
-        //         continue;
-        //     } else {
-        //         onlyNamed.put(objKV.getKey(), objKV.getValue());
-        //     }
-        // }
+        for  (k, v) in self.named_content.iter() {
+            let o: Rc<dyn RTObject> = v.clone();
+            if self.content.iter().any(|e| Rc::ptr_eq(e, &o)) {
+                continue;
+            } else {
+                only_named.insert(k.clone(), v.clone());
+            }
+        }
 
-        let only_named = &self.named_content;
+       
 
         if only_named.len() > 0 {
             Container::append_indentation(sb, indentation);
@@ -151,7 +162,7 @@ impl Container {
     }
 
     pub fn get_path(self: &Rc<Self>) -> Path {
-        Object::get_path(self.clone())
+        Object::get_path(self.as_ref())
     }
 
     pub fn content_at_path(
@@ -191,9 +202,8 @@ impl Container {
 
             current_obj = found_obj.unwrap().clone();
             current_container = if let Ok(container) = current_obj.clone().into_any().downcast::<Container>() {
-                let mut sb = String::new();
-                container.build_string_of_hierarchy(&mut sb, 0, None);
-                println!("CONTAINER NAME: {}", sb);
+
+
                 Some(container)
             } else {
                 None
@@ -263,6 +273,24 @@ impl Container {
 
         None    
     }
+
+    pub fn get_named_only_content(&self) -> HashMap<String, Rc<Container>> {
+        let mut named_only_content_dict = HashMap::new();
+    
+        for (key, value) in self.named_content.iter() {
+            named_only_content_dict.insert(key.clone(), value.clone());
+        }
+    
+        for c in &self.content {
+            if let Some(named) = c.as_any().downcast_ref::<Container>() {
+                if named.has_valid_name() {
+                    named_only_content_dict.remove(named.name.as_ref().unwrap());
+                }
+            }
+        }
+    
+        named_only_content_dict
+    }  
     
 }
 

@@ -11,6 +11,7 @@ const PARENT_ID: &str = "^";
 pub struct Path {
     components: Vec<Component>,
     is_relative: bool,
+    // components_string: RefCell<String>, // TODO
 }
 
 impl Path {
