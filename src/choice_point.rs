@@ -95,7 +95,7 @@ impl ChoicePoint {
     }
 
     pub fn get_path_string_on_choice(self: &Rc<Self>) -> String {
-        Object::compact_path_string(self.clone(), self.get_path_on_choice())
+        Object::compact_path_string(self.clone(), &self.get_path_on_choice())
     }
 }
 

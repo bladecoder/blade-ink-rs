@@ -143,15 +143,15 @@ impl Object {
         Path::new(&new_path_comps, true)
     }
 
-    pub fn compact_path_string(rtobject: Rc<dyn RTObject>, other_path: Path) -> String {
+    pub fn compact_path_string(rtobject: Rc<dyn RTObject>, other_path: &Path) -> String {
         let global_path_str: String;
         let relative_path_str: String;
     
         if other_path.is_relative() {
             relative_path_str = other_path.get_components_string();
-            global_path_str = Object::get_path(rtobject.as_ref()).path_by_appending_path(&other_path).get_components_string();
+            global_path_str = Object::get_path(rtobject.as_ref()).path_by_appending_path(other_path).get_components_string();
         } else {
-            let relative_path = Object::convert_path_to_relative(&rtobject, &other_path);
+            let relative_path = Object::convert_path_to_relative(&rtobject, other_path);
             relative_path_str = relative_path.get_components_string();
             global_path_str = other_path.get_components_string();
         }

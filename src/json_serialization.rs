@@ -4,7 +4,7 @@ use serde_json::Map;
 
 use crate::{
     container::Container,
-    object::{self, RTObject}, control_command::{CommandType, ControlCommand}, value::Value, glue::Glue, path::Path, choice_point::ChoicePoint, choice::Choice, push_pop::PushPopType, divert::Divert, variable_assigment::VariableAssignment, void::Void,
+    object::{self, RTObject}, control_command::{CommandType, ControlCommand}, value::Value, glue::Glue, path::Path, choice_point::ChoicePoint, choice::Choice, push_pop::PushPopType, divert::Divert, variable_assigment::VariableAssignment, void::Void, variable_reference::VariableReference,
 };
 
 pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>) -> Result<Rc<dyn RTObject>, String> {
@@ -158,17 +158,17 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
             }
 
             // // Variable reference
-            // prop_value = obj.get("VAR?");
-            // if (prop_value != null) {
-            //     return new VariableReference(prop_value.toString());
-            // } else {
-            //     prop_value = obj.get("CNT?");
-            //     if (prop_value != null) {
-            //         VariableReference readCountVarRef = new VariableReference();
-            //         readCountVarRef.setPathStringForCount(prop_value.toString());
-            //         return readCountVarRef;
-            //     }
-            // }
+            let prop_value = obj.get("VAR?");
+            if let Some(name) = prop_value {
+                return Ok(Rc::new(VariableReference::new(name.as_str().unwrap())));
+            }
+
+            let prop_value = obj.get("CNT?");
+            if let Some(v) = prop_value {
+                return Ok(Rc::new(VariableReference::from_path_for_count(v.as_str().unwrap())));
+            }
+
+
             // // Variable assignment
             let mut is_var_ass = false;
             let mut is_global_var = false;
