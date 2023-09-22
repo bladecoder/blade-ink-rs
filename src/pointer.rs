@@ -1,6 +1,6 @@
 use std::{rc::Rc, fmt};
 
-use crate::{container::Container, object::{RTObject, Object}, path::{Path, Component}};
+use crate::{container::Container, object::RTObject, path::{Path, Component}};
 
 pub const NULL: Pointer = Pointer::new(None, -1);
 

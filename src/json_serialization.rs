@@ -4,7 +4,7 @@ use serde_json::Map;
 
 use crate::{
     container::Container,
-    object::{self, RTObject}, control_command::{CommandType, ControlCommand}, value::Value, glue::Glue, path::Path, choice_point::ChoicePoint, choice::Choice, push_pop::PushPopType, divert::Divert,
+    object::{self, RTObject}, control_command::{CommandType, ControlCommand}, value::Value, glue::Glue, path::Path, choice_point::ChoicePoint, choice::Choice, push_pop::PushPopType, divert::Divert, variable_assigment::VariableAssignment, void::Void,
 };
 
 pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>) -> Result<Rc<dyn RTObject>, String> {
@@ -49,10 +49,11 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
             // Pop
             if ("->->".eq(str)) {return CommandType.popTunnel();}
             else if ("~ret".eq(str)) {return CommandType.popFunction();}
-
-            // Void
-            if ("void".eq(str)) {return new Void();}
             */
+            
+            // Void
+            if "void".eq(str) {return Ok(Rc::new(Void::new()));}
+
 
             return Err(format!("Failed to convert token to runtime RTObject: {}", &token.to_string()));
         },
@@ -66,16 +67,21 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
             }
 
             // // VariablePointerValue
-            // prop_value = obj.get("^var");
-            // if (prop_value.is_some()) {
-            //     VariablePointerValue varPtr = new VariablePointerValue((String) prop_value);
+            let prop_value = obj.get("^var");
 
-            //     prop_value = obj.get("ci");
+            if let Some(v) = prop_value {
+                let variable_name = v.as_str().unwrap();
+                let mut contex_index = -1;
+                let prop_value = obj.get("ci");
 
-            //     if (prop_value != null) varPtr.setContextIndex((Integer) prop_value);
+                if let Some(v) = prop_value {
+                    contex_index = v.as_i64().unwrap() as i32;
+                }
 
-            //     return varPtr;
-            // }
+                let var_ptr = Rc::new(Value::new_variable_pointer( variable_name, contex_index));
+                
+                return Ok(var_ptr);
+            }
 
             // // Divert
             let mut is_divert = false;
@@ -164,29 +170,32 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
             //     }
             // }
             // // Variable assignment
-            // boolean isVarAss = false;
-            // boolean isGlobalVar = false;
+            let mut is_var_ass = false;
+            let mut is_global_var = false;
 
-            // prop_value = obj.get("VAR=");
-            // if (prop_value != null) {
-            //     isVarAss = true;
-            //     isGlobalVar = true;
-            // } else {
-            //     prop_value = obj.get("temp=");
-            //     if (prop_value != null) {
-            //         isVarAss = true;
-            //         isGlobalVar = false;
-            //     }
-            // }
-            // if (isVarAss) {
-            //     String varName = prop_value.toString();
-            //     prop_value = obj.get("re");
-            //     boolean isNewDecl = prop_value == null;
+            let mut prop_value = obj.get("VAR=");
+            match prop_value {
+                Some(_) => {
+                    is_var_ass = true;
+                    is_global_var = true;
+                },
+                None => {
+                    prop_value = obj.get("temp=");
+                    if let Some(_) = prop_value {
+                        is_var_ass = true;
+                        is_global_var = false;
+                    }
+                }
+            }
 
-            //     VariableAssignment varAss = new VariableAssignment(varName, isNewDecl);
-            //     varAss.setIsGlobal(isGlobalVar);
-            //     return varAss;
-            // }
+            if is_var_ass {
+                let var_name = prop_value.unwrap().as_str().unwrap();
+                let prop_value = obj.get("re");
+                let is_new_decl = prop_value.is_none();
+
+                let var_ass = Rc::new(VariableAssignment::new(var_name, is_new_decl, is_global_var));
+                return Ok(var_ass);
+            }
 
             // // Legacy Tag
             // prop_value = obj.get("#");
@@ -321,11 +330,4 @@ fn jobject_to_choice(obj: &Map<String, serde_json::Value>) -> Result<Rc<dyn RTOb
     let path_string_on_choice = obj.get("targetPath").unwrap().as_str().unwrap();
 
     return Ok(Rc::new(Choice::new_from_json(path_string_on_choice, source_path.to_string(),  text, index, original_thread_index)));
-}
-
-#[cfg(test)]
-mod tests {
-
-    #[test]
-    fn simple_test() {}
 }

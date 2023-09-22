@@ -304,6 +304,11 @@ impl StoryState {
     }
 
     pub fn set_current_pointer(&self, pointer: Pointer) {
+        if !pointer.container.is_none() && pointer.index >= pointer.container.as_ref().unwrap().content.len() as i32 {
+            panic!()
+        }
+
+        println!("POINTER: {}", pointer.to_string());
         self.get_callstack().as_ref().borrow_mut().get_current_element_mut().current_pointer = pointer;
     }
 
@@ -344,13 +349,12 @@ impl StoryState {
         //     }
         // }
     
-        println!("PUSH: {}", obj.to_string());
+        println!("PUSH: {}", obj.as_ref());
         self.evaluation_stack.push(obj);
     }
 
-    pub fn push_to_output_stream(&mut self, obj: Option<Rc<dyn RTObject>>) {
-        let text = match &obj {
-            Some(obj) => {
+    pub fn push_to_output_stream(&mut self, obj: Rc<dyn RTObject>) {
+        let text = {
                 let obj = obj.clone();
                 match obj.into_any().downcast::<Value>() {
                     Ok(v) => match &v.value {
@@ -359,8 +363,6 @@ impl StoryState {
                     },
                     Err(_) => None,
                 }
-            },
-            None => None,
         };
 
         if let Some(s) = text {
@@ -375,7 +377,7 @@ impl StoryState {
             }
         }
 
-        self.push_to_output_stream_individual(obj.unwrap());
+        self.push_to_output_stream_individual(obj);
     }
 
     pub fn increment_visit_count_for_container(&mut self, container: &Rc<Container>) {
@@ -669,12 +671,21 @@ impl StoryState {
         self.get_callstack().as_ref().borrow_mut().get_current_thread_mut().previous_pointer.clone()
     }
 
-    pub fn try_exit_function_evaluation_from_game(&self) {
-        todo!()
+    pub fn try_exit_function_evaluation_from_game(&mut self) -> bool {
+        if self.get_callstack().borrow().get_current_element().push_pop_type == PushPopType::FunctionEvaluationFromGame {
+            self.set_current_pointer(pointer::NULL.clone());
+            self.did_safe_exit = true;
+            return true;
+        }
+
+        return false;
     }
 
-    pub fn pop_callstack(&self, function: PushPopType) {
-        todo!()
+    pub fn pop_callstack(&self, t: PushPopType) {
+        // Add the end of a function call, trim any whitespace from the end.
+        if self.get_callstack().borrow().get_current_element().push_pop_type == PushPopType::Function {self.trim_whitespace_from_function_end();}
+
+        self.get_callstack().borrow_mut().pop_type(t);
     }
 
     fn go_to_start(&self) {
@@ -730,12 +741,10 @@ impl StoryState {
 
         // ref copy - exactly the same variables state!
         // we're expecting not to read it only while in patch mode
-        // (though the callstack will be modified)
-        
-        //TODO
-        // copy.variables_state = self.variables_state.;
-        // copy.variablesState.setCallStack(copy.getCallStack());
-        // copy.variablesState.setPatch(copy.patch);
+        // (though the callstack will be modified) 
+        copy.variables_state = self.variables_state.clone();
+        copy.variables_state.set_callstack(copy.get_callstack().clone());
+        copy.variables_state.patch = copy.patch.clone();
 
         copy.evaluation_stack = self.evaluation_stack.clone();
 
@@ -775,21 +784,23 @@ impl StoryState {
     
         self.variables_state.apply_patch();
     
-        if let Some(patch) = &self.patch {
-            for (container, count) in &patch.visit_counts {
-                self.apply_count_changes(container.clone(), *count, true);
+        if self.patch.is_some() {
+            for (path, count) in self.patch.as_ref().unwrap().visit_counts.clone().iter() {
+                self.apply_count_changes(path, *count, true);
             }
-    
-            for (container, index) in &patch.turn_indices {
-                self.apply_count_changes(container.clone(), *index, false);
+        
+            for (path, index) in self.patch.as_ref().unwrap().turn_indices.clone().iter() {
+                self.apply_count_changes(path, *index, false);
             }
         }
     
         self.patch = None;
     }
 
-    fn apply_count_changes(&self, clone: String, count: usize, arg: bool) {
-        todo!()
+    fn apply_count_changes(&mut self, container: &str, new_count: usize, is_visit: bool) {
+        let counts = if is_visit {&mut self.visit_counts} else {&mut self.turn_indices};
+
+        counts.insert(container.to_string(), new_count);
     }
 
     pub fn pop_from_output_stream(&mut self, count: usize) {
@@ -830,6 +841,25 @@ impl StoryState {
         if incrementing_turn_index {
             self.current_turn_index += 1;
         }
+    }
+
+    pub(crate) fn force_end(&mut self) {
+        self.get_callstack().borrow_mut().reset();
+
+        self.current_flow.current_choices.clear();
+
+        self.set_current_pointer(pointer::NULL.clone());
+        self.set_previous_pointer(pointer::NULL.clone());
+
+        self.set_did_safe_exit(true);
+    }
+
+    // At the end of a function call, trim any whitespace from the end.
+    // We always trim the start and end of the text that a function produces.
+    // The start whitespace is discard as it is generated, and the end
+    // whitespace is trimmed in one go here when we pop the function.
+    fn trim_whitespace_from_function_end(&self) {
+        todo!()
     }
 
 }

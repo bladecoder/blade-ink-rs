@@ -107,7 +107,11 @@ impl CallStack {
         cs.last_mut().unwrap()
     }
 
-    fn reset(&mut self) {
+    pub fn get_current_element_index(&self) -> i32 {
+        self.get_callstack().len() as i32 - 1
+    }
+
+    pub fn reset(&mut self) {
         self.threads.clear();
         self.threads.push(Thread::new());
         self.threads[0].callstack.push(Element::new(PushPopType::Tunnel, self.start_of_root.clone(), false));
@@ -127,11 +131,27 @@ impl CallStack {
     }
 
     pub fn can_pop(&self) -> bool {
-        todo!()
+        self.get_callstack().len() > 1
     }
 
     pub fn can_pop_type(&self, t: PushPopType) -> bool {
-        todo!()
+        if !self.can_pop() {
+            return false;
+        }
+
+        //if t.is_some() {return true;}
+
+        self.get_current_element().push_pop_type == t
+    }
+
+    pub fn pop_type(&mut self, t: PushPopType) {
+        if self.can_pop_type(t) {
+            let l = self.get_callstack().len() - 1;
+            self.get_callstack_mut().remove(l);
+            return;
+        } else {
+            panic!("Mismatched push/pop in Callstack");
+        }
     }
 
     pub fn element_is_evaluate_from_game(&self) -> bool {
@@ -174,5 +194,68 @@ impl CallStack {
         self.thread_counter += 1;
         forked_thread.thread_index = self.thread_counter;
         forked_thread
+    }
+
+    pub fn set_temporary_variable(
+        &mut self,
+        name: String,
+        value: Rc<dyn RTObject>,
+        declare_new: bool,
+        mut context_index: i32,
+    ) -> Result<(), String> {
+        if context_index == -1 {
+            context_index = self.get_current_element_index() + 1;
+        }
+
+        let context_element = self.get_callstack_mut().get_mut((context_index - 1) as usize).unwrap();
+
+        if !declare_new && !context_element.temporary_variables.contains_key(&name) {
+            return Err(format!("Could not find temporary variable to set: {}", name));
+        }
+
+        let old_value = context_element.temporary_variables.get(&name).cloned();
+
+        if let Some(old_value) = &old_value {
+            // TODO
+            //ListValue::retain_list_origins_for_assignment(old_value, &value);
+        }
+
+        context_element.temporary_variables.insert(name, value);
+
+        Ok(())
+    }
+
+    pub fn context_for_variable_named(&self, name: &str) -> usize {
+        // Check if the current temporary context contains the variable.
+        if self.get_current_element().temporary_variables.contains_key(name) {
+            return (self.get_current_element_index() + 1) as usize;
+        }
+    
+        // Otherwise, it's a global variable.
+        0
+    }
+
+    pub fn get_temporary_variable_with_name(&self, name: &str, context_index: i32) -> Option<Rc<dyn RTObject>> {
+        let mut context_index = context_index;
+        if context_index == -1 {
+            context_index = self.get_current_element_index() + 1;
+        }
+
+        let context_element = self.get_callstack().get((context_index - 1)as usize);
+        let var_value = context_element.unwrap().temporary_variables.get(name);
+
+        var_value.cloned()
+    }
+
+    pub fn push( &mut self, t: PushPopType, external_evaluation_stack_height: usize, output_stream_length_with_pushed: i32) {
+        // When pushing to callstack, maintain the current content path, but
+        // jump
+        // out of expressions by default
+        let mut element =  Element::new(t, self.get_current_element().current_pointer.clone(), false);
+
+        element.evaluation_stack_height_when_pushed = external_evaluation_stack_height;
+        element.function_start_in_output_stream = output_stream_length_with_pushed;
+
+        self.get_callstack_mut().push(element);
     }
 }
