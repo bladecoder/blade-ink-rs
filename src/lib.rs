@@ -9,7 +9,6 @@ mod pointer;
 mod path;
 mod search_result;
 mod callstack;
-mod object_enum;
 mod flow;
 mod push_pop;
 mod variables_state;
@@ -22,5 +21,6 @@ mod choice_point;
 mod tag;
 mod divert;
 mod variable_assigment;
+mod variable_reference;
 
 

@@ -3,15 +3,14 @@ Inkle Ink runtime implementation in Rust
 
 Currently under development. This is the implementation status:
 
-- [ ] Loading .json file
-- [ ] Show plain lines (no logic nor choices)
-- [ ] Choices
+- [x] Loading .json file
+- [x] Show plain lines (no logic nor choices)
+- [x] Choices
 - [ ] Knots and Stitches
-- [ ] Diverts
+- [x] Diverts
 - [ ] Variable Text
 - [ ] Conditional Text
 - [ ] Game Queries and Functions
-- [ ] Diverts
 - [ ] Nested flows
 - [ ] Variables and Logic
 - [ ] Conditional blocks (if/else)
@@ -21,5 +20,12 @@ Currently under development. This is the implementation status:
 - [ ] Tunnels
 - [ ] Threads
 - [ ] Lists
+
+## TODO
+
+- [ ] Use OnceCell to lazy init the cache fields of RTObjects
+- [ ] Error handling
+- [ ] Split large files. ex. Get the error handling out of the Story class. The performLogic 
+
 
 
