@@ -788,7 +788,6 @@ impl Story {
 
         if let Some(eval_command) = content_obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
             match eval_command.command_type {
-                CommandType::NotSet => todo!(),
                 CommandType::EvalStart => {
                     assert!(!self.state.as_ref().unwrap().get_in_expression_evaluation(), "Already in expression evaluation?");
                     self.state.as_ref().unwrap().set_in_expression_evaluation(true);

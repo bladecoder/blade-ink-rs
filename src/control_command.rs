@@ -4,10 +4,8 @@ use strum::Display;
 
 use crate::object::{RTObject, Object};
 
-#[derive(Display)]
-#[derive(PartialEq)]
+#[derive(PartialEq, Display)]
 pub enum CommandType {
-    NotSet,
     EvalStart,
     EvalOutput,
     EvalEnd,
