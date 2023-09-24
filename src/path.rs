@@ -153,7 +153,7 @@ impl Path {
         }
 
         if self.is_relative {
-            return ".".to_string() + &sb;
+            return ".".to_owned() + &sb;
         }
 
         sb

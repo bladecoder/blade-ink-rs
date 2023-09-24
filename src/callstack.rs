@@ -126,7 +126,7 @@ impl CallStack {
             self.threads.remove(self.threads.len() - 1);
             Ok(())
         } else {
-            Err("Can't pop thread".to_string())
+            Err("Can't pop thread".to_owned())
         }
     }
 
@@ -134,17 +134,17 @@ impl CallStack {
         self.get_callstack().len() > 1
     }
 
-    pub fn can_pop_type(&self, t: PushPopType) -> bool {
+    pub fn can_pop_type(&self, t: Option<PushPopType>) -> bool {
         if !self.can_pop() {
             return false;
         }
 
-        //if t.is_some() {return true;}
+        if t.is_none() { return true; }
 
-        self.get_current_element().push_pop_type == t
+        self.get_current_element().push_pop_type == t.unwrap()
     }
 
-    pub fn pop_type(&mut self, t: PushPopType) {
+    pub fn pop(&mut self, t: Option<PushPopType>) {
         if self.can_pop_type(t) {
             let l = self.get_callstack().len() - 1;
             self.get_callstack_mut().remove(l);

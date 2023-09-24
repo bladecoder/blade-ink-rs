@@ -22,7 +22,7 @@ impl VariableReference {
         if let Some(path) = &self.path_for_count {
             Ok(Object::resolve_path(self.clone(), path).container().unwrap())
         } else {
-            Err("Path for count is not set.".to_string())
+            Err("Path for count is not set.".to_owned())
         }
     }
 
