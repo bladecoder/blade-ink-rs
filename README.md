@@ -9,7 +9,7 @@ Currently under development. This is the implementation status:
 - [x] Knots and Stitches
 - [x] Diverts
 - [x] Variable Text
-- [ ] Conditional Text
+- [x] Conditional Text
 - [ ] Game Queries and Functions
 - [ ] Nested flows
 - [ ] Variables and Logic
