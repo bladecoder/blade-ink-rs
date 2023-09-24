@@ -830,8 +830,13 @@ impl Story {
                     assert!(self.state.as_ref().unwrap().get_in_expression_evaluation(), "Not in expression evaluation mode");
                     self.state.as_ref().unwrap().set_in_expression_evaluation(false);
                 },
-                CommandType::Duplicate => todo!(),
-                CommandType::PopEvaluatedValue => todo!(),
+                CommandType::Duplicate => {
+                    let obj = self.state.as_ref().unwrap().peek_evaluation_stack().unwrap().clone();
+                    self.state.as_mut().unwrap().push_evaluation_stack(obj);
+                },
+                CommandType::PopEvaluatedValue => {
+                    self.state.as_mut().unwrap().pop_evaluation_stack();
+                },
                 CommandType::PopFunction | CommandType::PopTunnel=> {
                     let pop_type = if CommandType::PopFunction == eval_command.command_type  {
                         PushPopType::Function
@@ -945,7 +950,13 @@ impl Story {
                 CommandType::ReadCount => todo!(),
                 CommandType::Random => todo!(),
                 CommandType::SeedRandom => todo!(),
-                CommandType::VisitIndex => todo!(),
+                CommandType::VisitIndex => {
+                    let cpc = self.state.as_ref().unwrap().get_current_pointer().container.unwrap();
+                    let count = self.state.as_mut().unwrap().visit_count_for_container(&cpc) - 1; // index
+                    // not
+                    // count
+                    self.state.as_mut().unwrap().push_evaluation_stack(Rc::new(Value::new_int(count as i32)));
+                },
                 CommandType::SequenceShuffleIndex => todo!(),
                 CommandType::StartThread => todo!(),
                 CommandType::Done => {

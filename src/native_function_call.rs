@@ -140,19 +140,19 @@ impl NativeFunctionCall {
             Op::Subtract => self.subtract_op(coerced_params),
             Op::Divide => self.divide_op(coerced_params),
             Op::Multiply => self.multiply_op(coerced_params),
-            Op::Mod => todo!(),
+            Op::Mod => self.mod_op(coerced_params),
             Op::Negate => todo!(),
-            Op::Equal => todo!(),
+            Op::Equal => self.equal_op(coerced_params),
             Op::Greater => self.greater_op(coerced_params),
             Op::Less => todo!(),
             Op::GreaterThanOrEquals => todo!(),
             Op::LessThanOrEquals => todo!(),
-            Op::NotEquals => todo!(),
+            Op::NotEquals => self.not_equals_op(coerced_params),
             Op::Not => todo!(),
             Op::And => self.and_op(coerced_params),
-            Op::Or => todo!(),
-            Op::Min => todo!(),
-            Op::Max => todo!(),
+            Op::Or => self.or_op(coerced_params),
+            Op::Min => self.min_op(coerced_params),
+            Op::Max => self.max_op(coerced_params),
             Op::Pow => todo!(),
             Op::Floor => todo!(),
             Op::Ceiling => todo!(),
@@ -293,6 +293,115 @@ impl NativeFunctionCall {
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Rc::new(Value::new_float(op1 * op2)),
+                _ => panic!()
+            },
+            _ => panic!()
+        }
+    }
+
+    fn or_op(&self, params: Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+        match params[0].value {
+            ValueType::Bool(op1) => match params[1].value {
+                ValueType::Bool(op2) => Rc::new(Value::new_bool(op1 || op2)),
+                _ => panic!()
+            },
+            ValueType::Int(op1) => match params[1].value {
+                ValueType::Int(op2) => Rc::new(Value::new_bool(op1 != 0 || op2 != 0)),
+                _ => panic!()
+            },
+            ValueType::Float(op1) => match params[1].value {
+                ValueType::Float(op2) => Rc::new(Value::new_bool(op1 != 0.0 || op2 != 0.0)),
+                _ => panic!()
+            },
+            ValueType::List() => todo!(),
+            _ => panic!()
+        }
+    }
+
+    fn min_op(&self, params: Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+        match params[0].value {
+            ValueType::Int(op1) => match params[1].value {
+                ValueType::Int(op2) => Rc::new(Value::new_int(i32::min(op1, op2))),
+                _ => panic!()
+            },
+            ValueType::Float(op1) => match params[1].value {
+                ValueType::Float(op2) => Rc::new(Value::new_float(f32::min(op1, op2))),
+                _ => panic!()
+            },
+            ValueType::List() => todo!(),
+            _ => panic!()
+        }
+    }
+
+    fn max_op(&self, params: Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+        match params[0].value {
+            ValueType::Int(op1) => match params[1].value {
+                ValueType::Int(op2) => Rc::new(Value::new_int(i32::max(op1, op2))),
+                _ => panic!()
+            },
+            ValueType::Float(op1) => match params[1].value {
+                ValueType::Float(op2) => Rc::new(Value::new_float(f32::max(op1, op2))),
+                _ => panic!()
+            },
+            ValueType::List() => todo!(),
+            _ => panic!()
+        }
+    }
+
+    fn equal_op(&self, params: Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::Bool(op1) => match params[1].value {
+                ValueType::Bool(op2) => Rc::new(Value::new_bool(*op1 == op2)),
+                _ => panic!()
+            },
+            ValueType::Int(op1) => match params[1].value {
+                ValueType::Int(op2) => Rc::new(Value::new_bool(*op1 == op2)),
+                _ => panic!()
+            },
+            ValueType::Float(op1) => match params[1].value {
+                ValueType::Float(op2) => Rc::new(Value::new_bool(*op1 == op2)),
+                _ => panic!()
+            },
+            ValueType::String(op1) => match &params[1].value {
+                ValueType::String(op2) => Rc::new(Value::new_bool(op1.string.eq(&op2.string))),
+                _ => panic!()
+            },
+            ValueType::List() => todo!(),
+            _ => panic!()
+        }
+    }
+
+    fn not_equals_op(&self, params: Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::Bool(op1) => match params[1].value {
+                ValueType::Bool(op2) => Rc::new(Value::new_bool(*op1 != op2)),
+                _ => panic!()
+            },
+            ValueType::Int(op1) => match params[1].value {
+                ValueType::Int(op2) => Rc::new(Value::new_bool(*op1 != op2)),
+                _ => panic!()
+            },
+            ValueType::Float(op1) => match params[1].value {
+                ValueType::Float(op2) => Rc::new(Value::new_bool(*op1 != op2)),
+                _ => panic!()
+            },
+            ValueType::String(op1) => match &params[1].value {
+                ValueType::String(op2) => Rc::new(Value::new_bool(!op1.string.eq(&op2.string))),
+                _ => panic!()
+            },
+            ValueType::List() => todo!(),
+            _ => panic!()
+        }
+    }
+
+    fn mod_op(&self, params: Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+        match params[0].value {
+            ValueType::Int(op1) => match params[1].value {
+                ValueType::Int(op2) => Rc::new(Value::new_int(op1 % op2)),
+                _ => panic!()
+            },
+            ValueType::Float(op1) => match params[1].value {
+                ValueType::Float(op2) => Rc::new(Value::new_float(op1 % op2)),
                 _ => panic!()
             },
             _ => panic!()

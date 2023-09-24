@@ -902,4 +902,8 @@ impl StoryState {
         }
     }
 
+    pub fn peek_evaluation_stack(&self) -> Option<&Rc<dyn RTObject>> {
+        self.evaluation_stack.last()
+    }
+
 }
