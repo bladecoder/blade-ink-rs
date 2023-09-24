@@ -6,7 +6,7 @@ Currently under development. This is the implementation status:
 - [x] Loading .json file
 - [x] Show plain lines (no logic nor choices)
 - [x] Choices
-- [ ] Knots and Stitches
+- [x] Knots and Stitches
 - [x] Diverts
 - [ ] Variable Text
 - [ ] Conditional Text
@@ -14,10 +14,9 @@ Currently under development. This is the implementation status:
 - [ ] Nested flows
 - [ ] Variables and Logic
 - [ ] Conditional blocks (if/else)
-- [ ] Variables and Logic
 - [ ] Temporary Variables
-- [ ] Functions
-- [ ] Tunnels
+- [x] Functions
+- [x] Tunnels
 - [ ] Threads
 - [ ] Lists
 

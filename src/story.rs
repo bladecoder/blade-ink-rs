@@ -151,6 +151,18 @@ impl Story {
         Ok(self.get_current_text())
     }
 
+    pub fn continue_maximally(&mut self) -> Result<String, String> {
+        // TODO self.ifAsyncWeCant("ContinueMaximally");
+
+        let mut sb = String::new();
+
+        while self.can_continue() {
+            sb.push_str(&self.cont()?);
+        }
+
+        Ok(sb)
+    }
+
     pub fn continue_async(&mut self, millisecs_limit_async: f32) -> Result<(), String> {
         // TODO: if (!hasValidatedExternals) validateExternalBindings();
 
@@ -821,7 +833,7 @@ impl Story {
                 CommandType::Duplicate => todo!(),
                 CommandType::PopEvaluatedValue => todo!(),
                 CommandType::PopFunction | CommandType::PopTunnel=> {
-                    let pop_type = if let eval_command = CommandType::PopFunction {
+                    let pop_type = if CommandType::PopFunction == eval_command.command_type  {
                         PushPopType::Function
                     } else {
                         PushPopType::Tunnel
