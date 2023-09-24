@@ -51,4 +51,9 @@ impl StatePatch {
     pub(crate) fn add_changed_variable(&mut self, name: &str) {
         self.changed_variables.insert(name.to_string());
     }
+
+    pub(crate) fn set_turn_index(&mut self, container: &Container, index: i32) {
+        let key = Object::get_path(container).to_string();
+        self.turn_indices.insert(key, index as usize);
+    }
 }

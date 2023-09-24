@@ -19,6 +19,7 @@ Currently under development. This is the implementation status:
 - [x] Tunnels
 - [ ] Threads
 - [ ] Lists
+- [ ] Load/Save state
 
 ## TODO
 
