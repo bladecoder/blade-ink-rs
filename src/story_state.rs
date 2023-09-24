@@ -2,7 +2,7 @@
 
 use std::{rc::Rc, cell::RefCell, collections::HashMap};
 
-use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::RTObject, value::{Value, ValueType}, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch, story::Story, path::Path};
+use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::{RTObject, Object}, value::{Value, ValueType}, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch, story::Story, path::Path};
 
 use rand::Rng;
 
@@ -427,8 +427,14 @@ impl StoryState {
         0
     }
 
-    pub fn record_turn_index_visit_to_container(&self, container: &crate::container::Container) {
-        todo!()
+    pub fn record_turn_index_visit_to_container(&mut self, container: &Container) {
+        if let Some(patch) = &mut self.patch {
+            patch.set_turn_index(container, self.current_turn_index);
+            return;
+        }
+
+        let container_path_str = Object::get_path(container).to_string();
+        self.turn_indices.insert(container_path_str, self.current_turn_index as usize);
     }
 
     fn try_splitting_head_tail_whitespace(text: &str) -> Option<Vec<Value>> {

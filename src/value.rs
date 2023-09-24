@@ -171,7 +171,8 @@ impl Value {
                     } else {
                         Self::new_float(0.0)
                     },
-                    3 => if *v {
+                    3 => panic!(), // LIST
+                    4 => if *v {
                         Self::new_string("true")
                     } else {
                         Self::new_string("false")
@@ -188,7 +189,8 @@ impl Value {
                     },
                     1 => Self::new_int(*v),
                     2 => Self::new_float(*v as f32),
-                    3 => Self::new_string(&*v.to_string()),
+                    3 => panic!(), // LIST
+                    4 => Self::new_string(&*v.to_string()),
                     _ => panic!(),
                 }
             },
@@ -201,7 +203,8 @@ impl Value {
                     },
                     1 => Self::new_int(*v as i32),
                     2 => Self::new_float(*v),
-                    3 => Self::new_string(&*v.to_string()),
+                    3 => panic!(), // LIST
+                    4 => Self::new_string(&*v.to_string()),
                     _ => panic!(),
                 }
             },
@@ -210,7 +213,8 @@ impl Value {
                     0 => panic!(),
                     1 => Self::new_int(v.string.parse::<i32>().unwrap()),
                     2 => Self::new_float(v.string.parse::<f32>().unwrap()),
-                    3 => Self::new_string(&v.string),
+                    3 => panic!(), // LIST
+                    4 => Self::new_string(&v.string),
                     _ => panic!(),
                 }
             },
