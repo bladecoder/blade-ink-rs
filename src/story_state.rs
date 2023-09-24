@@ -681,11 +681,11 @@ impl StoryState {
         return false;
     }
 
-    pub fn pop_callstack(&self, t: PushPopType) {
+    pub fn pop_callstack(&mut self, t: Option<PushPopType>) {
         // Add the end of a function call, trim any whitespace from the end.
         if self.get_callstack().borrow().get_current_element().push_pop_type == PushPopType::Function {self.trim_whitespace_from_function_end();}
 
-        self.get_callstack().borrow_mut().pop_type(t);
+        self.get_callstack().borrow_mut().pop(t);
     }
 
     fn go_to_start(&self) {
@@ -864,8 +864,36 @@ impl StoryState {
     // We always trim the start and end of the text that a function produces.
     // The start whitespace is discard as it is generated, and the end
     // whitespace is trimmed in one go here when we pop the function.
-    fn trim_whitespace_from_function_end(&self) {
-        todo!()
+    fn trim_whitespace_from_function_end(&mut self) {
+        assert_eq!(
+            self.get_callstack().borrow().get_current_element().push_pop_type,
+            PushPopType::Function
+        );
+    
+        let function_start_point = match self.get_callstack().borrow().get_current_element().function_start_in_output_stream {
+            -1 => 0,
+            start_point => start_point,
+        };
+    
+        // Trim whitespace from END of function call
+        let mut i = self.get_output_stream().len() as isize - 1;
+        while i >= function_start_point as isize {
+            if let Some(obj) = self.get_output_stream().get(i as usize) {
+                if let Some(_) = obj.as_any().downcast_ref::<ControlCommand>() {
+                    break;
+                } 
+
+                if let Some(txt) = Value::get_string_value(obj.as_ref()) {
+                    if txt.is_newline || txt.is_inline_whitespace {
+                        self.get_output_stream_mut().remove(i as usize);
+                        self.output_stream_dirty();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            i -= 1;
+        }
     }
 
 }

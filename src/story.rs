@@ -1,6 +1,6 @@
 #![allow(unused_variables, dead_code)]
 
-use std::{rc::Rc, time::Instant, collections::VecDeque};
+use std::{rc::Rc, time::Instant, collections::{VecDeque, HashMap}};
 
 use crate::{
     container::Container,
@@ -37,7 +37,7 @@ impl Story {
     pub fn new(json_string: &str) -> Result<Self, String> {
         let json: serde_json::Value = match serde_json::from_str(json_string) {
             Ok(value) => value,
-            Err(_) => return Err("Story not in JSON format.".to_string()),
+            Err(_) => return Err("Story not in JSON format.".to_owned()),
         };
 
         let version_opt = json.get("inkVersion");
@@ -52,9 +52,9 @@ impl Story {
         let version: i32 = version_opt.unwrap().as_i64().unwrap().try_into().unwrap();
 
         if version > INK_VERSION_CURRENT {
-            return Err("Version of ink used to build story was newer than the current version of the engine".to_string());
+            return Err("Version of ink used to build story was newer than the current version of the engine".to_owned());
         } else if version < INK_VERSION_MINIMUM_COMPATIBLE {
-            return Err("Version of ink used to build story is too old to be loaded by this version of the engine".to_string());
+            return Err("Version of ink used to build story is too old to be loaded by this version of the engine".to_owned());
         } else if version != INK_VERSION_CURRENT {
             log::debug!("WARNING: Version of ink used to build story doesn't match current version of engine. Non-critical, but recommend synchronising.");
         }
@@ -79,7 +79,7 @@ impl Story {
         let main_content_container = main_content_container.into_any().downcast::<Container>();
 
         if main_content_container.is_err() {
-            return Err("Root node for ink is not a container?".to_string());
+            return Err("Root node for ink is not a container?".to_owned());
         };
 
         let mut story = Story {
@@ -171,7 +171,7 @@ impl Story {
             self.async_continue_active = is_async_time_limited;
             if !self.can_continue() {
                 return Err(
-                    "Can't continue - should check canContinue before calling Continue".to_string(),
+                    "Can't continue - should check canContinue before calling Continue".to_owned(),
                 );
             }
 
@@ -265,7 +265,7 @@ impl Story {
                         .unwrap()
                         .get_callstack()
                         .borrow()
-                        .can_pop_type(PushPopType::Tunnel)
+                        .can_pop_type(Some(PushPopType::Tunnel))
                     {
                         self.add_error("unexpectedly reached end of content. Do you need a '->->' to return from a tunnel?");
                     } else if self
@@ -274,7 +274,7 @@ impl Story {
                         .unwrap()
                         .get_callstack()
                         .borrow()
-                        .can_pop_type(PushPopType::Function)
+                        .can_pop_type(Some(PushPopType::Function))
                     {
                         self.add_error(
                             "unexpectedly reached end of content. Do you need a '~ return'?",
@@ -788,12 +788,12 @@ impl Story {
 
         if let Some(eval_command) = content_obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
             match eval_command.command_type {
-                crate::control_command::CommandType::NotSet => todo!(),
-                crate::control_command::CommandType::EvalStart => {
+                CommandType::NotSet => todo!(),
+                CommandType::EvalStart => {
                     assert!(!self.state.as_ref().unwrap().get_in_expression_evaluation(), "Already in expression evaluation?");
                     self.state.as_ref().unwrap().set_in_expression_evaluation(true);
                 },
-                crate::control_command::CommandType::EvalOutput => {
+                CommandType::EvalOutput => {
                     // If the expression turned out to be empty, there may not be
                     // anything on the stack
                     if self.state.as_ref().unwrap().evaluation_stack.len() > 0 {
@@ -815,22 +815,68 @@ impl Story {
                         }
                     }
                 },
-                crate::control_command::CommandType::EvalEnd => {
+                CommandType::EvalEnd => {
                     assert!(self.state.as_ref().unwrap().get_in_expression_evaluation(), "Not in expression evaluation mode");
                     self.state.as_ref().unwrap().set_in_expression_evaluation(false);
                 },
-                crate::control_command::CommandType::Duplicate => todo!(),
-                crate::control_command::CommandType::PopEvaluatedValue => todo!(),
-                crate::control_command::CommandType::PopFunction => todo!(),
-                crate::control_command::CommandType::PopTunnel => todo!(),
-                crate::control_command::CommandType::BeginString => {
+                CommandType::Duplicate => todo!(),
+                CommandType::PopEvaluatedValue => todo!(),
+                CommandType::PopFunction | CommandType::PopTunnel=> {
+                    let pop_type = if let eval_command = CommandType::PopFunction {
+                        PushPopType::Function
+                    } else {
+                        PushPopType::Tunnel
+                    };
+
+                    // Tunnel onwards is allowed to specify an optional override
+                    // divert to go to immediately after returning: ->-> target
+                    let mut override_tunnel_return_target = None;
+                    if pop_type == PushPopType::Tunnel {
+                        let popped = self.state.as_mut().unwrap().pop_evaluation_stack();
+
+                        if let Some(v) = Value::get_divert_target_value(popped.as_ref()) {
+                            override_tunnel_return_target = Some(v.clone());
+                        }
+
+                        if override_tunnel_return_target.is_none() {
+                            assert!(popped.as_ref().as_any().downcast_ref::<Void>().is_some(), "Expected void if ->-> doesn't override target");
+                        }
+                    }
+
+                    if self.state.as_mut().unwrap().try_exit_function_evaluation_from_game() {
+                        return true;
+                    } else if self.state.as_ref().unwrap().get_callstack().borrow().get_current_element().push_pop_type != pop_type
+                            || !self.state.as_ref().unwrap().get_callstack().borrow().can_pop() {
+
+                        let mut names: HashMap<PushPopType, String>   = HashMap::new();
+                        names.insert(PushPopType::Function, "function return statement (~ return)".to_owned());
+                        names.insert(PushPopType::Tunnel, "tunnel onwards statement (->->)".to_owned());
+
+                        let mut expected = names.get(&self.state.as_ref().unwrap().get_callstack().borrow().get_current_element().push_pop_type).cloned();
+                        if !self.state.as_ref().unwrap().get_callstack().borrow().can_pop() {
+                            expected = Some("end of flow (-> END or choice)".to_owned());
+                        }
+
+                        panic!("Found {}, when expected {}", names.get(&pop_type).unwrap(), expected.unwrap());
+                        //TODO error(errorMsg);
+                    } else {
+                        self.state.as_mut().unwrap().pop_callstack(None);
+
+                        // Does tunnel onwards override by diverting to a new ->->
+                        // target?
+                        if let Some(override_tunnel_return_target) = override_tunnel_return_target {
+                            self.state.as_mut().unwrap().set_diverted_pointer(Self::pointer_at_path(&self.main_content_container, &override_tunnel_return_target));
+                        }
+                    }                    
+                },
+                CommandType::BeginString => {
                     self.state.as_mut().unwrap().push_to_output_stream(content_obj.clone());
 
                     assert!(self.state.as_ref().unwrap().get_in_expression_evaluation(),
                             "Expected to be in an expression when evaluating a string");
                             self.state.as_ref().unwrap().set_in_expression_evaluation(false);
                 },
-                crate::control_command::CommandType::EndString => {
+                CommandType::EndString => {
 
                     // Since we're iterating backward through the content,
                     // build a stack so that when we build the string,
@@ -881,17 +927,17 @@ impl Story {
                     self.state.as_ref().unwrap().set_in_expression_evaluation(true);
                     self.state.as_mut().unwrap().push_evaluation_stack(Rc::new(Value::new_string(&sb)));
                 },
-                crate::control_command::CommandType::NoOp => {},
-                crate::control_command::CommandType::ChoiceCount => todo!(),
-                crate::control_command::CommandType::Turns => todo!(),
-                crate::control_command::CommandType::TurnsSince => todo!(),
-                crate::control_command::CommandType::ReadCount => todo!(),
-                crate::control_command::CommandType::Random => todo!(),
-                crate::control_command::CommandType::SeedRandom => todo!(),
-                crate::control_command::CommandType::VisitIndex => todo!(),
-                crate::control_command::CommandType::SequenceShuffleIndex => todo!(),
-                crate::control_command::CommandType::StartThread => todo!(),
-                crate::control_command::CommandType::Done => {
+                CommandType::NoOp => {},
+                CommandType::ChoiceCount => todo!(),
+                CommandType::Turns => todo!(),
+                CommandType::TurnsSince => todo!(),
+                CommandType::ReadCount => todo!(),
+                CommandType::Random => todo!(),
+                CommandType::SeedRandom => todo!(),
+                CommandType::VisitIndex => todo!(),
+                CommandType::SequenceShuffleIndex => todo!(),
+                CommandType::StartThread => todo!(),
+                CommandType::Done => {
                    // We may exist in the context of the initial
                     // act of creating the thread, or in the context of
                     // evaluating the content.
@@ -907,12 +953,12 @@ impl Story {
                         self.state.as_ref().unwrap().set_current_pointer(pointer::NULL.clone());
                     } 
                 },
-                crate::control_command::CommandType::End => self.state.as_mut().unwrap().force_end(),
-                crate::control_command::CommandType::ListFromInt => todo!(),
-                crate::control_command::CommandType::ListRange => todo!(),
-                crate::control_command::CommandType::ListRandom => todo!(),
-                crate::control_command::CommandType::BeginTag => todo!(),
-                crate::control_command::CommandType::EndTag => todo!(),
+                CommandType::End => self.state.as_mut().unwrap().force_end(),
+                CommandType::ListFromInt => todo!(),
+                CommandType::ListRange => todo!(),
+                CommandType::ListRandom => todo!(),
+                CommandType::BeginTag => todo!(),
+                CommandType::EndTag => todo!(),
             }
 
             return true;
@@ -1014,11 +1060,11 @@ impl Story {
 
             let mut didPop = false;
 
-            let can_pop_type = self.state.as_ref().unwrap().get_callstack().as_ref().borrow().can_pop_type(PushPopType::Function);
+            let can_pop_type = self.state.as_ref().unwrap().get_callstack().as_ref().borrow().can_pop_type(Some(PushPopType::Function));
             if can_pop_type {
 
                 // Pop from the call stack
-                self.state.as_mut().unwrap().pop_callstack(PushPopType::Function);
+                self.state.as_mut().unwrap().pop_callstack(Some(PushPopType::Function));
 
                 // This pop was due to dropping off the end of a function that
                 // didn't return anything,
