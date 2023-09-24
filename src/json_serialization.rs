@@ -4,7 +4,7 @@ use serde_json::Map;
 
 use crate::{
     container::Container,
-    object::{self, RTObject}, control_command::{CommandType, ControlCommand}, value::Value, glue::Glue, path::Path, choice_point::ChoicePoint, choice::Choice, push_pop::PushPopType, divert::Divert, variable_assigment::VariableAssignment, void::Void, variable_reference::VariableReference,
+    object::{self, RTObject}, control_command::{CommandType, ControlCommand}, value::Value, glue::Glue, path::Path, choice_point::ChoicePoint, choice::Choice, push_pop::PushPopType, divert::Divert, variable_assigment::VariableAssignment, void::Void, variable_reference::VariableReference, native_function_call::{self, NativeFunctionCall},
 };
 
 pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>) -> Result<Rc<dyn RTObject>, String> {
@@ -22,7 +22,7 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
         },
 
         serde_json::Value::String(value) => {
-            let str = value;
+            let str = value.as_str();
             // String value
             let first_char = str.chars().next().unwrap();
             if first_char == '^' {return Ok(Rc::new(Value::new_string(&str[1..])));}     
@@ -33,23 +33,19 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
                 return  Ok(Rc::new(Glue::new()));
             }
 
-            if let Some(control_command) = create_control_command(str) {
+            if let Some(control_command) = ControlCommand::new_from_name(str) {
                 return Ok(Rc::new(control_command));
             }
-
-            /* TODO 
 
             // Native functions
             // "^" conflicts with the way to identify strings, so now
             // we know it's not a string, we can convert back to the proper
             // symbol for the operator.
-            if ("L^".eq(str)) {str = "^";}
-            if NativeFunctionCall.callExistsWithName(str) {return NativeFunctionCall.callWithName(str);}
-
-            // Pop
-            if ("->->".eq(str)) {return CommandType.popTunnel();}
-            else if ("~ret".eq(str)) {return CommandType.popFunction();}
-            */
+            let mut call_str = str;
+            if "L^".eq(str) {call_str = &"^";}
+            if let Some(native_function_call) = NativeFunctionCall::new_from_name(call_str) {
+                return Ok(Rc::new(native_function_call));
+            }
             
             // Void
             if "void".eq(str) {return Ok(Rc::new(Void::new()));}
@@ -288,38 +284,6 @@ fn jarray_to_runtime_obj_list(jarray: &Vec<serde_json::Value>, skip_last: bool) 
     }
 
     Ok(list)
-}
-
-fn create_control_command(name: &str) -> Option<ControlCommand> {
-    match name {
-        "ev" => Some(ControlCommand::new(CommandType::EvalStart)),
-        "out" => Some(ControlCommand::new(CommandType::EvalOutput)),
-        "/ev" => Some(ControlCommand::new(CommandType::EvalEnd)),
-        "du" => Some(ControlCommand::new(CommandType::Duplicate)),
-        "pop" => Some(ControlCommand::new(CommandType::PopEvaluatedValue)),
-        "~ret" => Some(ControlCommand::new(CommandType::PopFunction)),
-        "->->" => Some(ControlCommand::new(CommandType::PopTunnel)),
-        "str" => Some(ControlCommand::new(CommandType::BeginString)),
-        "/str" => Some(ControlCommand::new(CommandType::EndString)),
-        "nop" => Some(ControlCommand::new(CommandType::NoOp)),
-        "choiceCnt" => Some(ControlCommand::new(CommandType::ChoiceCount)),
-        "turn" => Some(ControlCommand::new(CommandType::Turns)),
-        "turns" => Some(ControlCommand::new(CommandType::TurnsSince)),
-        "readc" => Some(ControlCommand::new(CommandType::ReadCount)),
-        "rnd" => Some(ControlCommand::new(CommandType::Random)),
-        "srnd" => Some(ControlCommand::new(CommandType::SeedRandom)),
-        "visit" => Some(ControlCommand::new(CommandType::VisitIndex)),
-        "seq" => Some(ControlCommand::new(CommandType::SequenceShuffleIndex)),
-        "thread" => Some(ControlCommand::new(CommandType::StartThread)),
-        "done" => Some(ControlCommand::new(CommandType::Done)),
-        "end" => Some(ControlCommand::new(CommandType::End)),
-        "listInt" => Some(ControlCommand::new(CommandType::ListFromInt)),
-        "range" => Some(ControlCommand::new(CommandType::ListRange)),
-        "lrnd" => Some(ControlCommand::new(CommandType::ListRandom,)),
-        "#" => Some(ControlCommand::new(CommandType::BeginTag)),
-        "/#" => Some(ControlCommand::new(CommandType::EndTag)),
-        _ => None,
-    }
 }
 
 fn jobject_to_choice(obj: &Map<String, serde_json::Value>) -> Result<Rc<dyn RTObject>, String>  {
