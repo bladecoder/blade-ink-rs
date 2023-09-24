@@ -7,7 +7,7 @@ use crate::{
     error::ErrorType,
     json_serialization,
     push_pop::PushPopType,
-    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment,
+    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::{NativeFunctionCall, self},
 };
 
 const INK_VERSION_CURRENT: i32 = 21;
@@ -894,6 +894,17 @@ impl Story {
                 crate::control_command::CommandType::BeginTag => todo!(),
                 crate::control_command::CommandType::EndTag => todo!(),
             }
+
+            return true;
+        }
+
+
+        if let Some(func) = content_obj.as_ref().as_any().downcast_ref::<NativeFunctionCall>() {
+            let func_params = self.state.as_mut().unwrap().pop_evaluation_stack_multiple(func.get_number_of_parameters());
+
+            let result = func.call(func_params);
+            self.state.as_mut().unwrap().push_evaluation_stack(result);
+
             return true;
         }
 
@@ -1115,11 +1126,10 @@ impl Story {
 
         // Don't create choice if player has already read this content
         if choice_point.once_only() {
-            //TODO
-            // let visitCount = state.visitCountForContainer(choicePoint.getChoiceTarget());
-            // if (visitCount > 0) {
-            //     showChoice = false;
-            // }
+            let visit_count = self.state.as_mut().unwrap().visit_count_for_container(choice_point.get_choice_target().as_ref().unwrap());
+            if visit_count > 0 {
+                show_choice = false;
+            }
         }
 
         // We go through the full process of creating the choice above so

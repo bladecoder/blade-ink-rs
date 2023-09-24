@@ -400,7 +400,7 @@ impl StoryState {
         }
     }
 
-    fn visit_count_for_container(&mut self, container: &Rc<Container>) -> usize {
+    pub fn visit_count_for_container(&mut self, container: &Rc<Container>) -> usize {
         if !container.visits_should_be_counted {
             // TODO
 
@@ -815,11 +815,17 @@ impl StoryState {
     }
 
     pub fn pop_evaluation_stack(&mut self) -> Rc<dyn RTObject> {
-        let obj = self.evaluation_stack.last().unwrap().clone();
-        self.evaluation_stack.remove(self.evaluation_stack.len() - 1);
+        let obj = self.evaluation_stack.pop().unwrap();
 
         println!("POP: {}", obj.to_string());
 
+        obj
+    }
+
+    pub fn pop_evaluation_stack_multiple(&mut self, number_of_objects: usize) -> Vec<Rc<dyn RTObject>> {
+        let start = self.evaluation_stack.len() - number_of_objects;
+        let obj: Vec<Rc<dyn RTObject>> = self.evaluation_stack.drain(start..).collect();
+        
         obj
     }
 

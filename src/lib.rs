@@ -22,5 +22,6 @@ mod tag;
 mod divert;
 mod variable_assigment;
 mod variable_reference;
+mod native_function_call;
 
 

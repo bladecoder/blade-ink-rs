@@ -1,18 +1,16 @@
 // enum with integers: https://enodev.fr/posts/rusticity-convert-an-integer-to-an-enum.html
 
-use std::{fmt};
+use std::{fmt, rc::Rc};
 
-use crate::{object::{RTObject, Object}, path::Path, divert::Divert};
+use crate::{object::{RTObject, Object}, path::Path};
 
-#[repr(i8)]
+#[repr(u8)]
 pub enum ValueType {
-    Bool(bool) = -1,
+    Bool(bool),
     Int(i32),
     Float(f32),
-    //List(List),
+    List(),
     String(StringValue),
-
-    // Not used for coersion described above
     DivertTarget(Path),
     VariablePointer(VariablePointerValue),
 }
@@ -63,6 +61,7 @@ impl fmt::Display for Value {
             ValueType::String(v) => write!(f, "{}", v.string),
             ValueType::DivertTarget(p) => write!(f, "DivertTargetValue({})", p),
             ValueType::VariablePointer(v) => write!(f, "VariablePointerValue({})", v.variable_name),
+            ValueType::List() => todo!(),
         }
     }
 }
@@ -115,8 +114,9 @@ impl Value {
             ValueType::Float(v) => *v != 0.0,
             ValueType::String(v) => v.string.len() > 0,
             ValueType::DivertTarget(_) => panic!(), // exception Shouldn't be checking the truthiness of a divert target??
-            ValueType::VariablePointer(_) => panic!(), // exception Shouldn't be checking the truthiness of a divert target??
-        }      
+            ValueType::VariablePointer(_) => panic!(),
+            ValueType::List() => todo!(),
+        }
     }
 
     pub fn get_string_value(o: &dyn RTObject) -> Option<&StringValue> {
@@ -146,6 +146,79 @@ impl Value {
                 _ => None,
             },
             None => None,
+        }
+    }
+
+    pub fn get_cast_ordinal(&self) -> u8 {
+        let v = &self.value;
+
+        let ptr_to_option = (v as *const ValueType) as *const u8;
+        unsafe {
+            *ptr_to_option
+        }
+    }
+
+    pub fn cast(&self, ordinal_dest_type: u8) -> Value {
+        match &self.value {
+            ValueType::Bool(v) => {
+                match ordinal_dest_type {
+                    0 => Self::new_bool(*v),
+                    1 => if *v {
+                        Self::new_int(1)
+                    } else {
+                        Self::new_int(0)
+                    },
+                    2 => if *v {
+                        Self::new_float(1.0)
+                    } else {
+                        Self::new_float(0.0)
+                    },
+                    3 => if *v {
+                        Self::new_string("true")
+                    } else {
+                        Self::new_string("false")
+                    },
+                    _ => panic!(),
+                }
+            },
+            ValueType::Int(v) => {
+                match ordinal_dest_type {
+                    0 => if *v == 0 {
+                        Self::new_bool(false)
+                    } else {
+                        Self::new_bool(true)
+                    },
+                    1 => Self::new_int(*v),
+                    2 => Self::new_float(*v as f32),
+                    3 => Self::new_string(&*v.to_string()),
+                    _ => panic!(),
+                }
+            },
+            ValueType::Float(v) => {
+                match ordinal_dest_type {
+                    0 => if *v == 0.0 {
+                        Self::new_bool(false)
+                    } else {
+                        Self::new_bool(true)
+                    },
+                    1 => Self::new_int(*v as i32),
+                    2 => Self::new_float(*v),
+                    3 => Self::new_string(&*v.to_string()),
+                    _ => panic!(),
+                }
+            },
+            ValueType::String(v) => {
+                match ordinal_dest_type {
+                    0 => panic!(),
+                    1 => Self::new_int(v.string.parse::<i32>().unwrap()),
+                    2 => Self::new_float(v.string.parse::<f32>().unwrap()),
+                    3 => Self::new_string(&v.string),
+                    _ => panic!(),
+                }
+            },
+            ValueType::DivertTarget(_) => panic!(),
+            ValueType::VariablePointer(_) => panic!(),
+            ValueType::List() => todo!(),
         }
     }
 }
