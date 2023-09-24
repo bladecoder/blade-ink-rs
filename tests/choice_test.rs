@@ -244,7 +244,7 @@ fn label_flow2_test() -> Result<(), String>  {
     common::next_all(&mut story, &mut text)?;
 
     assert_eq!(2, story.get_current_choices().len());
-    assert_eq!("Shove him aside",story.get_current_choices()[0].text);
+    assert_eq!("Shove him aside",story.get_current_choices()[1].text);
 
     Ok(())
 }

@@ -67,7 +67,7 @@ impl VariablesState {
     }
 
     pub fn assign (
-        &self,
+        &mut self,
         var_ass: &VariableAssignment,
         value: Rc<dyn RTObject>,
     ) {
@@ -203,8 +203,38 @@ impl VariablesState {
         var_value
     }
 
-    fn set_global(&self, name: &str, value: Rc<dyn RTObject>) {
-        todo!()
+    fn set_global(&mut self, name: &str, value: Rc<dyn RTObject>) {
+        let mut old_value: Option<Rc<dyn RTObject>> = None;
+
+        if let Some(patch) = &self.patch {
+            old_value = patch.get_global(name);
+        }
+
+        if old_value.is_none() {
+            old_value = self.global_variables.get(name).cloned();
+        }
+
+        // TODO ListValue::retain_list_origins_for_assignment(&mut old_value, &value);
+
+        if let Some(patch) = &mut self.patch {
+            patch.set_global(name, value.clone());
+        } else {
+            self.global_variables.insert(name.to_string(), value.clone());
+        }
+
+        if let Some(variable_changed_event) = &self.variable_changed_event {
+            if !Rc::ptr_eq(old_value.as_ref().unwrap(), &value) {
+                if self.batch_observing_variable_changes {
+                    if let Some(patch) = &mut self.patch {
+                        patch.add_changed_variable(name);
+                    } else if let Some(changed_variables) = &mut self.changed_variables_for_batch_obs {
+                        changed_variables.insert(name.to_string());
+                    }
+                } else {
+                    variable_changed_event(name, value.as_ref());
+                }
+            }
+        }
     }
 
     pub fn get_variable_with_name(&self, name: &str, context_index: i32) -> Option<Rc<dyn RTObject>> {

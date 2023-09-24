@@ -18,7 +18,7 @@ pub struct Container {
     obj: Object,
     pub name: Option<String>,
     pub content: Vec<Rc<dyn RTObject>>,
-    named_content: HashMap<String, Rc<Container>>,
+    pub named_content: HashMap<String, Rc<Container>>,
     pub visits_should_be_counted: bool,
     pub turn_index_should_be_counted: bool,
     pub counting_at_start_only: bool,

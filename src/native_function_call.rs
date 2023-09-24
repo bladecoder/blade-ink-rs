@@ -95,7 +95,7 @@ impl NativeFunctionCall {
         }
     }
 
-    pub(crate) fn get_number_of_parameters(&self) -> usize {
+    pub fn get_number_of_parameters(&self) -> usize {
         match self.op {
             Op::Add => 2,
             Op::Subtract => 2,
@@ -137,13 +137,13 @@ impl NativeFunctionCall {
 
         match self.op {
             Op::Add => todo!(),
-            Op::Subtract => todo!(),
+            Op::Subtract => self.subtract_op(coerced_params),
             Op::Divide => todo!(),
             Op::Multiply => todo!(),
             Op::Mod => todo!(),
             Op::Negate => todo!(),
             Op::Equal => todo!(),
-            Op::Greater => todo!(),
+            Op::Greater => self.greater_op(coerced_params),
             Op::Less => todo!(),
             Op::GreaterThanOrEquals => todo!(),
             Op::LessThanOrEquals => todo!(),
@@ -170,25 +170,6 @@ impl NativeFunctionCall {
         }
     }
 
-    fn and_op(&self, params: Vec<Rc<Value>>) -> Rc<dyn RTObject> {
-        match params[0].value {
-            ValueType::Bool(op1) => match params[1].value {
-                ValueType::Bool(op2) => Rc::new(Value::new_bool(op1 && op2)),
-                _ => panic!()
-            },
-            ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_bool(op1 != 0 && op2 != 0)),
-                _ => panic!()
-            },
-            ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_bool(op1 != 0.0 && op2 != 0.0)),
-                _ => panic!()
-            },
-            ValueType::List() => todo!(),
-            _ => panic!()
-        }
-    }
-
     fn coerce_values_to_single_type(&self, params: Vec<Rc<dyn RTObject>>) -> Vec<Rc<Value>> {
         let mut dest_type = 1; // Int
         let mut result: Vec<Rc<Value>> = Vec::new();
@@ -209,10 +190,61 @@ impl NativeFunctionCall {
             if let Some(v) = obj.as_ref().as_any().downcast_ref::<Value>() {
                 let casted_value = v.cast(dest_type);
                 result.push(Rc::new(casted_value));
+            } else {
+                panic!("RTObject of type Value expected: {}", obj.to_string())
             }
         }
 
         return result;
+    }
+
+    fn and_op(&self, params: Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+        match params[0].value {
+            ValueType::Bool(op1) => match params[1].value {
+                ValueType::Bool(op2) => Rc::new(Value::new_bool(op1 && op2)),
+                _ => panic!()
+            },
+            ValueType::Int(op1) => match params[1].value {
+                ValueType::Int(op2) => Rc::new(Value::new_bool(op1 != 0 && op2 != 0)),
+                _ => panic!()
+            },
+            ValueType::Float(op1) => match params[1].value {
+                ValueType::Float(op2) => Rc::new(Value::new_bool(op1 != 0.0 && op2 != 0.0)),
+                _ => panic!()
+            },
+            ValueType::List() => todo!(),
+            _ => panic!()
+        }
+    }
+
+    fn greater_op(&self, params: Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+        match params[0].value {
+            ValueType::Int(op1) => match params[1].value {
+                ValueType::Int(op2) => Rc::new(Value::new_bool(op1 > op2)),
+                _ => panic!()
+            },
+            ValueType::Float(op1) => match params[1].value {
+                ValueType::Float(op2) => Rc::new(Value::new_bool(op1 > op2)),
+                _ => panic!()
+            },
+            ValueType::List() => todo!(),
+            _ => panic!()
+        }
+    }
+
+    fn subtract_op(&self, params: Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+        match params[0].value {
+            ValueType::Int(op1) => match params[1].value {
+                ValueType::Int(op2) => Rc::new(Value::new_int(op1 - op2)),
+                _ => panic!()
+            },
+            ValueType::Float(op1) => match params[1].value {
+                ValueType::Float(op2) => Rc::new(Value::new_float(op1 - op2)),
+                _ => panic!()
+            },
+            ValueType::List() => todo!(),
+            _ => panic!()
+        }
     }
 }
 

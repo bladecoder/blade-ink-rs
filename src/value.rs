@@ -1,5 +1,3 @@
-// enum with integers: https://enodev.fr/posts/rusticity-convert-an-integer-to-an-enum.html
-
 use std::{fmt, rc::Rc};
 
 use crate::{object::{RTObject, Object}, path::Path};

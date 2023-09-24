@@ -43,4 +43,12 @@ impl StatePatch {
     pub fn  get_global(&self, name: &str) -> Option<Rc<dyn RTObject>>{
         self.globals.get(name).cloned()
     }
+
+    pub fn set_global(&mut self, name: &str, value: Rc<dyn RTObject>) {
+        self.globals.insert(name.to_string(), value);
+    }
+
+    pub(crate) fn add_changed_variable(&mut self, name: &str) {
+        self.changed_variables.insert(name.to_string());
+    }
 }
