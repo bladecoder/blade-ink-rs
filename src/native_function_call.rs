@@ -136,10 +136,10 @@ impl NativeFunctionCall {
         let coerced_params = self.coerce_values_to_single_type(params);
 
         match self.op {
-            Op::Add => todo!(),
+            Op::Add => self.add_op(coerced_params),
             Op::Subtract => self.subtract_op(coerced_params),
-            Op::Divide => todo!(),
-            Op::Multiply => todo!(),
+            Op::Divide => self.divide_op(coerced_params),
+            Op::Multiply => self.multiply_op(coerced_params),
             Op::Mod => todo!(),
             Op::Negate => todo!(),
             Op::Equal => todo!(),
@@ -243,6 +243,58 @@ impl NativeFunctionCall {
                 _ => panic!()
             },
             ValueType::List() => todo!(),
+            _ => panic!()
+        }
+    }
+
+    fn add_op(&self, params: Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::Int(op1) => match params[1].value {
+                ValueType::Int(op2) => Rc::new(Value::new_int(op1 + op2)),
+                _ => panic!()
+            },
+            ValueType::Float(op1) => match params[1].value {
+                ValueType::Float(op2) => Rc::new(Value::new_float(op1 + op2)),
+                _ => panic!()
+            },
+            ValueType::String(op1) => match &params[1].value {
+                ValueType::String(op2) => {
+                    let mut sb = String::new();
+                    sb.push_str(&op1.string);
+                    sb.push_str(&op2.string);
+                    Rc::new(Value::new_string(&sb))
+                },
+                _ => panic!()
+            },
+            ValueType::List() => todo!(),
+            _ => panic!()
+        }
+    }
+
+    fn divide_op(&self, params: Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+        match params[0].value {
+            ValueType::Int(op1) => match params[1].value {
+                ValueType::Int(op2) => Rc::new(Value::new_int(op1 / op2)),
+                _ => panic!()
+            },
+            ValueType::Float(op1) => match params[1].value {
+                ValueType::Float(op2) => Rc::new(Value::new_float(op1 / op2)),
+                _ => panic!()
+            },
+            _ => panic!()
+        }
+    }
+
+    fn multiply_op(&self, params: Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+        match params[0].value {
+            ValueType::Int(op1) => match params[1].value {
+                ValueType::Int(op2) => Rc::new(Value::new_int(op1 * op2)),
+                _ => panic!()
+            },
+            ValueType::Float(op1) => match params[1].value {
+                ValueType::Float(op2) => Rc::new(Value::new_float(op1 * op2)),
+                _ => panic!()
+            },
             _ => panic!()
         }
     }
