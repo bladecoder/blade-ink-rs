@@ -7,7 +7,7 @@ use crate::{
     error::ErrorType,
     json_serialization,
     push_pop::PushPopType,
-    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::{NativeFunctionCall, self},
+    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::{NativeFunctionCall, self}, variable_reference::VariableReference,
 };
 
 const INK_VERSION_CURRENT: i32 = 21;
@@ -111,18 +111,17 @@ impl Story {
     }
 
     fn reset_globals(&mut self) {
-        // TODO
-        // if (self.main_content_container.get_named_content().containsKey("global decl")) {
-        //     let originalPointer = self.state.as_ref().unwrap().get_current_pointer().clone();
+        if self.main_content_container.named_content.contains_key("global decl") {
+            let original_pointer = self.state.as_ref().unwrap().get_current_pointer().clone();
 
-        //     self.choose_path(Path::new_with_components_string(Some("global decl".to_string())), false);
+            self.choose_path(&Path::new_with_components_string(Some("global decl")), false);
 
-        //     // Continue, but without validating external bindings,
-        //     // since we may be doing this reset at initialisation time.
-        //     self.continue_internal();
+            // Continue, but without validating external bindings,
+            // since we may be doing this reset at initialisation time.
+            self.continue_internal(0.0);
 
-        //     self.state.as_ref().unwrap().set_current_pointer(originalPointer);
-        // }
+            self.state.as_ref().unwrap().set_current_pointer(original_pointer);
+        }
 
         self.state.as_mut().unwrap().get_variables_state_mut().snapshot_default_globals();
     }
@@ -794,7 +793,28 @@ impl Story {
                     assert!(!self.state.as_ref().unwrap().get_in_expression_evaluation(), "Already in expression evaluation?");
                     self.state.as_ref().unwrap().set_in_expression_evaluation(true);
                 },
-                crate::control_command::CommandType::EvalOutput => todo!(),
+                crate::control_command::CommandType::EvalOutput => {
+                    // If the expression turned out to be empty, there may not be
+                    // anything on the stack
+                    if self.state.as_ref().unwrap().evaluation_stack.len() > 0 {
+
+                        let output = self.state.as_mut().unwrap().pop_evaluation_stack();
+
+                        // Functions may evaluate to Void, in which case we skip
+                        // output
+                        if let None = output.as_ref().as_any().downcast_ref::<Void>() {
+                            // TODO: Should we really always blanket convert to
+                            // string?
+                            // It would be okay to have numbers in the output stream
+                            // the
+                            // only problem is when exporting text for viewing, it
+                            // skips over numbers etc.
+                            let text:Rc<dyn RTObject> = Rc::new(Value::new_string(&output.to_string()));
+
+                            self.state.as_mut().unwrap().push_to_output_stream(text);
+                        }
+                    }
+                },
                 crate::control_command::CommandType::EvalEnd => {
                     assert!(self.state.as_ref().unwrap().get_in_expression_evaluation(), "Not in expression evaluation mode");
                     self.state.as_ref().unwrap().set_in_expression_evaluation(false);
@@ -861,7 +881,7 @@ impl Story {
                     self.state.as_ref().unwrap().set_in_expression_evaluation(true);
                     self.state.as_mut().unwrap().push_evaluation_stack(Rc::new(Value::new_string(&sb)));
                 },
-                crate::control_command::CommandType::NoOp => todo!(),
+                crate::control_command::CommandType::NoOp => {},
                 crate::control_command::CommandType::ChoiceCount => todo!(),
                 crate::control_command::CommandType::Turns => todo!(),
                 crate::control_command::CommandType::TurnsSince => todo!(),
@@ -898,16 +918,6 @@ impl Story {
             return true;
         }
 
-
-        if let Some(func) = content_obj.as_ref().as_any().downcast_ref::<NativeFunctionCall>() {
-            let func_params = self.state.as_mut().unwrap().pop_evaluation_stack_multiple(func.get_number_of_parameters());
-
-            let result = func.call(func_params);
-            self.state.as_mut().unwrap().push_evaluation_stack(result);
-
-            return true;
-        }
-
         // Variable assignment
         if let Some(var_ass) = content_obj.as_ref().as_any().downcast_ref::<VariableAssignment>() {
             let assigned_val = self.state.as_mut().unwrap().pop_evaluation_stack();
@@ -919,6 +929,48 @@ impl Story {
             // != null;
 
             self.state.as_mut().unwrap().get_variables_state_mut().assign( var_ass, assigned_val);
+
+            return true;
+        }
+
+        // Variable reference
+        if let Ok(var_ref) = content_obj.clone().into_any().downcast::<VariableReference>() {
+            let mut found_value: Option<Rc<dyn RTObject>> = None;
+
+            // Explicit read count value
+            if let Some(p) = &var_ref.path_for_count {
+                let container = var_ref.get_container_for_count();
+                let count = self.state.as_mut().unwrap().visit_count_for_container(container.as_ref().unwrap());
+                found_value = Some(Rc::new(Value::new_int(count as i32)));
+            }
+
+            // Normal variable reference
+            else {
+
+                found_value = self.state.as_ref().unwrap().get_variables_state().get_variable_with_name(&var_ref.name, -1);
+
+                if let None = found_value {
+                    // TODO
+                    // self.warning("Variable not found: '" + varRef.getName()
+                    //         + "'. Using default value of 0 (false). This can happen with temporary variables if the "
+                    //         + "declaration hasn't yet been hit. Globals are always given a default value on load if a "
+                    //         + "value doesn't exist in the save state.");
+                    
+                    found_value = Some(Rc::new(Value::new_int(0)));
+                }
+            }
+
+            self.state.as_mut().unwrap().push_evaluation_stack(found_value.unwrap());
+
+            return true;
+        }
+
+        // Native function call
+        if let Some(func) = content_obj.as_ref().as_any().downcast_ref::<NativeFunctionCall>() {
+            let func_params = self.state.as_mut().unwrap().pop_evaluation_stack_multiple(func.get_number_of_parameters());
+
+            let result = func.call(func_params);
+            self.state.as_mut().unwrap().push_evaluation_stack(result);
 
             return true;
         }

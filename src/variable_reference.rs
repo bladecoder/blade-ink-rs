@@ -5,8 +5,8 @@ use crate::{object::{Object, RTObject}, path::Path, container::Container};
 
 pub struct VariableReference {
     obj: Object,
-    name: String,
-    path_for_count: Option<Path>,    
+    pub name: String,
+    pub path_for_count: Option<Path>,    
 }
 
 impl VariableReference {
