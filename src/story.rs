@@ -1061,8 +1061,80 @@ impl Story {
                 CommandType::ListFromInt => todo!(),
                 CommandType::ListRange => todo!(),
                 CommandType::ListRandom => todo!(),
-                CommandType::BeginTag => todo!(),
-                CommandType::EndTag => todo!(),
+                CommandType::BeginTag => self.get_state_mut().push_to_output_stream(content_obj.clone()),
+                CommandType::EndTag =>  {
+
+                    // EndTag has 2 modes:
+                    //  - When in string evaluation (for choices)
+                    //  - Normal
+                    //
+                    // The only way you could have an EndTag in the middle of
+                    // string evaluation is if we're currently generating text for a
+                    // choice, such as:
+                    //
+                    //   + choice # tag
+                    //
+                    // In the above case, the ink will be run twice:
+                    //  - First, to generate the choice text. String evaluation
+                    //    will be on, and the final string will be pushed to the
+                    //    evaluation stack, ready to be popped to make a Choice
+                    //    object.
+                    //  - Second, when ink generates text after choosing the choice.
+                    //    On this ocassion, it's not in string evaluation mode.
+                    //
+                    // On the writing side, we disallow manually putting tags within
+                    // strings like this:
+                    //
+                    //   {"hello # world"}
+                    //
+                    // So we know that the tag must be being generated as part of
+                    // choice content. Therefore, when the tag has been generated,
+                    // we push it onto the evaluation stack in the exact same way
+                    // as the string for the choice content.
+                    if self.get_state().in_string_evaluation() {
+
+                        let mut content_stack_for_tag: Vec<String> = Vec::new();
+                        let mut output_count_consumed = 0;
+
+                        for i in (0..self.get_state().get_output_stream().len()).rev() {
+                            let obj = &self.get_state().get_output_stream()[i];
+
+                            output_count_consumed += 1;
+
+                            if let Some(command) = obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
+                                if command.command_type == CommandType::BeginTag {
+                                    break;
+                                } else {
+                                    panic!("Unexpected ControlCommand while extracting tag from choice");
+                                    //break;
+                                }
+                            }
+
+                            if let Some(sv) = Value::get_string_value(obj.as_ref()) {
+                                content_stack_for_tag.push(sv.string.clone());
+                            }
+                        }
+
+                        // Consume the content that was produced for this string
+                        self.get_state_mut().pop_from_output_stream(output_count_consumed);
+
+                        let mut sb = String::new();
+                        for str_val in &content_stack_for_tag {
+                            sb.push_str(&str_val);
+                        }
+
+                        let choice_tag = Rc::new(Tag::new(&StoryState::clean_output_whitespace(&sb)));
+                        // Pushing to the evaluation stack means it gets picked up
+                        // when a Choice is generated from the next Choice Point.
+                        self.get_state_mut().push_evaluation_stack(choice_tag);
+                    }
+
+                    // Otherwise! Simply push EndTag, so that in the output stream we
+                    // have a structure of: [BeginTag, "the tag content", EndTag]
+                    else {
+                        self.get_state_mut().push_to_output_stream(content_obj.clone());
+                    }
+                },
             }
 
             return true;
@@ -1348,16 +1420,14 @@ impl Story {
         Some(choice)
     }
 
-    fn pop_choice_string_and_tags(&mut self, tags: &[String]) -> String {
+    fn pop_choice_string_and_tags(&mut self, tags: &mut Vec<String>) -> String {
         let obj = self.get_state_mut().pop_evaluation_stack();
         let choice_only_str_val = Value::get_string_value(obj.as_ref()).unwrap();
 
-        // TODO
-
-        // while (self.get_state().evaluation_stack.len() > 0 && self.get_state().peek_evaluation_stack() instanceof Tag) {
-        //     Tag tag = (Tag) state.popEvaluationStack();
-        //     tags.add(0, tag.getText()); // popped in reverse order
-        // }
+        while self.get_state().evaluation_stack.len() > 0 && self.get_state().peek_evaluation_stack().unwrap().as_any().is::<Tag>() {
+            let tag = self.get_state_mut().pop_evaluation_stack().into_any().downcast::<Tag>().unwrap();
+            tags.insert(0, tag.get_text().clone()); // popped in reverse order
+        }
 
         return choice_only_str_val.string.to_string();
     }
@@ -1571,6 +1641,105 @@ impl Story {
         }
     
         panic!("Should never reach here");
+    }
+
+    pub fn get_global_tags(&self) -> Result<Vec<String>, String> {
+        self.tags_at_start_of_flow_container_with_path_string("")
+    }
+
+    pub fn tags_for_content_at_path(&self, path: &str) -> Result<Vec<String>, String> {
+        self.tags_at_start_of_flow_container_with_path_string(path)
+    }
+
+    fn tags_at_start_of_flow_container_with_path_string(&self, path_string: &str) -> Result<Vec<String>, String> {
+        let path = Path::new_with_components_string(Some(path_string));
+
+        // Expected to be global story, knot, or stitch
+        let mut flow_container = self.content_at_path(&path).container().unwrap();
+    
+        while let Some(first_content) = flow_container.content.get(0) {
+            if let Ok(container) = first_content.clone().into_any().downcast::<Container>() {
+                flow_container = container;
+            } else {
+                break;
+            }
+        }
+    
+        // Any initial tag objects count as the "main tags" associated with that
+        // story/knot/stitch
+        let mut in_tag = false;
+        let mut tags = Vec::new();
+        
+        for content in &flow_container.content {        
+            match content.as_ref().as_any().downcast_ref::<ControlCommand>() {
+                Some(command) => {
+                    match command.command_type {
+                        CommandType::BeginTag => in_tag = true,
+                        CommandType::EndTag => in_tag = false,
+                        _ => {}
+                    }
+                }
+                _ => {
+                    if in_tag {
+                        if let Some(string_value) = Value::get_string_value(content.as_ref()) {
+                            tags.push(string_value.string.clone());
+                        } else {
+                            return Err(
+                                "Tag contained non-text content. Only plain text is allowed when using globalTags or TagsAtContentPath. If you want to evaluate dynamic content, you need to use story.Continue()".to_owned(),
+                            );
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+    
+        Ok(tags)    
+    }
+
+    fn content_at_path(&self, path: &Path) -> SearchResult {
+        self.main_content_container.content_at_path(path, 0, -1)
+    }
+
+    pub fn get_current_tags(&mut self) -> Vec<String> {
+        // TODO ifAsyncWeCant("call currentTags since it's a work in progress");
+        return self.get_state_mut().get_current_tags();
+    }
+
+    pub fn choose_path_string(&mut self, path: &str, reset_call_stack: bool, args: Option<&Vec<String>>) -> Result<(), String> {
+        // TODO ifAsyncWeCant("call ChoosePathString right now");
+
+        if reset_call_stack {
+            self.reset_callstack();
+        } else {
+            // ChoosePathString is potentially dangerous since you can call it when the
+            // stack is
+            // pretty much in any state. Let's catch one of the worst offenders.
+            if self.get_state().get_callstack().borrow().get_current_element().push_pop_type == PushPopType::Function {
+                let mut func_detail = "".to_owned();
+                let container = self.get_state().get_callstack().borrow().get_current_element().current_pointer.container.clone();
+                if let Some(container) = container {
+                    func_detail = format!("({})", Object::get_path(container.as_ref()).to_string());
+                }
+                
+                // Err("Story was running a function " + funcDetail + "when you called ChoosePathString("
+                //         + path + ") - this is almost certainly not not what you want! Full stack trace: \n"
+                //         + state.getCallStack().getCallStackTrace());
+                return Err("Story was running a function".to_owned());
+            }
+        }
+
+        self.get_state_mut().pass_arguments_to_evaluation_stack(args);
+        self.choose_path(&Path::new_with_components_string(Some(path)), true);
+
+        Ok(())
+    }
+
+    fn reset_callstack(&mut self) {
+        // TODO ifAsyncWeCant("ResetCallstack");
+
+        self.get_state_mut().force_end();
     }
     
 }

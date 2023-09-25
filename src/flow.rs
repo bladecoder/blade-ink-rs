@@ -2,6 +2,7 @@ use std::{rc::Rc, cell::RefCell};
 
 use crate::{callstack::CallStack, choice::Choice, object::RTObject, container::Container};
 
+#[derive(Clone)]
 pub struct Flow {
     pub name: String,
     pub callstack: Rc<RefCell<CallStack>>,

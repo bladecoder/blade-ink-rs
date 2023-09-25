@@ -12,8 +12,8 @@ impl Tag {
         Tag {obj: Object::new(), text: text.to_string()}
     }
 
-    pub fn get_text(&self) -> String {
-        self.text.clone()
+    pub fn get_text(&self) -> &String {
+        &self.text
     }
 }
 

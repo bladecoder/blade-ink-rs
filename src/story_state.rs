@@ -2,7 +2,7 @@
 
 use std::{rc::Rc, cell::RefCell, collections::HashMap};
 
-use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::{RTObject, Object}, value::{Value, ValueType}, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch, story::Story, path::Path, void::Void};
+use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::{RTObject, Object}, value::{Value, ValueType}, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch, story::Story, path::Path, void::Void, tag::Tag};
 
 use rand::Rng;
 
@@ -31,6 +31,7 @@ pub struct StoryState {
     current_turn_index: i32,
     pub story_seed: i32,
     pub previous_random: i32,
+    current_tags: Vec<String>,
 }
 
 impl StoryState {
@@ -61,6 +62,7 @@ impl StoryState {
             current_turn_index: -1,
             story_seed: story_seed,
             previous_random: 0,
+            current_tags: Vec::with_capacity(0),
         };
 
         state.go_to_start();
@@ -183,7 +185,7 @@ impl StoryState {
 
             self.current_text = Some(StoryState::clean_output_whitespace(&sb));
 
-            self.output_stream_tags_dirty = false;
+            self.output_stream_text_dirty = false;
         }
 
         self.current_text.as_ref().unwrap().to_string()
@@ -191,65 +193,57 @@ impl StoryState {
 
     pub fn get_current_tags(&mut self) -> Vec<String> {
         if self.output_stream_tags_dirty {
-            let mut current_tags = Vec::new();
+            self.current_tags.clear();
+    
             let mut in_tag = false;
             let mut sb = String::new();
-
-            // TODO
     
-            // for output_obj in self.get_output_stream().iter() {
-            //     match output_obj {
-            //         RTObject::ControlCommand(control_command) => {
-            //             match control_command.get_command_type() {
-            //                 ControlCommandType::BeginTag => {
-            //                     if in_tag && !sb.is_empty() {
-            //                         let txt = clean_output_whitespace(&sb);
-            //                         current_tags.push(txt);
-            //                         sb.clear();
-            //                     }
-            //                     in_tag = true;
-            //                 }
-            //                 ControlCommandType::EndTag => {
-            //                     if !sb.is_empty() {
-            //                         let txt = clean_output_whitespace(&sb);
-            //                         current_tags.push(txt);
-            //                         sb.clear();
-            //                     }
-            //                     in_tag = false;
-            //                 }
-            //                 _ => {}
-            //             }
-            //         }
-            //         RTObject::StringValue(str_val) => {
-            //             if in_tag {
-            //                 sb.push_str(&str_val.value);
-            //             }
-            //         }
-            //         RTObject::Tag(tag) => {
-            //             if let Some(text) = &tag.get_text() {
-            //                 if !text.is_empty() {
-            //                     current_tags.push(text.clone()); // tag.text has whitespace already cleaned
-            //                 }
-            //             }
-            //         }
-            //         _ => {}
-            //     }
-            // }
+            for output_obj in self.get_output_stream().clone() {
+                if let Some(control_command) = output_obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
+                    match control_command.command_type {
+                        CommandType::BeginTag => {
+                            if in_tag && !sb.is_empty() {
+                                let txt = Self::clean_output_whitespace(&sb);
+                                self.current_tags.push(txt);
+                                sb.clear();
+                            }
+                            in_tag = true;
+                        },
+                        CommandType::EndTag => {
+                            if !sb.is_empty() {
+                                let txt = Self::clean_output_whitespace(&sb);
+                                self.current_tags.push(txt);
+                                sb.clear();
+                            }
+                            in_tag = false;
+                        },
+                        _ => {},
+                    }
+                } else if in_tag {
+                    if let Some(string_value) = Value::get_string_value(output_obj.as_ref()) {
+                        sb.push_str(&string_value.string);
+                    }
+                    if let Some(tag) = output_obj.as_ref().as_any().downcast_ref::<Tag>() {
+                        if !tag.get_text().is_empty() {
+                            self.current_tags.push(tag.get_text().clone()); // tag.text has whitespace already cleaned
+                        }
+                    }
+                }
+            }
     
             if !sb.is_empty() {
-                let txt = StoryState::clean_output_whitespace(&sb);
-                current_tags.push(txt);
+                let txt = Self::clean_output_whitespace(&sb);
+                self.current_tags.push(txt);
                 sb.clear();
             }
     
             self.output_stream_tags_dirty = false;
-            current_tags
-        } else {
-            Vec::new()
         }
+    
+        self.current_tags.clone()
     }
 
-    fn clean_output_whitespace(input_str: &str) -> String {
+    pub fn clean_output_whitespace(input_str: &str) -> String {
         let mut sb = String::with_capacity(input_str.len());
         let mut current_whitespace_start = -1;
         let mut start_of_line = 0;
@@ -727,12 +721,11 @@ impl StoryState {
         // (Assuming we're in multi-flow mode at all. If we're not then
         // the above copy is simply the default flow copy and we're done)
         if let Some(named_flows) = &self.named_flows {
-            // TODO
-            // copy.namedFlows = new HashMap<>();
-            // for (Map.Entry<String, Flow> namedFlow : namedFlows.entrySet())
-            //     copy.namedFlows.put(namedFlow.getKey(), namedFlow.getValue());
-            // copy.namedFlows.put(currentFlow.name, copy.currentFlow);
-            // copy.aliveFlowNamesDirty = true;
+            let mut nf = self.named_flows.clone();
+            nf.as_mut().unwrap().insert(copy.current_flow.name.to_string(), copy.current_flow.clone());
+            copy.alive_flow_names_dirty = true;
+
+            copy.named_flows = nf;
         }
 
         if self.has_error() {
@@ -914,7 +907,7 @@ impl StoryState {
         Ok(())
     }
 
-    fn pass_arguments_to_evaluation_stack(&mut self, arguments: Option<&Vec<String>>) -> Result<(), String> {
+    pub fn pass_arguments_to_evaluation_stack(&mut self, arguments: Option<&Vec<String>>) -> Result<(), String> {
         // Pass arguments onto the evaluation stack
         if let Some(arguments) = arguments {
             for arg in arguments {
