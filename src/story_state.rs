@@ -308,7 +308,6 @@ impl StoryState {
             panic!()
         }
 
-        println!("POINTER: {}", pointer.to_string());
         self.get_callstack().as_ref().borrow_mut().get_current_element_mut().current_pointer = pointer;
     }
 

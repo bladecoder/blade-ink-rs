@@ -760,7 +760,6 @@ impl Story {
                     if let Some(target) = Value::get_divert_target_value(var_contents.as_ref()) {
                         let p = Self::pointer_at_path(&self.main_content_container, target);
                         self.get_state_mut().set_diverted_pointer(p);
-                        println!("SET DIVERTED POINTER: {} PATH: {}", self.get_state_mut().diverted_pointer, target);
                     } else {
                         // TODO
                         // let int_content = var_contents.downcast_ref::<IntValue>();
@@ -1034,7 +1033,11 @@ impl Story {
                     // count
                     self.get_state_mut().push_evaluation_stack(Rc::new(Value::new_int(count as i32)));
                 },
-                CommandType::SequenceShuffleIndex => todo!(),
+                CommandType::SequenceShuffleIndex => {
+                    let shuffle_index = self.next_sequence_shuffle_index();
+                    let v = Rc::new(Value::new_int(shuffle_index));
+                    self.get_state_mut().push_evaluation_stack(v);
+                },
                 CommandType::StartThread => todo!(),
                 CommandType::Done => {
                    // We may exist in the context of the initial
@@ -1522,6 +1525,50 @@ impl Story {
         let named_container = self.main_content_container.named_content.get(name);
 
         named_container.cloned()
+    }
+
+    fn next_sequence_shuffle_index(&mut self) -> i32 {
+        let pop_evaluation_stack = self.get_state_mut().pop_evaluation_stack();
+        let num_elements = if let Some(v) = Value::get_int_value(pop_evaluation_stack.as_ref()) {
+            v
+        } else {
+            panic!("Expected number of elements in sequence for shuffle index");
+        };
+    
+        let seq_container = self.get_state().get_current_pointer().container.unwrap();
+    
+        let seq_count = if let Some(v) = Value::get_int_value(pop_evaluation_stack.as_ref()) {
+            v
+        } else {
+            panic!("Expected sequence count value for shuffle index");
+        };
+    
+        let loop_index = seq_count / num_elements;
+        let iteration_index = seq_count % num_elements;
+    
+        // Generate the same shuffle based on:
+        // - The hash of this container, to make sure it's consistent
+        //   each time the runtime returns to the sequence
+        // - How many times the runtime has looped around this full shuffle
+        let seq_path_str = Object::get_path(seq_container.as_ref()).to_string();
+        let sequence_hash: i32 = seq_path_str.chars().map(|c| c as i32).sum();
+        let random_seed = sequence_hash + loop_index + self.get_state().story_seed;
+    
+        let mut rng = StdRng::seed_from_u64(random_seed as u64);
+    
+        let mut unpicked_indices: Vec<i32> = (0..num_elements).collect();
+    
+        for i in 0..=iteration_index {
+            let chosen = rng.gen::<i32>().rem_euclid(unpicked_indices.len() as i32);
+            let chosen_index = unpicked_indices[chosen as usize];
+            unpicked_indices.retain(|&x| x != chosen_index);
+    
+            if i == iteration_index {
+                return chosen_index;
+            }
+        }
+    
+        panic!("Should never reach here");
     }
     
 }
