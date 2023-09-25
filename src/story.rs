@@ -2,12 +2,14 @@
 
 use std::{rc::Rc, time::Instant, collections::{VecDeque, HashMap}};
 
+use rand::{Rng, rngs::StdRng, SeedableRng};
+
 use crate::{
     container::Container,
     error::ErrorType,
     json_serialization,
     push_pop::PushPopType,
-    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::{NativeFunctionCall, self}, variable_reference::VariableReference,
+    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::NativeFunctionCall, variable_reference::VariableReference,
 };
 
 const INK_VERSION_CURRENT: i32 = 21;
@@ -100,6 +102,14 @@ impl Story {
         Ok(story)
     }
 
+    fn get_state(&self) -> &StoryState {
+        self.state.as_ref().unwrap()
+    }
+
+    fn get_state_mut(&mut self) -> &mut StoryState {
+        self.state.as_mut().unwrap()
+    }
+
     fn reset_state(&mut self) {
         //TODO ifAsyncWeCant("ResetState");
 
@@ -112,7 +122,7 @@ impl Story {
 
     fn reset_globals(&mut self) {
         if self.main_content_container.named_content.contains_key("global decl") {
-            let original_pointer = self.state.as_ref().unwrap().get_current_pointer().clone();
+            let original_pointer = self.get_state().get_current_pointer().clone();
 
             self.choose_path(&Path::new_with_components_string(Some("global decl")), false);
 
@@ -120,16 +130,16 @@ impl Story {
             // since we may be doing this reset at initialisation time.
             self.continue_internal(0.0);
 
-            self.state.as_ref().unwrap().set_current_pointer(original_pointer);
+            self.get_state().set_current_pointer(original_pointer);
         }
 
-        self.state.as_mut().unwrap().get_variables_state_mut().snapshot_default_globals();
+        self.get_state_mut().get_variables_state_mut().snapshot_default_globals();
     }
 
     pub fn build_string_of_hierarchy(&self) -> String {
         let mut sb = String::new();
 
-        let cp = self.state.as_ref().unwrap().get_current_pointer().resolve();
+        let cp = self.get_state().get_current_pointer().resolve();
 
         let cp = match cp {
             Some(_) => Some(cp.as_ref().unwrap().as_ref()),
@@ -143,7 +153,7 @@ impl Story {
     }
 
     pub fn can_continue(&self) -> bool {
-        self.state.as_ref().unwrap().can_continue()
+        self.get_state().can_continue()
     }
 
     pub fn cont(&mut self) -> Result<String, String> {
@@ -187,9 +197,9 @@ impl Story {
                 );
             }
 
-            self.state.as_mut().unwrap().set_did_safe_exit(false);
+            self.get_state_mut().set_did_safe_exit(false);
 
-            self.state.as_mut().unwrap().reset_output(None);
+            self.get_state_mut().reset_output(None);
 
             // It's possible for ink to call game to call ink to call game etc
             // In this case, we only want to batch observe variable changes
@@ -268,7 +278,7 @@ impl Story {
                     .unwrap()
                     .get_generated_choices()
                     .is_empty()
-                    && !self.state.as_ref().unwrap().is_did_safe_exit()
+                    && !self.get_state().is_did_safe_exit()
                     && self.temporaty_evaluation_container.is_none()
                 {
                     if self
@@ -291,14 +301,14 @@ impl Story {
                         self.add_error(
                             "unexpectedly reached end of content. Do you need a '~ return'?",
                         );
-                    } else if !self.state.as_ref().unwrap().get_callstack().borrow().can_pop() {
+                    } else if !self.get_state().get_callstack().borrow().can_pop() {
                         self.add_error("ran out of content. Do you need a '-> DONE' or '-> END'?");
                     } else {
                         self.add_error("unexpectedly reached end of content for unknown reason. Please debug compiler!");
                     }
                 }
             }
-            self.state.as_mut().unwrap().set_did_safe_exit(false);
+            self.get_state_mut().set_did_safe_exit(false);
             self.saw_lookahead_unsafe_function_after_new_line = false;
 
             if self.recursive_continue_count == 1 {
@@ -317,17 +327,17 @@ impl Story {
         // Report any errors that occured during evaluation.
         // This may either have been StoryExceptions that were thrown
         // and caught during evaluation, or directly added with AddError.
-        if self.state.as_ref().unwrap().has_error() || self.state.as_ref().unwrap().has_warning() {
+        if self.get_state().has_error() || self.get_state().has_warning() {
             match self.on_error {
                 Some(on_err) => {
-                    if self.state.as_ref().unwrap().has_error() {
-                        for err in self.state.as_ref().unwrap().get_current_errors() {
+                    if self.get_state().has_error() {
+                        for err in self.get_state().get_current_errors() {
                             (on_err)(&err, ErrorType::Error);
                         }
                     }
 
-                    if self.state.as_ref().unwrap().has_warning() {
-                        for err in self.state.as_ref().unwrap().get_current_warnings() {
+                    if self.get_state().has_warning() {
+                        for err in self.get_state().get_current_warnings() {
                             (on_err)(&err, ErrorType::Warning);
                         }
                     }
@@ -339,23 +349,23 @@ impl Story {
                     let mut sb = String::new();
                     sb.push_str("Ink had ");
 
-                    if self.state.as_ref().unwrap().has_error() {
-                        sb.push_str(&self.state.as_ref().unwrap().get_current_errors().len().to_string());
+                    if self.get_state().has_error() {
+                        sb.push_str(&self.get_state().get_current_errors().len().to_string());
 
-                        if self.state.as_ref().unwrap().get_current_errors().len() == 1 {
+                        if self.get_state().get_current_errors().len() == 1 {
                             sb.push_str(" error");
                         } else {
                             sb.push_str(" errors");
                         }
 
-                        if self.state.as_ref().unwrap().has_warning() {
+                        if self.get_state().has_warning() {
                             sb.push_str(" and ");
                         }
                     }
 
-                    if self.state.as_ref().unwrap().has_warning() {
-                        sb.push_str(self.state.as_ref().unwrap().get_current_warnings().len().to_string().as_str());
-                        if self.state.as_ref().unwrap().get_current_errors().len() == 1 {
+                    if self.get_state().has_warning() {
+                        sb.push_str(self.get_state().get_current_warnings().len().to_string().as_str());
+                        if self.get_state().get_current_errors().len() == 1 {
                             sb.push_str(" warning");
                         } else {
                             sb.push_str(" warnings");
@@ -364,10 +374,10 @@ impl Story {
 
                     sb.push_str(". It is strongly suggested that you assign an error handler to story.onError. The first issue was: ");
 
-                    if self.state.as_ref().unwrap().has_error() {
-                        sb.push_str(self.state.as_ref().unwrap().get_current_errors()[0].as_str());
+                    if self.get_state().has_error() {
+                        sb.push_str(self.get_state().get_current_errors()[0].as_str());
                     } else {
-                        sb.push_str(self.state.as_ref().unwrap().get_current_warnings()[0].to_string().as_str());
+                        sb.push_str(self.get_state().get_current_warnings()[0].to_string().as_str());
                     }
 
                     return Err(sb);
@@ -383,12 +393,12 @@ impl Story {
         self.step();
 
         // Run out of content and we have a default invisible choice that we can follow?
-        if !self.can_continue() && !self.state.as_ref().unwrap().get_callstack().borrow().element_is_evaluate_from_game() {
+        if !self.can_continue() && !self.get_state().get_callstack().borrow().element_is_evaluate_from_game() {
             self.try_follow_default_invisible_choice();
         }
 
         // Don't save/rewind during string evaluation, which is e.g. used for choices
-        if !self.state.as_ref().unwrap().in_string_evaluation(){
+        if !self.get_state().in_string_evaluation() {
 
             // We previously found a newline, but were we just double checking that
             // it wouldn't immediately be removed by glue?
@@ -420,7 +430,7 @@ impl Story {
             }
 
             // Current content ends in a newline - approaching end of our evaluation
-            if self.state.as_ref().unwrap().output_stream_ends_in_newline() {
+            if self.get_state().output_stream_ends_in_newline() {
 
                 // If we can continue evaluation for a bit:
                 // Create a snapshot in case we need to rewind.
@@ -451,7 +461,7 @@ impl Story {
 
     pub fn get_current_text(&mut self) -> String {
         //TODO ifAsyncWeCant("call currentText since it's a work in progress");
-        self.state.as_mut().unwrap().get_current_text()
+        self.get_state_mut().get_current_text()
     }
 
     pub fn get_main_content_container(&self) -> Rc<Container> {
@@ -475,7 +485,7 @@ impl Story {
         // active, we need to apply any changes made since
         // the save was started but before the snapshot was made.
         if !self.async_saving {
-            self.state.as_mut().unwrap().apply_any_patch();
+            self.get_state_mut().apply_any_patch();
         }
     }
 
@@ -491,7 +501,7 @@ impl Story {
         let mut should_add_to_stream = true;
 
         // Get current content
-        let mut pointer = self.state.as_ref().unwrap().get_current_pointer().clone();
+        let mut pointer = self.get_state().get_current_pointer().clone();
 
         if pointer.is_null() {
             return;
@@ -532,7 +542,7 @@ impl Story {
             };
         }
 
-        self.state.as_mut().unwrap().set_current_pointer(pointer.clone());
+        self.get_state_mut().set_current_pointer(pointer.clone());
 
         // Is the current content Object:
         // - Normal content
@@ -545,7 +555,7 @@ impl Story {
         let is_logic_or_flow_control = self.perform_logic_and_flow_control(&current_content_obj);
 
         // Has flow been forced to end by flow control above?
-        if self.state.as_ref().unwrap().get_current_pointer().is_null() {
+        if self.get_state().get_current_pointer().is_null() {
             return;
         }
 
@@ -559,7 +569,7 @@ impl Story {
 
                 let choice = self.process_choice(&choice_point);
                 if choice.is_some() {
-                    self.state.as_mut().unwrap().get_generated_choices_mut().push(choice.unwrap());
+                    self.get_state_mut().get_generated_choices_mut().push(choice.unwrap());
                 }
 
                 current_content_obj = None;
@@ -588,17 +598,17 @@ impl Story {
 
                 // Create new Object so we're not overwriting the story's own
                 // data
-                let context_idx = self.state.as_ref().unwrap().get_callstack().borrow().context_for_variable_named(&var_pointer.unwrap().variable_name);
+                let context_idx = self.get_state().get_callstack().borrow().context_for_variable_named(&var_pointer.unwrap().variable_name);
                 current_content_obj = Some(Rc::new(Value::new_variable_pointer(&var_pointer.unwrap().variable_name, context_idx as i32)));
             }
 
             // Expression evaluation content
-            if self.state.as_ref().unwrap().get_in_expression_evaluation() {
-                self.state.as_mut().unwrap().push_evaluation_stack(current_content_obj.unwrap());
+            if self.get_state().get_in_expression_evaluation() {
+                self.get_state_mut().push_evaluation_stack(current_content_obj.unwrap());
             }
             // Output stream content (i.e. not expression evaluation)
             else {
-                self.state.as_mut().unwrap().push_to_output_stream(current_content_obj.unwrap());
+                self.get_state_mut().push_to_output_stream(current_content_obj.unwrap());
             }
         }
 
@@ -619,7 +629,7 @@ impl Story {
     }
 
     fn try_follow_default_invisible_choice(&mut self) {
-        let all_choices = match self.state.as_ref().unwrap().get_current_choices() {
+        let all_choices = match self.get_state().get_current_choices() {
             Some(c) => c,
             None => return,
         };
@@ -642,14 +652,14 @@ impl Story {
 
         // Invisible choice may have been generated on a different thread,
         // in which case we need to restore it before we continue
-        self.state.as_ref().unwrap().get_callstack().as_ref().borrow_mut().set_current_thread(choice.get_thread_at_generation().unwrap().copy());
+        self.get_state().get_callstack().as_ref().borrow_mut().set_current_thread(choice.get_thread_at_generation().unwrap().copy());
 
         // If there's a chance that this state will be rolled back to before
         // the invisible choice then make sure that the choice thread is
         // left intact, and it isn't re-entered in an old state.
         if self.state_snapshot_at_last_new_line.is_some() {
-            let fork_thread = self.state.as_ref().unwrap().get_callstack().as_ref().borrow_mut().fork_thread();
-            self.state.as_ref().unwrap().get_callstack().as_ref().borrow_mut().set_current_thread(fork_thread);
+            let fork_thread = self.get_state().get_callstack().as_ref().borrow_mut().fork_thread();
+            self.get_state().get_callstack().as_ref().borrow_mut().set_current_thread(fork_thread);
         }
 
         self.choose_path(&choice.target_path, false);
@@ -718,11 +728,11 @@ impl Story {
     fn visit_container(&mut self, container: &Rc<Container>, at_start: bool) {
         if !container.counting_at_start_only || at_start {
             if container.visits_should_be_counted {
-                self.state.as_mut().unwrap().increment_visit_count_for_container(container);
+                self.get_state_mut().increment_visit_count_for_container(container);
             }
 
             if container.turn_index_should_be_counted {
-                self.state.as_mut().unwrap().record_turn_index_visit_to_container(container);
+                self.get_state_mut().record_turn_index_visit_to_container(container);
             }
         }
     }
@@ -738,7 +748,7 @@ impl Story {
         // Divert
         if let Ok(current_divert) = content_obj.clone().into_any().downcast::<Divert>() {
             if current_divert.is_conditional {
-                let o = self.state.as_mut().unwrap().pop_evaluation_stack();
+                let o = self.get_state_mut().pop_evaluation_stack();
                 if !self.is_truthy(o) {
                     return true;
                 }
@@ -746,10 +756,11 @@ impl Story {
 
             if current_divert.has_variable_target() {
                 let var_name = &current_divert.variable_divert_name;
-                if let Some(var_contents) = self.state.as_ref().unwrap().get_variables_state().get_variable_with_name(var_name.as_ref().unwrap(), -1) {
+                if let Some(var_contents) = self.get_state().get_variables_state().get_variable_with_name(var_name.as_ref().unwrap(), -1) {
                     if let Some(target) = Value::get_divert_target_value(var_contents.as_ref()) {
-                        self.state.as_mut().unwrap().set_diverted_pointer(Self::pointer_at_path(&self.main_content_container, target));
-                        println!("SET DIVERTED POINTER: {} PATH: {}", self.state.as_mut().unwrap().diverted_pointer, target);
+                        let p = Self::pointer_at_path(&self.main_content_container, target);
+                        self.get_state_mut().set_diverted_pointer(p);
+                        println!("SET DIVERTED POINTER: {} PATH: {}", self.get_state_mut().diverted_pointer, target);
                     } else {
                         // TODO
                         // let int_content = var_contents.downcast_ref::<IntValue>();
@@ -782,16 +793,16 @@ impl Story {
                 //call_external_function(&current_divert.get_target_path_string(), current_divert.get_external_args());
                 return true;
             } else {
-                self.state.as_mut().unwrap().set_diverted_pointer(current_divert.get_target_pointer());
+                self.get_state_mut().set_diverted_pointer(current_divert.get_target_pointer());
             }
 
             if current_divert.pushes_to_stack {
-                self.state.as_ref().unwrap()
+                self.get_state()
                     .get_callstack().borrow_mut()
-                    .push(current_divert.stack_push_type, 0, self.state.as_ref().unwrap().get_output_stream().len() as i32);
+                    .push(current_divert.stack_push_type, 0, self.get_state().get_output_stream().len() as i32);
             }
 
-            if self.state.as_ref().unwrap().diverted_pointer.is_null() && !current_divert.is_external {
+            if self.get_state().diverted_pointer.is_null() && !current_divert.is_external {
                 //     error(format!("Divert resolution failed: {:?}", current_divert));
             }
 
@@ -801,15 +812,15 @@ impl Story {
         if let Some(eval_command) = content_obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
             match eval_command.command_type {
                 CommandType::EvalStart => {
-                    assert!(!self.state.as_ref().unwrap().get_in_expression_evaluation(), "Already in expression evaluation?");
-                    self.state.as_ref().unwrap().set_in_expression_evaluation(true);
+                    assert!(!self.get_state().get_in_expression_evaluation(), "Already in expression evaluation?");
+                    self.get_state().set_in_expression_evaluation(true);
                 },
                 CommandType::EvalOutput => {
                     // If the expression turned out to be empty, there may not be
                     // anything on the stack
-                    if self.state.as_ref().unwrap().evaluation_stack.len() > 0 {
+                    if self.get_state().evaluation_stack.len() > 0 {
 
-                        let output = self.state.as_mut().unwrap().pop_evaluation_stack();
+                        let output = self.get_state_mut().pop_evaluation_stack();
 
                         // Functions may evaluate to Void, in which case we skip
                         // output
@@ -822,20 +833,20 @@ impl Story {
                             // skips over numbers etc.
                             let text:Rc<dyn RTObject> = Rc::new(Value::new_string(&output.to_string()));
 
-                            self.state.as_mut().unwrap().push_to_output_stream(text);
+                            self.get_state_mut().push_to_output_stream(text);
                         }
                     }
                 },
                 CommandType::EvalEnd => {
-                    assert!(self.state.as_ref().unwrap().get_in_expression_evaluation(), "Not in expression evaluation mode");
-                    self.state.as_ref().unwrap().set_in_expression_evaluation(false);
+                    assert!(self.get_state().get_in_expression_evaluation(), "Not in expression evaluation mode");
+                    self.get_state().set_in_expression_evaluation(false);
                 },
                 CommandType::Duplicate => {
-                    let obj = self.state.as_ref().unwrap().peek_evaluation_stack().unwrap().clone();
-                    self.state.as_mut().unwrap().push_evaluation_stack(obj);
+                    let obj = self.get_state().peek_evaluation_stack().unwrap().clone();
+                    self.get_state_mut().push_evaluation_stack(obj);
                 },
                 CommandType::PopEvaluatedValue => {
-                    self.state.as_mut().unwrap().pop_evaluation_stack();
+                    self.get_state_mut().pop_evaluation_stack();
                 },
                 CommandType::PopFunction | CommandType::PopTunnel=> {
                     let pop_type = if CommandType::PopFunction == eval_command.command_type  {
@@ -848,7 +859,7 @@ impl Story {
                     // divert to go to immediately after returning: ->-> target
                     let mut override_tunnel_return_target = None;
                     if pop_type == PushPopType::Tunnel {
-                        let popped = self.state.as_mut().unwrap().pop_evaluation_stack();
+                        let popped = self.get_state_mut().pop_evaluation_stack();
 
                         if let Some(v) = Value::get_divert_target_value(popped.as_ref()) {
                             override_tunnel_return_target = Some(v.clone());
@@ -859,38 +870,39 @@ impl Story {
                         }
                     }
 
-                    if self.state.as_mut().unwrap().try_exit_function_evaluation_from_game() {
+                    if self.get_state_mut().try_exit_function_evaluation_from_game() {
                         return true;
-                    } else if self.state.as_ref().unwrap().get_callstack().borrow().get_current_element().push_pop_type != pop_type
-                            || !self.state.as_ref().unwrap().get_callstack().borrow().can_pop() {
+                    } else if self.get_state().get_callstack().borrow().get_current_element().push_pop_type != pop_type
+                            || !self.get_state().get_callstack().borrow().can_pop() {
 
                         let mut names: HashMap<PushPopType, String>   = HashMap::new();
                         names.insert(PushPopType::Function, "function return statement (~ return)".to_owned());
                         names.insert(PushPopType::Tunnel, "tunnel onwards statement (->->)".to_owned());
 
-                        let mut expected = names.get(&self.state.as_ref().unwrap().get_callstack().borrow().get_current_element().push_pop_type).cloned();
-                        if !self.state.as_ref().unwrap().get_callstack().borrow().can_pop() {
+                        let mut expected = names.get(&self.get_state().get_callstack().borrow().get_current_element().push_pop_type).cloned();
+                        if !self.get_state().get_callstack().borrow().can_pop() {
                             expected = Some("end of flow (-> END or choice)".to_owned());
                         }
 
                         panic!("Found {}, when expected {}", names.get(&pop_type).unwrap(), expected.unwrap());
                         //TODO error(errorMsg);
                     } else {
-                        self.state.as_mut().unwrap().pop_callstack(None);
+                        self.get_state_mut().pop_callstack(None);
 
                         // Does tunnel onwards override by diverting to a new ->->
                         // target?
                         if let Some(override_tunnel_return_target) = override_tunnel_return_target {
-                            self.state.as_mut().unwrap().set_diverted_pointer(Self::pointer_at_path(&self.main_content_container, &override_tunnel_return_target));
+                            let p = Self::pointer_at_path(&self.main_content_container, &override_tunnel_return_target);
+                            self.get_state_mut().set_diverted_pointer(p);
                         }
                     }                    
                 },
                 CommandType::BeginString => {
-                    self.state.as_mut().unwrap().push_to_output_stream(content_obj.clone());
+                    self.get_state_mut().push_to_output_stream(content_obj.clone());
 
-                    assert!(self.state.as_ref().unwrap().get_in_expression_evaluation(),
+                    assert!(self.get_state().get_in_expression_evaluation(),
                             "Expected to be in an expression when evaluating a string");
-                            self.state.as_ref().unwrap().set_in_expression_evaluation(false);
+                            self.get_state().set_in_expression_evaluation(false);
                 },
                 CommandType::EndString => {
 
@@ -902,8 +914,8 @@ impl Story {
 
                     let mut output_count_consumed = 0;
 
-                    for i in (0..self.state.as_ref().unwrap().get_output_stream().len()).rev() {
-                        let obj = &self.state.as_ref().unwrap().get_output_stream()[i];
+                    for i in (0..self.get_state().get_output_stream().len()).rev() {
+                        let obj = &self.get_state().get_output_stream()[i];
                         output_count_consumed += 1;
 
                         if let Some(command) = obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
@@ -922,14 +934,14 @@ impl Story {
                     }
 
                     // Consume the content that was produced for this string
-                    self.state.as_mut().unwrap().pop_from_output_stream(output_count_consumed);
+                    self.get_state_mut().pop_from_output_stream(output_count_consumed);
 
                     // Rescue the tags that we want actually to keep on the output stack
                     // rather than consume as part of the string we're building.
                     // At the time of writing, this only applies to Tag objects generated
                     // by choices, which are pushed to the stack during string generation.
                     for rescued_tag in content_to_retain.iter() {
-                        self.state.as_mut().unwrap().push_to_output_stream(rescued_tag.clone());
+                        self.get_state_mut().push_to_output_stream(rescued_tag.clone());
                     }
 
                     // Build string out of the content we collected
@@ -940,22 +952,87 @@ impl Story {
                     }
 
                     // Return to expression evaluation (from content mode)
-                    self.state.as_ref().unwrap().set_in_expression_evaluation(true);
-                    self.state.as_mut().unwrap().push_evaluation_stack(Rc::new(Value::new_string(&sb)));
+                    self.get_state().set_in_expression_evaluation(true);
+                    self.get_state_mut().push_evaluation_stack(Rc::new(Value::new_string(&sb)));
                 },
                 CommandType::NoOp => {},
                 CommandType::ChoiceCount => todo!(),
                 CommandType::Turns => todo!(),
                 CommandType::TurnsSince => todo!(),
                 CommandType::ReadCount => todo!(),
-                CommandType::Random => todo!(),
-                CommandType::SeedRandom => todo!(),
+                CommandType::Random => {
+                    let mut max_int = None;
+                    let o  = self.get_state_mut().pop_evaluation_stack();
+
+                    if let Some(v) = Value::get_int_value(o.as_ref()) {
+                        max_int = Some(v);
+                    }
+
+                    let o  = self.get_state_mut().pop_evaluation_stack();
+
+                    let mut min_int = None;
+                    if let Some(v) = Value::get_int_value(o.as_ref()) {
+                        min_int = Some(v);
+                    }
+
+                    if min_int.is_none() {
+                        panic!("Invalid value for the minimum parameter of RANDOM(min, max)");
+                    }
+
+                    if max_int.is_none() {
+                        panic!("Invalid value for the maximum parameter of RANDOM(min, max)");
+                    }
+
+                    let min_value = min_int.unwrap();
+                    let max_value = max_int.unwrap();
+
+                    let random_range = max_value - min_value + 1;
+
+                    if random_range <= 0 {
+                        // TODO
+                        // panic!(format!(
+                        //     "RANDOM was called with minimum as {} and maximum as {}. The maximum must be larger",
+                        //     min_value.to_string(), max_value.to_string()
+                        // ));
+
+                        panic!();
+                    }
+
+                    let result_seed = self.get_state().story_seed + self.get_state().previous_random;
+
+                    let mut rng = StdRng::seed_from_u64(result_seed as u64);
+                    let next_random = rng.gen::<u32>();
+
+                    let chosen_value = (next_random % random_range as u32) as i32 + min_value;
+                    
+                    self.get_state_mut().push_evaluation_stack(Rc::new(Value::new_int(chosen_value)));
+
+                    self.get_state_mut().previous_random = self.get_state().previous_random + 1;
+                },
+                CommandType::SeedRandom => {
+                    let mut seed: Option<i32> = None;
+
+                    let o = self.get_state_mut().pop_evaluation_stack();
+
+                    if let Some(v) = Value::get_int_value(o.as_ref()) {seed = Some(v);}
+
+                    if seed.is_none() {
+                        panic!("Invalid value passed to SEED_RANDOM");
+                    }
+
+                    // Story seed affects both RANDOM and shuffle behaviour
+                    self.get_state_mut().story_seed = seed.unwrap();
+                    self.get_state_mut().previous_random = 0;
+
+                    // SEED_RANDOM returns nothing.
+                    self.get_state_mut().push_evaluation_stack(Rc::new(Void::new()));
+                },
                 CommandType::VisitIndex => {
-                    let cpc = self.state.as_ref().unwrap().get_current_pointer().container.unwrap();
-                    let count = self.state.as_mut().unwrap().visit_count_for_container(&cpc) - 1; // index
+                    let cpc = self.get_state().get_current_pointer().container.unwrap();
+                    let count = self.get_state_mut().visit_count_for_container(&cpc) - 1; // index
                     // not
                     // count
-                    self.state.as_mut().unwrap().push_evaluation_stack(Rc::new(Value::new_int(count as i32)));
+                    self.get_state_mut().push_evaluation_stack(Rc::new(Value::new_int(count as i32)));
                 },
                 CommandType::SequenceShuffleIndex => todo!(),
                 CommandType::StartThread => todo!(),
@@ -963,19 +1040,19 @@ impl Story {
                    // We may exist in the context of the initial
                     // act of creating the thread, or in the context of
                     // evaluating the content.
-                    if self.state.as_ref().unwrap().get_callstack().borrow().can_pop_thread() {
-                        self.state.as_ref().unwrap().get_callstack().as_ref().borrow_mut().pop_thread();
+                    if self.get_state().get_callstack().borrow().can_pop_thread() {
+                        self.get_state().get_callstack().as_ref().borrow_mut().pop_thread();
                     }
 
                     // In normal flow - allow safe exit without warning
                     else {
-                        self.state.as_mut().unwrap().set_did_safe_exit(true);
+                        self.get_state_mut().set_did_safe_exit(true);
 
                         // Stop flow in current thread
-                        self.state.as_ref().unwrap().set_current_pointer(pointer::NULL.clone());
+                        self.get_state().set_current_pointer(pointer::NULL.clone());
                     } 
                 },
-                CommandType::End => self.state.as_mut().unwrap().force_end(),
+                CommandType::End => self.get_state_mut().force_end(),
                 CommandType::ListFromInt => todo!(),
                 CommandType::ListRange => todo!(),
                 CommandType::ListRandom => todo!(),
@@ -988,7 +1065,7 @@ impl Story {
 
         // Variable assignment
         if let Some(var_ass) = content_obj.as_ref().as_any().downcast_ref::<VariableAssignment>() {
-            let assigned_val = self.state.as_mut().unwrap().pop_evaluation_stack();
+            let assigned_val = self.get_state_mut().pop_evaluation_stack();
 
             // When in temporary evaluation, don't create new variables purely
             // within
@@ -996,7 +1073,7 @@ impl Story {
             // var prioritiseHigherInCallStack = _temporaryEvaluationContainer
             // != null;
 
-            self.state.as_mut().unwrap().get_variables_state_mut().assign( var_ass, assigned_val);
+            self.get_state_mut().get_variables_state_mut().assign( var_ass, assigned_val);
 
             return true;
         }
@@ -1008,14 +1085,14 @@ impl Story {
             // Explicit read count value
             if let Some(p) = &var_ref.path_for_count {
                 let container = var_ref.get_container_for_count();
-                let count = self.state.as_mut().unwrap().visit_count_for_container(container.as_ref().unwrap());
+                let count = self.get_state_mut().visit_count_for_container(container.as_ref().unwrap());
                 found_value = Some(Rc::new(Value::new_int(count as i32)));
             }
 
             // Normal variable reference
             else {
 
-                found_value = self.state.as_ref().unwrap().get_variables_state().get_variable_with_name(&var_ref.name, -1);
+                found_value = self.get_state().get_variables_state().get_variable_with_name(&var_ref.name, -1);
 
                 if let None = found_value {
                     // TODO
@@ -1028,17 +1105,17 @@ impl Story {
                 }
             }
 
-            self.state.as_mut().unwrap().push_evaluation_stack(found_value.unwrap());
+            self.get_state_mut().push_evaluation_stack(found_value.unwrap());
 
             return true;
         }
 
         // Native function call
         if let Some(func) = content_obj.as_ref().as_any().downcast_ref::<NativeFunctionCall>() {
-            let func_params = self.state.as_mut().unwrap().pop_evaluation_stack_multiple(func.get_number_of_parameters());
+            let func_params = self.get_state_mut().pop_evaluation_stack_multiple(func.get_number_of_parameters());
 
             let result = func.call(func_params);
-            self.state.as_mut().unwrap().push_evaluation_stack(result);
+            self.get_state_mut().push_evaluation_stack(result);
 
             return true;
         }
@@ -1050,21 +1127,21 @@ impl Story {
     fn next_content(&mut self) {
         // Setting previousContentObject is critical for
         // VisitChangedContainersDueToDivert
-        let cp = self.state.as_ref().unwrap().get_current_pointer();
-        self.state.as_mut().unwrap().set_previous_pointer(cp);
+        let cp = self.get_state().get_current_pointer();
+        self.get_state_mut().set_previous_pointer(cp);
 
         // Divert step?
-        if !self.state.as_ref().unwrap().diverted_pointer.is_null() {
-            let dp = self.state.as_ref().unwrap().diverted_pointer.clone();
-            self.state.as_mut().unwrap().set_current_pointer(dp);
-            self.state.as_mut().unwrap().set_diverted_pointer(pointer::NULL.clone());
+        if !self.get_state().diverted_pointer.is_null() {
+            let dp = self.get_state().diverted_pointer.clone();
+            self.get_state_mut().set_current_pointer(dp);
+            self.get_state_mut().set_diverted_pointer(pointer::NULL.clone());
 
             // Internally uses state.previousContentObject and
             // state.currentContentObject
             self.visit_changed_containers_due_to_divert();
 
             // Diverted location has valid content?
-            if !self.state.as_ref().unwrap().get_current_pointer().is_null() {
+            if !self.get_state().get_current_pointer().is_null() {
                 return;
             }
 
@@ -1082,31 +1159,31 @@ impl Story {
 
             let mut didPop = false;
 
-            let can_pop_type = self.state.as_ref().unwrap().get_callstack().as_ref().borrow().can_pop_type(Some(PushPopType::Function));
+            let can_pop_type = self.get_state().get_callstack().as_ref().borrow().can_pop_type(Some(PushPopType::Function));
             if can_pop_type {
 
                 // Pop from the call stack
-                self.state.as_mut().unwrap().pop_callstack(Some(PushPopType::Function));
+                self.get_state_mut().pop_callstack(Some(PushPopType::Function));
 
                 // This pop was due to dropping off the end of a function that
                 // didn't return anything,
                 // so in this case, we make sure that the evaluator has
                 // something to chomp on if it needs it
-                if self.state.as_ref().unwrap().get_in_expression_evaluation() {
-                    self.state.as_mut().unwrap().push_evaluation_stack(Rc::new(Void::new()));
+                if self.get_state().get_in_expression_evaluation() {
+                    self.get_state_mut().push_evaluation_stack(Rc::new(Void::new()));
                 }
 
                 didPop = true;
-            } else if self.state.as_ref().unwrap().get_callstack().as_ref().borrow().can_pop_thread() {
-                self.state.as_ref().unwrap().get_callstack().as_ref().borrow_mut().pop_thread();
+            } else if self.get_state().get_callstack().as_ref().borrow().can_pop_thread() {
+                self.get_state().get_callstack().as_ref().borrow_mut().pop_thread();
 
                 didPop = true;
             } else {
-                self.state.as_mut().unwrap().try_exit_function_evaluation_from_game();
+                self.get_state_mut().try_exit_function_evaluation_from_game();
             }
 
             // Step past the point where we last called out
-            if didPop && !self.state.as_ref().unwrap().get_current_pointer().is_null() {
+            if didPop && !self.get_state().get_current_pointer().is_null() {
                 self.next_content();
             }
         }   
@@ -1115,7 +1192,7 @@ impl Story {
     fn increment_content_pointer(&self) -> bool {
         let mut successful_increment = true;
 
-        let mut pointer = self.state.as_ref().unwrap().get_callstack().as_ref().borrow().get_current_element().current_pointer.clone();
+        let mut pointer = self.get_state().get_callstack().as_ref().borrow().get_current_element().current_pointer.clone();
         pointer.index += 1;
 
         let mut container= pointer.container.as_ref().unwrap().clone();
@@ -1152,7 +1229,7 @@ impl Story {
             pointer = pointer::NULL.clone();
         }
 
-        self.state.as_ref().unwrap().get_callstack().as_ref().borrow_mut().get_current_element_mut().current_pointer = pointer;
+        self.get_state().get_callstack().as_ref().borrow_mut().get_current_element_mut().current_pointer = pointer;
 
         return successful_increment;
     }
@@ -1161,7 +1238,7 @@ impl Story {
         // Don't include invisible choices for external usage.
         let mut choices = Vec::new();
 
-        if let Some(current_choices) = self.state.as_ref().unwrap().get_current_choices() {
+        if let Some(current_choices) = self.get_state().get_current_choices() {
             for c in current_choices {
                 if !c.is_invisible_default {
                     c.index.replace(choices.len());
@@ -1174,11 +1251,11 @@ impl Story {
     }
 
     pub fn has_error(&self) -> bool {
-        self.state.as_ref().unwrap().has_error()
+        self.get_state().has_error()
     }
 
     pub fn get_current_errors(&self) -> &Vec<String> {
-        self.state.as_ref().unwrap().get_current_errors()
+        self.get_state().get_current_errors()
     }
 
     pub fn choose_choice_index(&mut self, choice_index: usize) {
@@ -1191,13 +1268,13 @@ impl Story {
         // can create multiple leading edges for the story, each of
         // which has its own context.
         let choice_to_choose = choices.get(choice_index).unwrap();
-        self.state.as_ref().unwrap().get_callstack().borrow_mut().set_current_thread(choice_to_choose.get_thread_at_generation().unwrap());
+        self.get_state().get_callstack().borrow_mut().set_current_thread(choice_to_choose.get_thread_at_generation().unwrap());
 
         self.choose_path(&choice_to_choose.target_path, true);
     }
 
     fn choose_path(&mut self, p: &Path, incrementing_turn_index: bool) {
-        self.state.as_mut().unwrap().set_chosen_path( &p,  incrementing_turn_index);
+        self.get_state_mut().set_chosen_path( &p,  incrementing_turn_index);
 
         // Take a note of newly visited containers for read counts etc
         self.visit_changed_containers_due_to_divert();
@@ -1226,7 +1303,7 @@ impl Story {
 
         // Don't create choice if choice point doesn't pass conditional
         if choice_point.has_condition() {
-            let condition_value = self.state.as_mut().unwrap().pop_evaluation_stack();
+            let condition_value = self.get_state_mut().pop_evaluation_stack();
             if !self.is_truthy(condition_value) {
                 show_choice = false;
             }
@@ -1246,7 +1323,7 @@ impl Story {
 
         // Don't create choice if player has already read this content
         if choice_point.once_only() {
-            let visit_count = self.state.as_mut().unwrap().visit_count_for_container(choice_point.get_choice_target().as_ref().unwrap());
+            let visit_count = self.get_state_mut().visit_count_for_container(choice_point.get_choice_target().as_ref().unwrap());
             if visit_count > 0 {
                 show_choice = false;
             }
@@ -1261,18 +1338,18 @@ impl Story {
 
         start_text.push_str(&choice_only_text);
 
-        let choice = Rc::new(Choice::new(choice_point.get_path_on_choice(), Object::get_path(choice_point.as_ref()).to_string(), choice_point.is_invisible_default(), tags, self.state.as_ref().unwrap().get_callstack().borrow_mut().fork_thread(), start_text.trim().to_string(), 0, 0));
+        let choice = Rc::new(Choice::new(choice_point.get_path_on_choice(), Object::get_path(choice_point.as_ref()).to_string(), choice_point.is_invisible_default(), tags, self.get_state().get_callstack().borrow_mut().fork_thread(), start_text.trim().to_string(), 0, 0));
 
         Some(choice)
     }
 
     fn pop_choice_string_and_tags(&mut self, tags: &[String]) -> String {
-        let obj = self.state.as_mut().unwrap().pop_evaluation_stack();
+        let obj = self.get_state_mut().pop_evaluation_stack();
         let choice_only_str_val = Value::get_string_value(obj.as_ref()).unwrap();
 
         // TODO
 
-        // while (self.state.as_ref().unwrap().evaluation_stack.len() > 0 && self.state.as_ref().unwrap().peek_evaluation_stack() instanceof Tag) {
+        // while (self.get_state().evaluation_stack.len() > 0 && self.get_state().peek_evaluation_stack() instanceof Tag) {
         //     Tag tag = (Tag) state.popEvaluationStack();
         //     tags.add(0, tag.getText()); // popped in reverse order
         // }
@@ -1324,8 +1401,8 @@ impl Story {
     }
 
     fn visit_changed_containers_due_to_divert(&mut self) {
-        let previous_pointer = self.state.as_ref().unwrap().get_previous_pointer();
-        let pointer = self.state.as_ref().unwrap().get_current_pointer();
+        let previous_pointer = self.get_state().get_previous_pointer();
+        let pointer = self.get_state().get_current_pointer();
     
         // Unless we're pointing *directly* at a piece of content, we don't do counting here.
         // Otherwise, the main stepping function will do the counting.
@@ -1397,6 +1474,54 @@ impl Story {
                 break;
             }
         }
+    }
+
+    // TODO: The result and the args should be an object not a String
+    pub fn evaluate_function(&mut self, func_name: &str, args: Option<&Vec<String>>, text_output: &mut String) -> Result<Option<String>, String> {
+        // TODO ifAsyncWeCant("evaluate a function");
+
+        if func_name.trim().is_empty() {
+            return Err("Function is empty or white space.".to_owned());
+        }
+
+        // Get the content that we need to run
+        let func_container = self.knot_container_with_name(func_name);
+        if func_container.is_none() {
+            let mut e = "Function doesn't exist: '".to_owned();
+            e.push_str(func_name);
+            e.push_str("'");
+
+            return Err(e);
+        }
+
+        // Snapshot the output stream
+        let output_stream_before = self.get_state().get_output_stream().clone();
+        self.get_state_mut().reset_output(None);
+
+        // State will temporarily replace the callstack in order to evaluate
+        self.get_state_mut().start_function_evaluation_from_game(func_container.unwrap(), args);
+
+        // Evaluate the function, and collect the string output
+        while self.can_continue() {
+            let text = self.cont()?;
+
+            text_output.push_str(&text);
+        }
+
+        // Restore the output stream in case this was called
+        // during main story evaluation.
+        self.get_state_mut().reset_output(Some(output_stream_before));
+
+        // Finish evaluation, and see whether anything was produced
+        let result = self.get_state_mut().complete_function_evaluation_from_game();
+
+        return result;    
+    }
+
+    fn knot_container_with_name(&self, name: &str) -> Option<Rc<Container>> {
+        let named_container = self.main_content_container.named_content.get(name);
+
+        named_container.cloned()
     }
     
 }

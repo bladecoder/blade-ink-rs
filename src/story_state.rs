@@ -2,7 +2,7 @@
 
 use std::{rc::Rc, cell::RefCell, collections::HashMap};
 
-use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::{RTObject, Object}, value::{Value, ValueType}, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch, story::Story, path::Path};
+use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::{RTObject, Object}, value::{Value, ValueType}, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch, story::Story, path::Path, void::Void};
 
 use rand::Rng;
 
@@ -29,8 +29,8 @@ pub struct StoryState {
     visit_counts: HashMap<String, usize>,
     turn_indices: HashMap<String, usize>,
     current_turn_index: i32,
-    story_seed: i32,
-    previous_random: i32,
+    pub story_seed: i32,
+    pub previous_random: i32,
 }
 
 impl StoryState {
@@ -904,6 +904,89 @@ impl StoryState {
 
     pub fn peek_evaluation_stack(&self) -> Option<&Rc<dyn RTObject>> {
         self.evaluation_stack.last()
+    }
+
+    pub fn start_function_evaluation_from_game(&mut self, func_container: Rc<Container>, arguments: Option<&Vec<String>>) -> Result<(), String> {
+        self.get_callstack().borrow_mut().push(PushPopType::FunctionEvaluationFromGame, self.evaluation_stack.len(), 0);
+        self.get_callstack().borrow_mut().get_current_element_mut().current_pointer = Pointer::start_of(func_container);
+
+        self.pass_arguments_to_evaluation_stack(arguments)?;
+
+        Ok(())
+    }
+
+    fn pass_arguments_to_evaluation_stack(&mut self, arguments: Option<&Vec<String>>) -> Result<(), String> {
+        // Pass arguments onto the evaluation stack
+        if let Some(arguments) = arguments {
+            for arg in arguments {
+                // TODO
+
+                // if (!(arguments[i] instanceof Integer
+                //         || arguments[i] instanceof Float
+                //         || arguments[i] instanceof String
+                //         || arguments[i] instanceof Boolean
+                //         || arguments[i] instanceof InkList)) {
+                //     throw new Exception(
+                //             "ink arguments when calling EvaluateFunction / ChoosePathStringWithParameters must be "
+                //                     + "int, float, string, bool or InkList. Argument was "
+                //                     + (arguments[i] == null
+                //                             ? "null"
+                //                             : arguments[i].getClass().getName()));
+                // }
+
+                self.push_evaluation_stack(Rc::new(Value::new_string(arg)));
+            }
+        }
+            
+        Ok(())
+    }
+
+    pub fn complete_function_evaluation_from_game(&mut self) -> Result<Option<String>, String> {
+        if self.get_callstack().borrow().get_current_element().push_pop_type != PushPopType::FunctionEvaluationFromGame {
+            // TODO
+            // return Err(format!("Expected external function evaluation to be complete. Stack trace: {}", getCallStack().getCallStackTrace());
+
+            return Err("Expected external function evaluation to be complete. Stack trace".to_owned());
+        }
+
+        let original_evaluation_stack_height = self.get_callstack().borrow().get_current_element().evaluation_stack_height_when_pushed;
+
+        // Do we have a returned value?
+        // Potentially pop multiple values off the stack, in case we need
+        // to clean up after ourselves (e.g. caller of EvaluateFunction may
+        // have passed too many arguments, and we currently have no way to check
+        // for that)
+        let mut returned_obj = None;
+        while self.evaluation_stack.len() > original_evaluation_stack_height {
+            let popped_obj = self.pop_evaluation_stack();
+            if returned_obj.is_none() {
+                returned_obj = Some(popped_obj);
+            }
+        }
+
+        // Finally, pop the external function evaluation
+        self.get_callstack().borrow_mut().pop(Some(PushPopType::FunctionEvaluationFromGame));
+
+        // What did we get back?
+        if let Some(returned_obj) = returned_obj{
+            if let Some(_) = returned_obj.as_ref().as_any().downcast_ref::<Void>() { return Ok(None); }
+
+            // Some kind of value, if not void
+            if let Some(return_val) = returned_obj.as_ref().as_any().downcast_ref::<Value>() {
+                // DivertTargets get returned as the string of components
+                // (rather than a Path, which isn't public)
+                if let ValueType::DivertTarget(p) = &return_val.value {
+                    return Ok(Some(p.to_string()));
+                }
+
+                // Other types can ust have their exact object type:
+                // int, float, string. VariablePointers get returned as strings.
+                // TODO
+                return Ok(Some(return_val.to_string()));
+            }
+        }   
+
+        Ok(None)    
     }
 
 }
