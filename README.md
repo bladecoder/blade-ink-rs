@@ -11,13 +11,14 @@ Currently under development. This is the implementation status:
 - [x] Variable Text
 - [x] Conditional Text
 - [ ] Game Queries and Functions
-- [ ] Nested flows
+- [x] Nested flows
 - [ ] Variables and Logic
-- [ ] Conditional blocks (if/else)
+- [x] Conditional blocks (if/else)
 - [ ] Temporary Variables
 - [x] Functions
 - [x] Tunnels
-- [ ] Threads
+- [x] Threads
+- [x] Tags
 - [ ] Lists
 - [ ] Load/Save state
 
