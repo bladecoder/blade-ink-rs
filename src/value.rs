@@ -147,6 +147,16 @@ impl Value {
         }
     }
 
+    pub fn get_int_value(o: &dyn RTObject) -> Option<i32> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::Int(v) => Some(*v),
+                _ => None,
+            },
+            None => None,
+        }
+    }
+
     pub fn get_cast_ordinal(&self) -> u8 {
         let v = &self.value;
 
