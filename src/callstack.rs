@@ -130,6 +130,13 @@ impl CallStack {
         }
     }
 
+    pub fn push_thread(&mut self) {
+        let mut newThread = self.get_current_thread().copy();
+        self.thread_counter += 1;
+        newThread.thread_index = self.thread_counter;
+        self.threads.push(newThread);
+    }
+
     pub fn can_pop(&self) -> bool {
         self.get_callstack().len() > 1
     }

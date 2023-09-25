@@ -604,11 +604,11 @@ impl Story {
 
             // Expression evaluation content
             if self.get_state().get_in_expression_evaluation() {
-                self.get_state_mut().push_evaluation_stack(current_content_obj.unwrap());
+                self.get_state_mut().push_evaluation_stack(current_content_obj.as_ref().unwrap().clone());
             }
             // Output stream content (i.e. not expression evaluation)
             else {
-                self.get_state_mut().push_to_output_stream(current_content_obj.unwrap());
+                self.get_state_mut().push_to_output_stream(current_content_obj.as_ref().unwrap().clone());
             }
         }
 
@@ -619,13 +619,14 @@ impl Story {
         // pointer,
         // so that when returning from the thread, it returns to the content
         // after this instruction.
-        
-        // TODO
-        // let controlCmd =
-        //         currentContentObj instanceof ControlCommand ? (ControlCommand) currentContentObj : null;
-        // if (controlCmd != null && controlCmd.getCommandType() == ControlCommand.CommandType.StartThread) {
-        //     state.getCallStack().pushThread();
-        // }
+        if current_content_obj.is_some() {
+            if let Some(control_cmd) = current_content_obj.as_ref().unwrap().as_any().downcast_ref::<ControlCommand>() {
+                if control_cmd.command_type == CommandType::StartThread {
+                    self.get_state().get_callstack().borrow_mut().push_thread();
+                }
+            }
+        }
+
     }
 
     fn try_follow_default_invisible_choice(&mut self) {
@@ -957,8 +958,7 @@ impl Story {
                 CommandType::NoOp => {},
                 CommandType::ChoiceCount => todo!(),
                 CommandType::Turns => todo!(),
-                CommandType::TurnsSince => todo!(),
-                CommandType::ReadCount => todo!(),
+                CommandType::TurnsSince |  CommandType::ReadCount => todo!(),
                 CommandType::Random => {
                     let mut max_int = None;
                     let o  = self.get_state_mut().pop_evaluation_stack();
@@ -1038,7 +1038,9 @@ impl Story {
                     let v = Rc::new(Value::new_int(shuffle_index));
                     self.get_state_mut().push_evaluation_stack(v);
                 },
-                CommandType::StartThread => todo!(),
+                CommandType::StartThread => {
+                    // Handled in main step function
+                },
                 CommandType::Done => {
                    // We may exist in the context of the initial
                     // act of creating the thread, or in the context of
