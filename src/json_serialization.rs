@@ -4,7 +4,7 @@ use serde_json::Map;
 
 use crate::{
     container::Container,
-    object::{self, RTObject}, control_command::{CommandType, ControlCommand}, value::Value, glue::Glue, path::Path, choice_point::ChoicePoint, choice::Choice, push_pop::PushPopType, divert::Divert, variable_assigment::VariableAssignment, void::Void, variable_reference::VariableReference, native_function_call::{self, NativeFunctionCall},
+    object::{self, RTObject}, control_command::ControlCommand, value::Value, glue::Glue, path::Path, choice_point::ChoicePoint, choice::Choice, push_pop::PushPopType, divert::Divert, variable_assigment::VariableAssignment, void::Void, variable_reference::VariableReference, native_function_call::NativeFunctionCall, tag::Tag, ink_list::InkList, ink_list_item::InkListItem,
 };
 
 pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>) -> Result<Rc<dyn RTObject>, String> {
@@ -42,7 +42,7 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
             // we know it's not a string, we can convert back to the proper
             // symbol for the operator.
             let mut call_str = str;
-            if "L^".eq(str) {call_str = &"^";}
+            if "L^".eq(str) {call_str = "^";}
             if let Some(native_function_call) = NativeFunctionCall::new_from_name(call_str) {
                 return Ok(Rc::new(native_function_call));
             }
@@ -51,15 +51,15 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
             if "void".eq(str) {return Ok(Rc::new(Void::new()));}
 
 
-            return Err(format!("Failed to convert token to runtime RTObject: {}", &token.to_string()));
+            Err(format!("Failed to convert token to runtime RTObject: {}", &token.to_string()))
         },
         serde_json::Value::Array(value) => Ok(jarray_to_container(value, name)?),
         serde_json::Value::Object(obj) => {
             // Divert target value to path
             let prop_value = obj.get("^->");
 
-            if prop_value.is_some() {
-                return Ok(Rc::new(Value::new_divert_target(Path::new_with_components_string(prop_value.unwrap().as_str()))));
+            if let Some(prop_value) = prop_value {
+                return Ok(Rc::new(Value::new_divert_target(Path::new_with_components_string(prop_value.as_str()))));
             }
 
             // // VariablePointerValue
@@ -132,8 +132,8 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
 
                 if external {
                     prop_value = obj.get("exArgs");
-                    if prop_value.is_some() {
-                        external_args = prop_value.unwrap().as_i64().unwrap() as i32;
+                    if let Some(prop_value) = prop_value {
+                        external_args = prop_value.as_i64().unwrap() as i32;
                     }
                 }
 
@@ -177,7 +177,7 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
                 },
                 None => {
                     prop_value = obj.get("temp=");
-                    if let Some(_) = prop_value {
+                    if prop_value.is_some() {
                         is_var_ass = true;
                         is_global_var = false;
                     }
@@ -193,42 +193,43 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
                 return Ok(var_ass);
             }
 
-            // // Legacy Tag
-            // prop_value = obj.get("#");
-            // if (prop_value != null) {
-            //     return new Tag((String) prop_value);
-            // }
+            // Legacy Tag
+            prop_value = obj.get("#");
+            if let Some(prop_value) = prop_value {
+                return Ok(Rc::new(Tag::new(prop_value.as_str().unwrap())));
+            }
 
-            // // List value
-            // prop_value = obj.get("list");
+            // List value
+            prop_value = obj.get("list");
 
-            // if (prop_value != null) {
-            //     HashMap<String, Object> listContent = (HashMap<String, Object>) prop_value;
-            //     InkList rawList = new InkList();
+            if let Some(pv) = prop_value {
+                let list_content = pv.as_object().unwrap();
+                let mut raw_list = InkList::new();
 
-            //     prop_value = obj.get("origins");
+                prop_value = obj.get("origins");
 
-            //     if (prop_value != null) {
-            //         List<String> namesAsObjs = (List<String>) prop_value;
+                if let Some(o) = prop_value {
+                    let names_as_objs = o.as_array().unwrap();
 
-            //         rawList.setInitialOriginNames(namesAsObjs);
-            //     }
+                    let names = names_as_objs.iter().map(|e| e.as_str().unwrap().to_string()).collect();
 
-            //     for (Entry<String, Object> nameToVal : listContent.entrySet()) {
-            //         InkListItem item = new InkListItem(nameToVal.getKey());
-            //         int val = (int) nameToVal.getValue();
-            //         rawList.put(item, val);
-            //     }
+                    raw_list.set_initial_origin_names(Some(names));
+                }
 
-            //     return new ListValue(rawList);
-            // }
+                for (k,v) in list_content {
+                    let item = InkListItem::from_full_name(k);
+                    raw_list.items.insert(item, v.as_i64().unwrap() as i32);
+                }
+
+                return Ok(Rc::new(Value::new_list(raw_list)));
+            }
 
             // Used when serialising save state only
             if obj.get("originalChoicePath").is_some() {
                 return jobject_to_choice(obj);
             }
 
-            return Err(format!("Failed to convert token to runtime RTObject: {}", &token.to_string()));
+            Err(format!("Failed to convert token to runtime RTObject: {}", &token.to_string()))
         },
     }
 

@@ -23,5 +23,8 @@ mod divert;
 mod variable_assigment;
 mod variable_reference;
 mod native_function_call;
+mod ink_list;
+mod ink_list_item;
+mod list_definition;
 
 

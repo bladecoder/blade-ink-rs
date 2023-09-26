@@ -1,13 +1,21 @@
 use std::{fmt, rc::Rc};
 
-use crate::{object::{RTObject, Object}, path::Path};
+use as_any::Downcast;
+
+use crate::{object::{RTObject, Object}, path::Path, ink_list::InkList};
+
+const CAST_BOOL: u8 = 0;
+const CAST_INT: u8 = 1;
+const CAST_FLOAT: u8 = 2;
+const CAST_LIST: u8 = 3;
+const CAST_STRING: u8 = 4;
 
 #[repr(u8)]
 pub enum ValueType {
     Bool(bool),
     Int(i32),
     Float(f32),
-    List(),
+    List(InkList),
     String(StringValue),
     DivertTarget(Path),
     VariablePointer(VariablePointerValue),
@@ -59,25 +67,25 @@ impl fmt::Display for Value {
             ValueType::String(v) => write!(f, "{}", v.string),
             ValueType::DivertTarget(p) => write!(f, "DivertTargetValue({})", p),
             ValueType::VariablePointer(v) => write!(f, "VariablePointerValue({})", v.variable_name),
-            ValueType::List() => todo!(),
+            ValueType::List(l) => write!(f, "{}", l),
         }
     }
 }
 
 impl Value {
-    pub fn new_bool(v:bool) -> Value {
-        Value { obj: Object::new(), value: ValueType::Bool(v) }
+    pub fn new_bool(v:bool) -> Self {
+        Self { obj: Object::new(), value: ValueType::Bool(v) }
     }
 
-    pub fn new_int(v:i32) -> Value {
-        Value { obj: Object::new(), value: ValueType::Int(v) }
+    pub fn new_int(v:i32) -> Self {
+        Self { obj: Object::new(), value: ValueType::Int(v) }
     }
 
-    pub fn new_float(v:f32) -> Value {
-        Value { obj: Object::new(), value: ValueType::Float(v) }
+    pub fn new_float(v:f32) -> Self {
+        Self { obj: Object::new(), value: ValueType::Float(v) }
     }
 
-    pub fn new_string(v:&str) -> Value {
+    pub fn new_string(v:&str) -> Self {
 
         let mut inline_ws = true;
 
@@ -88,7 +96,7 @@ impl Value {
             }
         }
         
-        Value { 
+        Self { 
             obj: Object::new(), 
             value: ValueType::String(StringValue {
                 string: v.to_string(), 
@@ -97,12 +105,16 @@ impl Value {
             }
     }
 
-    pub fn new_divert_target(p:Path) -> Value {
-        Value { obj: Object::new(), value: ValueType::DivertTarget(p) }
+    pub fn new_divert_target(p:Path) -> Self {
+        Self { obj: Object::new(), value: ValueType::DivertTarget(p) }
     }
 
-    pub fn new_variable_pointer(variable_name: &str, context_index: i32) -> Value {
-        Value { obj: Object::new(), value: ValueType::VariablePointer(VariablePointerValue { variable_name: variable_name.to_string(), context_index }) }
+    pub fn new_variable_pointer(variable_name: &str, context_index: i32) -> Self {
+        Self { obj: Object::new(), value: ValueType::VariablePointer(VariablePointerValue { variable_name: variable_name.to_string(), context_index }) }
+    }
+
+    pub fn new_list(l: InkList) -> Self {
+        Self { obj: Object::new(), value: ValueType::List(l) }
     }
 
     pub fn is_truthy(&self) -> bool {
@@ -113,7 +125,7 @@ impl Value {
             ValueType::String(v) => v.string.len() > 0,
             ValueType::DivertTarget(_) => panic!(), // exception Shouldn't be checking the truthiness of a divert target??
             ValueType::VariablePointer(_) => panic!(),
-            ValueType::List() => todo!(),
+            ValueType::List(l) => l.items.len() > 0,
         }
     }
 
@@ -157,6 +169,37 @@ impl Value {
         }
     }
 
+    pub fn get_list_value_mut(o: &mut dyn RTObject) -> Option<&mut InkList> {
+        match o.as_any_mut().downcast_mut::<Value>() {
+            Some(v) => match &mut v.value {
+                ValueType::List(v) => Some(v),
+                _ => None,
+            },
+            None => None,
+        }
+    }
+
+    pub fn get_list_value(o: &dyn RTObject) -> Option<&InkList> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::List(v) => Some(v),
+                _ => None,
+            },
+            None => None,
+        }
+    }
+
+    pub fn retain_list_origins_for_assignment(old_value: &mut dyn RTObject, new_value: &mut dyn RTObject) {
+
+        if let Some(old_list) = Self::get_list_value_mut(old_value) {
+            if let Some(new_list) = Self::get_list_value_mut(new_value) {
+                if new_list.items.len() == 0 {
+                    new_list.set_initial_origin_names(old_list.get_origin_names().clone());
+                }
+            }
+        }
+    }
+
     pub fn get_cast_ordinal(&self) -> u8 {
         let v = &self.value;
 
@@ -166,71 +209,96 @@ impl Value {
         }
     }
 
-    pub fn cast(&self, ordinal_dest_type: u8) -> Value {
+    // If None is returned means that casting is not needed
+    pub fn cast(&self, cast_dest_type: u8) -> Option<Value> {
         match &self.value {
             ValueType::Bool(v) => {
-                match ordinal_dest_type {
-                    0 => Self::new_bool(*v),
-                    1 => if *v {
-                        Self::new_int(1)
+                match cast_dest_type {
+                    CAST_BOOL => None,
+                    CAST_INT => if *v {
+                        Some(Self::new_int(1))
                     } else {
-                        Self::new_int(0)
+                        Some(Self::new_int(0))
                     },
-                    2 => if *v {
-                        Self::new_float(1.0)
+                    CAST_FLOAT => if *v {
+                        Some(Self::new_float(1.0))
                     } else {
-                        Self::new_float(0.0)
+                        Some(Self::new_float(0.0))
                     },
-                    3 => panic!(), // LIST
-                    4 => if *v {
-                        Self::new_string("true")
+                    CAST_STRING => if *v {
+                        Some(Self::new_string("true"))
                     } else {
-                        Self::new_string("false")
+                        Some(Self::new_string("false"))
                     },
                     _ => panic!(),
                 }
             },
             ValueType::Int(v) => {
-                match ordinal_dest_type {
-                    0 => if *v == 0 {
-                        Self::new_bool(false)
+                match cast_dest_type {
+                    CAST_BOOL => if *v == 0 {
+                        Some(Self::new_bool(false))
                     } else {
-                        Self::new_bool(true)
+                        Some(Self::new_bool(true))
                     },
-                    1 => Self::new_int(*v),
-                    2 => Self::new_float(*v as f32),
-                    3 => panic!(), // LIST
-                    4 => Self::new_string(&*v.to_string()),
+                    CAST_INT => None,
+                    CAST_FLOAT => Some(Self::new_float(*v as f32)),
+                    CAST_STRING => Some(Self::new_string(&*v.to_string())),
                     _ => panic!(),
                 }
             },
             ValueType::Float(v) => {
-                match ordinal_dest_type {
-                    0 => if *v == 0.0 {
-                        Self::new_bool(false)
+                match cast_dest_type {
+                    CAST_BOOL => if *v == 0.0 {
+                        Some(Self::new_bool(false))
                     } else {
-                        Self::new_bool(true)
+                        Some(Self::new_bool(true))
                     },
-                    1 => Self::new_int(*v as i32),
-                    2 => Self::new_float(*v),
-                    3 => panic!(), // LIST
-                    4 => Self::new_string(&*v.to_string()),
+                    CAST_INT => Some(Self::new_int(*v as i32)),
+                    CAST_FLOAT => None,
+                    CAST_STRING => Some(Self::new_string(&*v.to_string())),
                     _ => panic!(),
                 }
             },
             ValueType::String(v) => {
-                match ordinal_dest_type {
-                    0 => panic!(),
-                    1 => Self::new_int(v.string.parse::<i32>().unwrap()),
-                    2 => Self::new_float(v.string.parse::<f32>().unwrap()),
-                    3 => panic!(), // LIST
-                    4 => Self::new_string(&v.string),
+                match cast_dest_type {
+                    CAST_INT => Some(Self::new_int(v.string.parse::<i32>().unwrap())),
+                    CAST_FLOAT => Some(Self::new_float(v.string.parse::<f32>().unwrap())),
+                    CAST_STRING => None,
+                    _ => panic!(),
+                }
+            },
+            ValueType::List(l) => {
+                match cast_dest_type {
+                    CAST_INT => {
+                        let max = l.get_max_item();
+                        if max.0.is_none() {
+                            Some(Self::new_int(0))
+                        } else {
+                            Some(Self::new_int(max.1))
+                        }
+                    },
+                    CAST_FLOAT => {
+                        let max = l.get_max_item();
+                        if max.0.is_none() {
+                            Some(Self::new_float(0.0))
+                        } else {
+                            Some(Self::new_float(max.1 as f32))
+                        }
+                    },
+                    CAST_LIST => None,
+                    CAST_STRING => {
+                        let max = l.get_max_item();
+                        if max.0.is_none() {
+                            Some(Self::new_string(""))
+                        } else {
+                            Some(Self::new_string(&max.0.unwrap().to_string()))
+                        }
+                    },
                     _ => panic!(),
                 }
             },
             ValueType::DivertTarget(_) => panic!(),
             ValueType::VariablePointer(_) => panic!(),
-            ValueType::List() => todo!(),
         }
     }
 }

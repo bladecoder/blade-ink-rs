@@ -26,6 +26,7 @@ RUN set -eux; \
     rm rustup-init; \
     chmod -R a+w $RUSTUP_HOME $CARGO_HOME; \
     rustup component add rustfmt; \
+    rustup component add clippy; \
     rustup --version; \
     cargo --version; \
     rustc --version;
