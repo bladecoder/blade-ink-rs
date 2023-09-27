@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::{pointer::{Pointer, self}, object::RTObject, push_pop::PushPopType, story::Story, container::Container};
+use crate::{pointer::{Pointer, self}, object::RTObject, push_pop::PushPopType, story::Story, container::Container, value::Value};
 
 pub struct Element {
     pub current_pointer: Pointer,
@@ -223,8 +223,8 @@ impl CallStack {
         let old_value = context_element.temporary_variables.get(&name).cloned();
 
         if let Some(old_value) = &old_value {
-            // TODO
-            //ListValue::retain_list_origins_for_assignment(old_value, &value);
+            Value::retain_list_origins_for_assignment(old_value.as_ref(), value.as_ref());
+
         }
 
         context_element.temporary_variables.insert(name, value);

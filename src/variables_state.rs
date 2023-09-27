@@ -214,7 +214,9 @@ impl VariablesState {
             old_value = self.global_variables.get(name).cloned();
         }
 
-        // TODO ListValue::retain_list_origins_for_assignment(&mut old_value, &value);
+        if let Some(old_value) = &old_value {
+            Value::retain_list_origins_for_assignment(old_value.as_ref(), value.as_ref());
+        }
 
         if let Some(patch) = &mut self.patch {
             patch.set_global(name, value.clone());
