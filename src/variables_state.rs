@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet}, rc::Rc, cell::RefCell};
 
-use crate::{object::RTObject, callstack::CallStack, state_patch::StatePatch, variable_assigment::VariableAssignment, value::{Value, VariablePointerValue}};
+use crate::{object::RTObject, callstack::CallStack, state_patch::StatePatch, variable_assigment::VariableAssignment, value::{Value, VariablePointerValue}, list_definitions_origin::ListDefinitionsOrigin};
 
 
 #[derive(Clone)]
@@ -11,20 +11,21 @@ pub struct VariablesState {
     pub callstack: Rc<RefCell<CallStack>>,
     pub changed_variables_for_batch_obs: Option<HashSet<String>>,
     pub variable_changed_event: Option<fn(variable_name: &str, newValue: &dyn RTObject)>,
-    //TODO listDefsOrigin: ListDefinitionsOrigin
+    list_defs_origin: Rc<ListDefinitionsOrigin>,
     pub patch: Option<StatePatch>,
 }
 
 impl VariablesState {
-    pub fn new(callstack: Rc<RefCell<CallStack>>) -> VariablesState {
+    pub fn new(callstack: Rc<RefCell<CallStack>>, list_defs_origin: Rc<ListDefinitionsOrigin>) -> VariablesState {
         VariablesState {
             global_variables: HashMap::new(),
             default_global_variables: None,
             batch_observing_variable_changes: false,
-            callstack: callstack,
+            callstack,
             changed_variables_for_batch_obs: None,
             variable_changed_event: None,
             patch: None,
+            list_defs_origin,
         }
     }
 
@@ -191,10 +192,9 @@ impl VariablesState {
                 }
             }
 
-            //TODO
-            // if let Some(list_item_value) = self.list_defs_origin.find_single_item_list_with_name(name) {
-            //     return Some(list_item_value.clone());
-            // }
+            if let Some(list_item_value) = self.list_defs_origin.find_single_item_list_with_name(name) {
+                return Some(list_item_value.clone());
+            }
         }
 
         // Temporary

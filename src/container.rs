@@ -44,9 +44,9 @@ impl Container {
             content,
             named_content,
             name,
-            visits_should_be_counted: visits_should_be_counted,
-            turn_index_should_be_counted: turn_index_should_be_counted,
-            counting_at_start_only: counting_at_start_only,
+            visits_should_be_counted,
+            turn_index_should_be_counted,
+            counting_at_start_only,
         });
 
         c.content.iter().for_each(|o| o.get_object().set_parent(&c));
@@ -93,7 +93,7 @@ impl Container {
                 Container::append_indentation(sb, indentation);
                 if let ValueType::String(s) = &v.value {
                     sb.push('\"');
-                    sb.push_str(&&s.string.replace('\n', "\\n"));
+                    sb.push_str(&s.string.replace('\n', "\\n"));
                     sb.push('\"');
                 } else {
                     sb.push_str(&v.to_string());
@@ -109,7 +109,9 @@ impl Container {
 
             if let Some(pointed_obj) = pointed_obj {
                 if !pointed_obj.is::<Container>() {
-                    if std::ptr::eq(obj.as_ref(), pointed_obj) {
+                    let a = obj.as_ref() as *const _ as *const ();
+                    let b = pointed_obj as *const _ as *const ();
+                    if std::ptr::eq(a, b) {
                         sb.push_str("  <---");
                     }
                 }
@@ -135,7 +137,7 @@ impl Container {
 
        
 
-        if only_named.len() > 0 {
+        if !only_named.is_empty() {
             Container::append_indentation(sb, indentation);
 
             sb.push_str("-- named: --\n");
@@ -239,16 +241,16 @@ impl Container {
             flags = 0;
         }
     
-        return flags;
+        flags
     }
 
     fn split_count_flags(value: i32) -> (bool, bool, bool) {
 
-        let visits_should_be_counted = if (value & COUNTFLAGS_VISITS) > 0 { true } else { false} ;
+        let visits_should_be_counted = (value & COUNTFLAGS_VISITS) > 0 ;
     
-        let turn_index_should_be_counted = if (value & COUNTFLAGS_TURNS) > 0 { true } else { false} ;
+        let turn_index_should_be_counted = (value & COUNTFLAGS_TURNS) > 0 ;
     
-        let counting_at_start_only = if (value & COUNTFLAGS_COUNTSTARTONLY) > 0 { true } else { false} ;
+        let counting_at_start_only = (value & COUNTFLAGS_COUNTSTARTONLY) > 0 ;
     
         (visits_should_be_counted, turn_index_should_be_counted, counting_at_start_only)
     }

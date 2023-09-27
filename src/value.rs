@@ -194,7 +194,7 @@ impl Value {
         if let Some(old_list) = Self::get_list_value_mut(old_value) {
             if let Some(new_list) = Self::get_list_value_mut(new_value) {
                 if new_list.items.len() == 0 {
-                    new_list.set_initial_origin_names(old_list.get_origin_names().clone());
+                    new_list.set_initial_origin_names(old_list.get_origin_names());
                 }
             }
         }
