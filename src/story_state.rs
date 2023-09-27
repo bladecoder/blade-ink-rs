@@ -2,7 +2,7 @@
 
 use std::{rc::Rc, cell::RefCell, collections::HashMap};
 
-use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::{RTObject, Object}, value::{Value, ValueType}, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch, story::Story, path::Path, void::Void, tag::Tag};
+use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::{RTObject, Object}, value::{Value, ValueType}, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch, story::Story, path::Path, void::Void, tag::Tag, list_definitions_origin::ListDefinitionsOrigin};
 
 use rand::Rng;
 
@@ -32,10 +32,11 @@ pub struct StoryState {
     pub story_seed: i32,
     pub previous_random: i32,
     current_tags: Vec<String>,
+    list_definitions: Rc<ListDefinitionsOrigin>,
 }
 
 impl StoryState {
-    pub fn new(main_content_container: Rc<Container>) -> StoryState {
+    pub fn new(main_content_container: Rc<Container>, list_definitions: Rc<ListDefinitionsOrigin>) -> StoryState {
         let current_flow = Flow::new(DEFAULT_FLOW_NAME, main_content_container.clone());
         let callstack = current_flow.callstack.clone();
 
@@ -43,14 +44,14 @@ impl StoryState {
         let story_seed = rng.gen_range(0..100);
 
         let mut state = StoryState { 
-            current_flow: current_flow, 
+            current_flow, 
             did_safe_exit: false,
             output_stream_text_dirty: true,
             output_stream_tags_dirty: true,
-            variables_state: VariablesState::new(callstack),
+            variables_state: VariablesState::new(callstack, list_definitions.clone()),
             alive_flow_names_dirty: true,
             evaluation_stack: Vec::new(),
-            main_content_container: main_content_container,
+            main_content_container,
             current_errors: Vec::with_capacity(0),
             current_warnings: Vec::with_capacity(0),
             current_text: None,
@@ -60,9 +61,10 @@ impl StoryState {
             visit_counts: HashMap::new(),
             turn_indices: HashMap::new(),
             current_turn_index: -1,
-            story_seed: story_seed,
+            story_seed,
             previous_random: 0,
             current_tags: Vec::with_capacity(0),
+            list_definitions,
         };
 
         state.go_to_start();
@@ -172,13 +174,11 @@ impl StoryState {
 
                 if !in_tag && text_content.is_some() {
                     sb.push_str(&text_content.unwrap().string);
-                } else {
-                    if let Some(control_command) = output_obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
-                        if control_command.command_type == CommandType::BeginTag {
-                            in_tag = true;
-                        } else if control_command.command_type == CommandType::EndTag {
-                            in_tag = false;
-                        }
+                } else if let Some(control_command) = output_obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
+                    if control_command.command_type == CommandType::BeginTag {
+                        in_tag = true;
+                    } else if control_command.command_type == CommandType::EndTag {
+                        in_tag = false;
                     }
                 }
             }
@@ -314,33 +314,19 @@ impl StoryState {
     }
 
     pub fn push_evaluation_stack(&mut self, obj: Rc<dyn RTObject>) {
-
-        // TODO
-
-        // let list_value = if let RTObject::ListValue(list_val) = &obj {
-        //     Some(list_val)
-        // } else {
-        //     None
-        // };
     
-        // if let Some(list_val) = list_value {
-        //     if let InkList {
-        //         origin_names: Some(origin_names),
-        //         origins: Some(origins),
-        //         ..
-        //     } = &mut list_val.value
-        //     {
-        //         origins.clear();
-    
-        //         for name in origin_names.iter() {
-        //             if let Some(def) = self.story.list_definitions.get_list_definition(name) {
-        //                 if !origins.contains(def) {
-        //                     origins.push(def.clone());
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
+        if let Some(list) = Value::get_list_value(obj.as_ref()) {
+            let origin_names = list.get_origin_names();
+
+            list.origins.borrow_mut().clear();
+
+            for name in &origin_names {
+                let def = self.list_definitions.get_list_definition(name).unwrap();
+                if !list.origins.borrow().iter().any(|e| std::ptr::eq(e, def)){
+                    list.origins.borrow_mut().push(def.clone());
+                }
+            }
+        }
     
         println!("PUSH: {}", obj.as_ref());
         self.evaluation_stack.push(obj);
@@ -703,7 +689,7 @@ impl StoryState {
     }
 
     pub fn copy_and_start_patching(&self) -> StoryState {
-        let mut copy = StoryState::new(self.main_content_container.clone());
+        let mut copy = StoryState::new(self.main_content_container.clone(), self.list_definitions.clone());
 
         copy.patch = Some(StatePatch::new(self.patch.as_ref()));
 

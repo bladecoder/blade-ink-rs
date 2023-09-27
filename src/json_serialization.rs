@@ -4,7 +4,7 @@ use serde_json::Map;
 
 use crate::{
     container::Container,
-    object::{self, RTObject}, control_command::ControlCommand, value::Value, glue::Glue, path::Path, choice_point::ChoicePoint, choice::Choice, push_pop::PushPopType, divert::Divert, variable_assigment::VariableAssignment, void::Void, variable_reference::VariableReference, native_function_call::NativeFunctionCall, tag::Tag, ink_list::InkList, ink_list_item::InkListItem,
+    object::{self, RTObject}, control_command::ControlCommand, value::Value, glue::Glue, path::Path, choice_point::ChoicePoint, choice::Choice, push_pop::PushPopType, divert::Divert, variable_assigment::VariableAssignment, void::Void, variable_reference::VariableReference, native_function_call::NativeFunctionCall, tag::Tag, ink_list::InkList, ink_list_item::InkListItem, list_definitions_origin::ListDefinitionsOrigin, list_definition::ListDefinition,
 };
 
 pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>) -> Result<Rc<dyn RTObject>, String> {
@@ -213,7 +213,7 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
 
                     let names = names_as_objs.iter().map(|e| e.as_str().unwrap().to_string()).collect();
 
-                    raw_list.set_initial_origin_names(Some(names));
+                    raw_list.set_initial_origin_names(names);
                 }
 
                 for (k,v) in list_content {
@@ -294,5 +294,24 @@ fn jobject_to_choice(obj: &Map<String, serde_json::Value>) -> Result<Rc<dyn RTOb
     let original_thread_index = obj.get("originalThreadIndex").unwrap().as_i64().unwrap() as usize;
     let path_string_on_choice = obj.get("targetPath").unwrap().as_str().unwrap();
 
-    return Ok(Rc::new(Choice::new_from_json(path_string_on_choice, source_path.to_string(),  text, index, original_thread_index)));
+    Ok(Rc::new(Choice::new_from_json(path_string_on_choice, source_path.to_string(),  text, index, original_thread_index)))
+}
+
+pub fn jtoken_to_list_definitions(def: &serde_json::Value) -> Result<ListDefinitionsOrigin, String>  {
+
+   let mut all_defs: Vec<ListDefinition> = Vec::with_capacity(0);
+
+    for (name, list_def_json) in def.as_object().unwrap() {
+
+        // Cast (string, object) to (string, int) for items
+        let mut items: HashMap<String, i32> = HashMap::new();
+        for (k, v) in list_def_json.as_object().unwrap() {
+            items.insert(k.clone(), v.as_u64().unwrap() as i32);
+        }
+
+        let def = ListDefinition::new(name.clone(), items);
+        all_defs.push(def);
+    }
+
+    Ok(ListDefinitionsOrigin::new(&mut all_defs))
 }

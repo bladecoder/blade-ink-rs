@@ -9,7 +9,7 @@ use crate::{
     error::ErrorType,
     json_serialization,
     push_pop::PushPopType,
-    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::NativeFunctionCall, variable_reference::VariableReference,
+    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::NativeFunctionCall, variable_reference::VariableReference, list_definitions_origin::ListDefinitionsOrigin, ink_list::InkList,
 };
 
 const INK_VERSION_CURRENT: i32 = 21;
@@ -33,6 +33,7 @@ pub struct Story {
     state_snapshot_at_last_new_line: Option<StoryState>,
     on_error: Option<fn(message: &str, error_type: ErrorType)>,
     prev_containers: Vec<Rc<Container>>,
+    list_definitions: Rc<ListDefinitionsOrigin>,
 }
 
 impl Story {
@@ -71,10 +72,15 @@ impl Story {
             }
         };
 
-        //object listDefsObj;
-        //if (rootObject.TryGetValue ("listDefs", out listDefsObj)) {
-        //    _listDefinitions = Json.JTokenToListDefinitions (listDefsObj);
-        //}
+        let list_definitions = match json.get("listDefs") {
+            Some(def) => Rc::new(json_serialization::jtoken_to_list_definitions(def)?),
+            None => {
+                return Err(
+                    "List Definitions node for ink not found. Are you sure it's a valid .ink.json file?"
+                        .to_string(),
+                )
+            }
+        };
 
         let main_content_container = json_serialization::jtoken_to_runtime_object(root_token, None)?;
 
@@ -95,6 +101,7 @@ impl Story {
             state_snapshot_at_last_new_line: None,
             on_error: None,
             prev_containers: Vec::new(),
+            list_definitions,
         };
 
         story.reset_state();
@@ -113,7 +120,7 @@ impl Story {
     fn reset_state(&mut self) {
         //TODO ifAsyncWeCant("ResetState");
 
-        self.state = Some(StoryState::new(self.main_content_container.clone()));
+        self.state = Some(StoryState::new(self.main_content_container.clone(), self.list_definitions.clone()));
 
         // TODO state.getVariablesState().setVariableChangedEvent(this);
 
@@ -1058,8 +1065,62 @@ impl Story {
                     } 
                 },
                 CommandType::End => self.get_state_mut().force_end(),
-                CommandType::ListFromInt => todo!(),
-                CommandType::ListRange => todo!(),
+                CommandType::ListFromInt => {
+                    let mut int_val: Option<i32> = None;
+                    let mut list_name_val: Option<&String> = None;
+
+                    let o = self.get_state_mut().pop_evaluation_stack();
+                
+                    if let Some(v) = Value::get_int_value(o.as_ref()) {
+                        int_val = Some(v);
+                    }
+
+                    let o = self.get_state_mut().pop_evaluation_stack();
+                
+                    if let Some(s) = Value::get_string_value(o.as_ref()) {
+                        list_name_val = Some(&s.string);
+                    }
+                
+                    if int_val.is_none() {
+                        panic!("Passed non-integer when creating a list element from a numerical value.");
+                    }
+                
+                    let mut generated_list_value: Option<Value> = None;
+                
+                    if let Some(found_list_def) = self.list_definitions.as_ref().get_list_definition(&list_name_val.as_ref().unwrap()) {
+                        if let Some(found_item) = found_list_def.get_item_with_value(int_val.unwrap()) {
+                            let l = InkList::from_single_element((found_item.clone(), int_val.unwrap()));
+                            generated_list_value = Some(Value::new_list(l));
+                        }
+                    } else {
+                        //panic!(format!("Failed to find List called {}", list_name_val.as_ref().unwrap()));
+                        panic!();
+                    }
+                
+                    if generated_list_value.is_none() {
+                        generated_list_value = Some(Value::new_list(InkList::new()));
+                    }
+                
+                    self.get_state_mut().push_evaluation_stack(Rc::new(generated_list_value.unwrap()));
+                
+                },
+                CommandType::ListRange => {
+                    let mut p = self.get_state_mut().pop_evaluation_stack();
+                    let max = p.into_any().downcast::<Value>();
+
+                    p = self.get_state_mut().pop_evaluation_stack();
+                    let min = p.into_any().downcast::<Value>();
+
+                    p = self.get_state_mut().pop_evaluation_stack();
+                    let target_list = Value::get_list_value(p.as_ref());
+
+                    if target_list.is_none() || min.is_err() || max.is_err()
+                        {panic!("Expected List, minimum and maximum for LIST_RANGE");}
+
+                    let result = target_list.unwrap().list_with_sub_range(&min.unwrap().value, &max.unwrap().value);
+
+                    self.get_state_mut().push_evaluation_stack(Rc::new(Value::new_list(result)));
+                },
                 CommandType::ListRandom => todo!(),
                 CommandType::BeginTag => self.get_state_mut().push_to_output_stream(content_obj.clone()),
                 CommandType::EndTag =>  {
@@ -1464,6 +1525,7 @@ impl Story {
             //     "Failed to find content at path '{}', and no approximation of it was possible.",
             //     path
             // ));
+            panic!()
         } else if result.approximate {
             // warning(format!(
             //     "Failed to find content at path '{}', so it was approximated to: '{}'.",

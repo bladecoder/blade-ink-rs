@@ -1,59 +1,48 @@
 use core::fmt;
-use std::collections::HashMap;
+use std::{collections::HashMap, cell::RefCell};
 
-use crate::{ink_list_item::InkListItem, list_definition::ListDefinition, story::Story};
+use crate::{ink_list_item::InkListItem, list_definition::ListDefinition, list_definitions_origin::ListDefinitionsOrigin, value::ValueType};
 
 pub struct InkList {
     pub items: HashMap<InkListItem, i32>,
-    origins: Vec<ListDefinition>,
-    origin_names: Option<Vec<String>>,
+    pub origins: RefCell<Vec<ListDefinition>>,
+    // we need an origin when we only have the definition (the list has not elemetns)
+    initial_origin_names:Vec<String>,
 }
 
 impl InkList {
     pub fn new() -> Self {
         Self {
             items: HashMap::new(),
-            origins: Vec::new(),
-            origin_names: None,
+            origins: RefCell::new(Vec::with_capacity(0)),
+            initial_origin_names: Vec::with_capacity(0),
         }
     }
 
-    pub fn from_single_element(single_element: (InkListItem, i32)) -> Self {
-        // let mut items = HashMap::new();
-        // items.insert(single_element.0.clone(), single_element.1);
+    pub fn from_single_element(single_element: (InkListItem, i32))  -> Self {
+        let mut l = Self::new();
+        l.items.insert(single_element.0, single_element.1);
 
-        // let mut origins = Vec::new();
-        // if let Some(origin_name) = single_element.0.get_origin_name() {
-        //     let def = origin_story.get_list_definitions().get_list_definition(origin_name);
-
-        //     if let Some(list_def) = def {
-        //         origins.push(list_def.clone());
-        //     } else {
-        //         panic!(
-        //             "InkList origin could not be found in story when constructing new list: {}",
-        //             origin_name
-        //         );
-        //     }
-        // }
-
-        // Self {
-        //     items,
-        //     origins,
-        //     origin_names: None,
-        // }
-
-        todo!()
+        l
     }
 
-    pub fn from_single_origin_list_name(
-        single_origin_list_name: &str,
-        origin_story: &Story,
-    ) -> Result<Self, &'static str> {
-        // let mut ink_list = InkList::new();
-        // ink_list.set_initial_origin_name(single_origin_list_name, origin_story)?;
-        // Ok(ink_list)
+    pub fn from_single_origin(single_origin: String, list_definitions: ListDefinitionsOrigin) -> Self {
+        let mut l = Self::new();
 
-        todo!()
+        l.initial_origin_names.push(single_origin);
+
+        let def = list_definitions.get_list_definition(&l.initial_origin_names[0]);
+
+        if let Some(list_def) = def {
+            l.origins.borrow_mut().push(list_def.clone());
+        } else {
+            panic!(
+                "InkList origin could not be found in story when constructing new list: {}",
+                &l.initial_origin_names[0]
+            );
+        }
+
+        l
     }
 
     fn from_other_list(other_list: &InkList) -> Self {
@@ -63,9 +52,7 @@ impl InkList {
             ink_list.items.insert(item.clone(), *value);
         }
 
-        if let Some(names) = &other_list.origin_names {
-            ink_list.origin_names = Some(names.clone());
-        }
+        ink_list.initial_origin_names = other_list.initial_origin_names.clone();
 
         ink_list.origins = other_list.origins.clone();
 
@@ -111,30 +98,23 @@ impl InkList {
         min
     }
 
-    pub fn set_initial_origin_names(&mut self, initial_origin_names: Option<Vec<String>>) {
-        match &initial_origin_names {
-            Some(_) => {
-                self.origin_names = initial_origin_names;
-            },
-            None =>  self.origin_names = None,
-        };
+    pub fn set_initial_origin_names(&mut self, initial_origin_names: Vec<String>) {
+        self.initial_origin_names = initial_origin_names;
     }
 
-    pub fn get_origin_names(&mut self) -> &Option<Vec<String>> {
-        if self.items.len() > 0 {
+    pub fn get_origin_names(&self) -> Vec<String> {
+        if !self.items.is_empty() {
 
-            if self.origin_names.is_none()  && self.items.len() > 0 {
-                self.origin_names = Some(Vec::new());
-             } else { 
-                self.origin_names.as_mut().unwrap().clear();
-            }
+            let mut names = Vec::new();
 
             for k in self.items.keys() {
-                self.origin_names.as_mut().unwrap().push(k.get_origin_name().unwrap().clone());
+                names.push(k.get_origin_name().unwrap().clone());
             }
+
+            return names;
         }
 
-        return &self.origin_names;
+        self.initial_origin_names.clone()
     }
 
     pub fn union(&self, other_list: &InkList) -> InkList {
@@ -172,13 +152,58 @@ impl InkList {
     }
 
     pub fn contains(&self, other_list: &InkList) -> bool {
-        if other_list.items.len() == 0 || self.items.len() == 0 { return false; }
+        if other_list.items.is_empty() || self.items.is_empty() { return false; }
 
         for k in other_list.items.keys() {
             if !self.items.contains_key(k) { return false; }
         }
 
         true    
+    }
+
+    pub(crate) fn get_all(&self) -> InkList {
+        let mut list = InkList::new();
+
+        for origin in self.origins.borrow_mut().iter_mut() {
+            list.items = origin.get_items().clone()
+        }
+
+        list
+    }
+
+    pub(crate) fn list_with_sub_range(&self, min_bound: &ValueType, max_bound: &ValueType) -> InkList {
+        if self.items.is_empty() {return InkList::new();}
+
+        let ordered = self.get_ordered_items();
+        let mut min_value = 0;
+        let mut max_value = i32::MAX;
+
+        if let ValueType::Int(v) = min_bound {
+            min_value = *v;
+        } else if let ValueType::List(l) = min_bound {
+            if !l.items.is_empty() {
+                min_value = l.get_min_item().1;
+            }
+        }
+
+        if let ValueType::Int(v) = max_bound {
+            max_value = *v;
+        } else if let ValueType::List(l) = max_bound {
+            if !l.items.is_empty() {
+                max_value = l.get_min_item().1;
+            }
+        }
+
+        let mut sub_list = InkList::new();
+        sub_list.set_initial_origin_names(self.initial_origin_names.clone());
+
+        for (k, v) in ordered {
+            if *v >= min_value && *v <= max_value {
+                sub_list.items.insert(k.clone(), *v);
+            }
+        }
+
+        return sub_list;
     } 
 }
 

@@ -1,6 +1,6 @@
 use std::{fmt, collections::HashMap, rc::Rc};
 
-use crate::{object::{Object, RTObject}, value::{Value, ValueType}};
+use crate::{object::{Object, RTObject}, value::{Value, ValueType}, void::Void};
 
 #[derive(Debug)]
 pub enum Op {
@@ -46,7 +46,6 @@ pub enum Op {
 pub struct NativeFunctionCall {
     obj: Object,
     op: Op,
-    number_of_parameters: i32,
 }
 
 impl NativeFunctionCall {
@@ -91,7 +90,6 @@ impl NativeFunctionCall {
         Self {
             obj: Object::new(),
             op,
-            number_of_parameters: 0,
         }
     }
 
@@ -133,6 +131,22 @@ impl NativeFunctionCall {
 
     pub(crate) fn call(&self, params: Vec<Rc<dyn RTObject>>) -> std::rc::Rc<dyn RTObject> {
 
+        if self.get_number_of_parameters() != params.len() || params.len() < 1 || params.len() > 2 {
+            panic!("Unexpected number of parameters");
+        }
+
+        let mut has_list = false;
+
+        for p in &params {
+            if p.as_ref().as_any().is::<Void>() {
+                panic!("Attempting to perform operation on a void value. Did you forget to 'return' a value from a function you called here?");
+            }
+
+            if Value::get_list_value(p.as_ref()).is_some() {
+                has_list = true;
+            }
+        }
+
         let coerced_params = self.coerce_values_to_single_type(params);
 
         match self.op {
@@ -163,9 +177,9 @@ impl NativeFunctionCall {
             Op::Intersect => self.intersect_op(&coerced_params),
             Op::ListMin => todo!(),
             Op::ListMax => todo!(),
-            Op::All => todo!(),
+            Op::All => self.all_op(&coerced_params),
             Op::Count => todo!(),
-            Op::ValueOfList => todo!(),
+            Op::ValueOfList => self.value_of_list_op(&coerced_params),
             Op::Invert => todo!(),
         }
     }
@@ -204,7 +218,7 @@ impl NativeFunctionCall {
         return result;
     }
 
-    fn and_op(&self, params: &Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+    fn and_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
         match &params[0].value {
             ValueType::Bool(op1) => match params[1].value {
                 ValueType::Bool(op2) => Rc::new(Value::new_bool(*op1 && op2)),
@@ -223,7 +237,7 @@ impl NativeFunctionCall {
         }
     }
 
-    fn greater_op(&self, params: &Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+    fn greater_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Rc::new(Value::new_bool(*op1 > op2)),
@@ -238,7 +252,7 @@ impl NativeFunctionCall {
         }
     }
 
-    fn subtract_op(&self, params: &Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+    fn subtract_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Rc::new(Value::new_int(*op1 - op2)),
@@ -253,7 +267,7 @@ impl NativeFunctionCall {
         }
     }
 
-    fn add_op(&self, params: &Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+    fn add_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Rc::new(Value::new_int(op1 + op2)),
@@ -280,7 +294,7 @@ impl NativeFunctionCall {
         }
     }
 
-    fn divide_op(&self, params: &Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+    fn divide_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
         match params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Rc::new(Value::new_int(op1 / op2)),
@@ -294,7 +308,7 @@ impl NativeFunctionCall {
         }
     }
 
-    fn multiply_op(&self, params: &Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+    fn multiply_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
         match params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Rc::new(Value::new_int(op1 * op2)),
@@ -308,7 +322,7 @@ impl NativeFunctionCall {
         }
     }
 
-    fn or_op(&self, params: &Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+    fn or_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
         match &params[0].value {
             ValueType::Bool(op1) => match params[1].value {
                 ValueType::Bool(op2) => Rc::new(Value::new_bool(*op1 || op2)),
@@ -327,7 +341,7 @@ impl NativeFunctionCall {
         }
     }
 
-    fn min_op(&self, params: &Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+    fn min_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Rc::new(Value::new_int(i32::min(*op1, op2))),
@@ -342,7 +356,7 @@ impl NativeFunctionCall {
         }
     }
 
-    fn max_op(&self, params: &Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+    fn max_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Rc::new(Value::new_int(i32::max(*op1, op2))),
@@ -357,7 +371,7 @@ impl NativeFunctionCall {
         }
     }
 
-    fn equal_op(&self, params: &Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+    fn equal_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
         match &params[0].value {
             ValueType::Bool(op1) => match params[1].value {
                 ValueType::Bool(op2) => Rc::new(Value::new_bool(*op1 == op2)),
@@ -380,7 +394,7 @@ impl NativeFunctionCall {
         }
     }
 
-    fn not_equals_op(&self, params: &Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+    fn not_equals_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
         match &params[0].value {
             ValueType::Bool(op1) => match params[1].value {
                 ValueType::Bool(op2) => Rc::new(Value::new_bool(*op1 != op2)),
@@ -403,7 +417,7 @@ impl NativeFunctionCall {
         }
     }
 
-    fn mod_op(&self, params: &Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+    fn mod_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
         match params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Rc::new(Value::new_int(op1 % op2)),
@@ -450,6 +464,24 @@ impl NativeFunctionCall {
             ValueType::List(op1) => match &params[1].value {
                 ValueType::List(op2) => Rc::new(Value::new_bool(!op1.contains(op2))),
                 _ => panic!()
+            },
+            _ => panic!()
+        }
+    }
+
+    fn value_of_list_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::List(op1) => {
+                Rc::new(Value::new_int(op1.get_max_item().1))
+            },
+            _ => panic!()
+        }
+    }
+
+    fn all_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::List(op1) => {
+                Rc::new(Value::new_list(op1.get_all()))
             },
             _ => panic!()
         }
