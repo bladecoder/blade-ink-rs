@@ -189,10 +189,10 @@ impl Value {
         }
     }
 
-    pub fn retain_list_origins_for_assignment(old_value: &mut dyn RTObject, new_value: &mut dyn RTObject) {
+    pub fn retain_list_origins_for_assignment(old_value: &dyn RTObject, new_value: &dyn RTObject) {
 
-        if let Some(old_list) = Self::get_list_value_mut(old_value) {
-            if let Some(new_list) = Self::get_list_value_mut(new_value) {
+        if let Some(old_list) = Self::get_list_value(old_value) {
+            if let Some(new_list) = Self::get_list_value(new_value) {
                 if new_list.items.len() == 0 {
                     new_list.set_initial_origin_names(old_list.get_origin_names());
                 }

@@ -180,7 +180,7 @@ impl NativeFunctionCall {
             Op::All => self.all_op(&coerced_params),
             Op::Count => todo!(),
             Op::ValueOfList => self.value_of_list_op(&coerced_params),
-            Op::Invert => todo!(),
+            Op::Invert => self.inverse_op(&coerced_params),
         }
     }
 
@@ -262,7 +262,10 @@ impl NativeFunctionCall {
                 ValueType::Float(op2) => Rc::new(Value::new_float(*op1 - op2)),
                 _ => panic!()
             },
-            ValueType::List(op1) => todo!(),
+            ValueType::List(op1) => match &params[1].value {
+                ValueType::List(op2) => Rc::new(Value::new_list(op1.without(op2))),
+                _ => panic!()
+            },
             _ => panic!()
         }
     }
@@ -482,6 +485,15 @@ impl NativeFunctionCall {
         match &params[0].value {
             ValueType::List(op1) => {
                 Rc::new(Value::new_list(op1.get_all()))
+            },
+            _ => panic!()
+        }
+    }
+
+    fn inverse_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::List(op1) => {
+                Rc::new(Value::new_list(op1.inverse()))
             },
             _ => panic!()
         }

@@ -7,7 +7,7 @@ pub struct InkList {
     pub items: HashMap<InkListItem, i32>,
     pub origins: RefCell<Vec<ListDefinition>>,
     // we need an origin when we only have the definition (the list has not elemetns)
-    initial_origin_names:Vec<String>,
+    initial_origin_names: RefCell<Vec<String>>,
 }
 
 impl InkList {
@@ -15,7 +15,7 @@ impl InkList {
         Self {
             items: HashMap::new(),
             origins: RefCell::new(Vec::with_capacity(0)),
-            initial_origin_names: Vec::with_capacity(0),
+            initial_origin_names: RefCell::new(Vec::with_capacity(0)),
         }
     }
 
@@ -27,18 +27,18 @@ impl InkList {
     }
 
     pub fn from_single_origin(single_origin: String, list_definitions: ListDefinitionsOrigin) -> Self {
-        let mut l = Self::new();
+        let l = Self::new();
 
-        l.initial_origin_names.push(single_origin);
+        l.initial_origin_names.borrow_mut().push(single_origin);
 
-        let def = list_definitions.get_list_definition(&l.initial_origin_names[0]);
+        let def = list_definitions.get_list_definition(&l.initial_origin_names.borrow()[0]);
 
         if let Some(list_def) = def {
             l.origins.borrow_mut().push(list_def.clone());
         } else {
             panic!(
                 "InkList origin could not be found in story when constructing new list: {}",
-                &l.initial_origin_names[0]
+                &l.initial_origin_names.borrow()[0]
             );
         }
 
@@ -98,8 +98,8 @@ impl InkList {
         min
     }
 
-    pub fn set_initial_origin_names(&mut self, initial_origin_names: Vec<String>) {
-        self.initial_origin_names = initial_origin_names;
+    pub fn set_initial_origin_names(&self, initial_origin_names: Vec<String>) {
+        self.initial_origin_names.replace(initial_origin_names);
     }
 
     pub fn get_origin_names(&self) -> Vec<String> {
@@ -114,7 +114,7 @@ impl InkList {
             return names;
         }
 
-        self.initial_origin_names.clone()
+        self.initial_origin_names.borrow().clone()
     }
 
     pub fn union(&self, other_list: &InkList) -> InkList {
@@ -125,6 +125,16 @@ impl InkList {
         }
 
         union
+    }
+
+    pub fn without(&self, other_list: &InkList) -> InkList {
+        let mut result = InkList::from_other_list(self);
+       
+        for (key, value) in &other_list.items {
+            result.items.remove(key);
+        }
+
+        result
     }
 
     pub fn intersect(&self, other_list: &InkList) -> InkList {
@@ -195,7 +205,7 @@ impl InkList {
         }
 
         let mut sub_list = InkList::new();
-        sub_list.set_initial_origin_names(self.initial_origin_names.clone());
+        sub_list.set_initial_origin_names(self.initial_origin_names.borrow().clone());
 
         for (k, v) in ordered {
             if *v >= min_value && *v <= max_value {
@@ -204,6 +214,20 @@ impl InkList {
         }
 
         return sub_list;
+    }
+
+    pub fn inverse(&self) -> InkList {
+        let mut list = InkList::new();
+
+        for origin in self.origins.borrow_mut().iter_mut() {
+            for (k, v) in origin.get_items() {
+                if !self.items.contains_key(k) {
+                    list.items.insert(k.clone(), *v);
+                }
+            }
+        }
+
+        list
     } 
 }
 
