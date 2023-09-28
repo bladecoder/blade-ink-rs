@@ -9,7 +9,7 @@ use crate::{
     error::ErrorType,
     json_serialization,
     push_pop::PushPopType,
-    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::NativeFunctionCall, variable_reference::VariableReference, list_definitions_origin::ListDefinitionsOrigin, ink_list::InkList,
+    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::NativeFunctionCall, variable_reference::VariableReference, list_definitions_origin::ListDefinitionsOrigin, ink_list::InkList, ink_list_item::InkListItem,
 };
 
 const INK_VERSION_CURRENT: i32 = 21;
@@ -1142,22 +1142,14 @@ impl Story {
                             let next_random = rng.gen::<u32>();
                             let list_item_index = (next_random as usize) % list.items.len();
 
-                            // Iterate through to get the random element
-                            let mut list_enumerator = list.items.iter();
-                            let mut random_item = None;
-
-                            for (i, (key, value)) in list_enumerator.enumerate() {
-                                if i == list_item_index {
-                                    random_item = Some((key.clone(), *value));
-                                    break;
-                                }
-                            }
-
-                            let random_item = random_item.unwrap();
+                            // Iterate through to get the random element, sorted for predictibility
+                            let mut sorted: Vec<(&InkListItem, &i32)> = list.items.iter().collect();
+                            sorted.sort_by(|a, b| b.1.cmp(a.1));
+                            let random_item = sorted[list_item_index];
 
                             // Origin list is simply the origin of the one element
                             let mut new_list = InkList::from_single_origin(random_item.0.get_origin_name().unwrap().clone(), self.list_definitions.as_ref());
-                            new_list.items.insert(random_item.0.clone(), random_item.1);
+                            new_list.items.insert(random_item.0.clone(), *random_item.1);
                             
                             self.get_state_mut().previous_random = next_random as i32;
 
