@@ -271,27 +271,24 @@ impl Value {
                 match cast_dest_type {
                     CAST_INT => {
                         let max = l.get_max_item();
-                        if max.0.is_none() {
-                            Some(Self::new_int(0))
-                        } else {
-                            Some(Self::new_int(max.1))
+                        match max {
+                            Some(i) => Some(Self::new_int(i.1)),
+                            None => Some(Self::new_int(0))
                         }
                     },
                     CAST_FLOAT => {
                         let max = l.get_max_item();
-                        if max.0.is_none() {
-                            Some(Self::new_float(0.0))
-                        } else {
-                            Some(Self::new_float(max.1 as f32))
+                        match max {
+                            Some(i) => Some(Self::new_float(i.1 as f32)),
+                            None => Some(Self::new_float(0.0))
                         }
                     },
                     CAST_LIST => None,
                     CAST_STRING => {
                         let max = l.get_max_item();
-                        if max.0.is_none() {
-                            Some(Self::new_string(""))
-                        } else {
-                            Some(Self::new_string(&max.0.unwrap().to_string()))
+                        match max {
+                            Some(i) =>  Some(Self::new_string(&i.0.to_string())),
+                            None => Some(Self::new_string(""))
                         }
                     },
                     _ => panic!(),
