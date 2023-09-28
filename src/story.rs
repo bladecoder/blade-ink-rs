@@ -9,7 +9,7 @@ use crate::{
     error::ErrorType,
     json_serialization,
     push_pop::PushPopType,
-    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::NativeFunctionCall, variable_reference::VariableReference, list_definitions_origin::ListDefinitionsOrigin, ink_list::InkList, ink_list_item::InkListItem,
+    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::NativeFunctionCall, variable_reference::VariableReference, list_definitions_origin::ListDefinitionsOrigin, ink_list::InkList, ink_list_item::InkListItem, variables_state::VariablesState,
 };
 
 const INK_VERSION_CURRENT: i32 = 21;
@@ -745,6 +745,14 @@ impl Story {
         }
     }
 
+    pub fn get_variables_state(&self) -> &VariablesState {
+        self.get_state().get_variables_state()
+    }
+
+    pub fn get_variables_state_mut(&mut self) -> &mut VariablesState {
+        self.get_state_mut().get_variables_state_mut()
+    }
+
     fn perform_logic_and_flow_control(&mut self, content_obj: &Option<Rc<dyn RTObject>>) -> bool {
         let content_obj = match content_obj {
             Some(content_obj) => {
@@ -963,9 +971,56 @@ impl Story {
                     self.get_state_mut().push_evaluation_stack(Rc::new(Value::new_string(&sb)));
                 },
                 CommandType::NoOp => {},
-                CommandType::ChoiceCount => todo!(),
-                CommandType::Turns => todo!(),
-                CommandType::TurnsSince |  CommandType::ReadCount => todo!(),
+                CommandType::ChoiceCount => {
+                    let choice_count = self.get_state().get_generated_choices().len();
+                    self.get_state_mut().push_evaluation_stack(Rc::new(Value::new_int(choice_count as i32)));
+                },
+                CommandType::Turns => {
+                    let current_turn = self.get_state().current_turn_index;
+                    self.get_state_mut().push_evaluation_stack(Rc::new(Value::new_int( current_turn + 1)));
+                },
+                CommandType::TurnsSince |  CommandType::ReadCount => {
+                    let target = self.get_state_mut().pop_evaluation_stack();
+                    if Value::get_divert_target_value(target.as_ref()).is_none() {
+                        let extra_note = "";
+                        if Value::get_int_value(target.as_ref()).is_some() {
+                        //     extraNote = ". Did you accidentally pass a read count ('knot_name') instead of a target "
+                        //             + "('-> knot_name')?";
+                        }
+                        // error("TURNS_SINCE expected a divert target (knot, stitch, label name), but saw " + target
+                        //         + extra_note);
+                        panic!();
+                    }
+
+                    let target = Value::get_divert_target_value(target.as_ref()).unwrap();
+
+                    let otmp = self.content_at_path(target).correct_obj();
+                    let container = match &otmp {
+                        Some(o) => o.clone().into_any().downcast::<Container>().ok(),
+                        None => None,
+                    };
+
+                    let mut either_count = 0;
+
+                    match container {
+                        Some(container) => {
+                            if eval_command.command_type == CommandType::TurnsSince {
+                                either_count = self.get_state().turns_since_for_container(container.as_ref());
+                            } else {either_count = self.get_state_mut().visit_count_for_container(&container) as i32;}
+                        },
+                        None => {
+                            if eval_command.command_type == CommandType::TurnsSince {
+                                either_count = -1; // turn count, default to never/unknown
+                            } else { either_count = 0; } // visit count, assume 0 to default to allowing entry
+
+                            // warning("Failed to find container for " + evalCommand.toString() + " lookup at "
+                            //         + divertTarget.getTargetPath().toString());
+                            panic!()
+                        }
+                    }
+
+                    self.get_state_mut().push_evaluation_stack(Rc::new(Value::new_int(either_count)));
+                },
                 CommandType::Random => {
                     let mut max_int = None;
                     let o  = self.get_state_mut().pop_evaluation_stack();

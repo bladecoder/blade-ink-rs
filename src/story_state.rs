@@ -26,9 +26,9 @@ pub struct StoryState {
     patch: Option<StatePatch>,
     named_flows: Option<HashMap<String, Flow>>,
     pub diverted_pointer: Pointer,
-    visit_counts: HashMap<String, usize>,
-    turn_indices: HashMap<String, usize>,
-    current_turn_index: i32,
+    pub visit_counts: HashMap<String, usize>,
+    pub turn_indices: HashMap<String, usize>,
+    pub current_turn_index: i32,
     pub story_seed: i32,
     pub previous_random: i32,
     current_tags: Vec<String>,
@@ -562,10 +562,8 @@ impl StoryState {
                         }
                     }
                 }
-            } else if text.is_newline {
-                if self.output_stream_ends_in_newline() || !self.output_stream_contains_content() {
-                    include_in_output = false;
-                }
+            } else if text.is_newline && (self.output_stream_ends_in_newline() || !self.output_stream_contains_content()) {
+                include_in_output = false;
             }
         }
     
@@ -965,6 +963,30 @@ impl StoryState {
         }   
 
         Ok(None)    
+    }
+
+    pub(crate) fn turns_since_for_container(&self, container: &Container) -> i32 {
+        if !container.turn_index_should_be_counted {
+            // story.error("TURNS_SINCE() for target (" + container.getName() + " - on " + container.getDebugMetadata()
+            //         + ") unknown.");
+            panic!()
+        }
+
+        let mut index = 0;
+
+        if self.patch.is_some() && self.patch.as_ref().unwrap().get_turn_index(container).is_some() {
+            index = *self.patch.as_ref().unwrap().get_turn_index(container).unwrap() as i32;
+            return self.current_turn_index - index;
+        }
+
+        let container_path_str = Object::get_path(container).to_string();
+
+        if self.turn_indices.contains_key(&container_path_str) {
+            index = *self.turn_indices.get(&container_path_str).unwrap() as i32;
+            return self.current_turn_index - index;
+        } else {
+            return -1;
+        }    
     }
 
 }
