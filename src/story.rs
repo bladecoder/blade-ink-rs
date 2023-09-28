@@ -1121,7 +1121,52 @@ impl Story {
 
                     self.get_state_mut().push_evaluation_stack(Rc::new(Value::new_list(result)));
                 },
-                CommandType::ListRandom => todo!(),
+                CommandType::ListRandom => {
+                    let o = self.get_state_mut().pop_evaluation_stack();
+                    let list = Value::get_list_value(o.as_ref());
+
+                    if list.is_none() {panic!("Expected list for LIST_RANDOM");}
+
+                    let list = list.unwrap();
+
+                    let new_list = {
+                        // List was empty: return empty list
+                        if list.items.is_empty() {
+                            InkList::new()
+                        }
+                        // Non-empty source list
+                        else {
+                            // Generate a random index for the element to take
+                            let result_seed = self.get_state().story_seed + self.get_state().previous_random;
+                            let mut rng = StdRng::seed_from_u64(result_seed as u64);
+                            let next_random = rng.gen::<u32>();
+                            let list_item_index = (next_random as usize) % list.items.len();
+
+                            // Iterate through to get the random element
+                            let mut list_enumerator = list.items.iter();
+                            let mut random_item = None;
+
+                            for (i, (key, value)) in list_enumerator.enumerate() {
+                                if i == list_item_index {
+                                    random_item = Some((key.clone(), *value));
+                                    break;
+                                }
+                            }
+
+                            let random_item = random_item.unwrap();
+
+                            // Origin list is simply the origin of the one element
+                            let mut new_list = InkList::from_single_origin(random_item.0.get_origin_name().unwrap().clone(), self.list_definitions.as_ref());
+                            new_list.items.insert(random_item.0.clone(), random_item.1);
+                            
+                            self.get_state_mut().previous_random = next_random as i32;
+
+                            new_list
+                        }
+                    };
+
+                    self.get_state_mut().push_evaluation_stack(Rc::new(Value::new_list(new_list)));
+                },
                 CommandType::BeginTag => self.get_state_mut().push_to_output_stream(content_obj.clone()),
                 CommandType::EndTag =>  {
 

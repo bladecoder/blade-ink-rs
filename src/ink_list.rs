@@ -26,7 +26,7 @@ impl InkList {
         l
     }
 
-    pub fn from_single_origin(single_origin: String, list_definitions: ListDefinitionsOrigin) -> Self {
+    pub fn from_single_origin(single_origin: String, list_definitions: &ListDefinitionsOrigin) -> Self {
         let l = Self::new();
 
         l.initial_origin_names.borrow_mut().push(single_origin);
@@ -72,12 +72,12 @@ impl InkList {
         ordered
     }
 
-    pub fn get_max_item(&self) -> (Option<&InkListItem>, i32) {
-        let mut max = (None, 0);
+    pub fn get_max_item(&self) -> Option<(&InkListItem, i32)> {
+        let mut max: Option<(&InkListItem, i32)> = None;
 
         for (k,v) in &self.items {
-            if max.0.is_none() || *v > max.1 {
-                max = (Some(k), *v);
+            if max.is_none() || *v > max.as_ref().unwrap().1 {
+                max = Some((k, *v));
             }
 
         }
@@ -85,12 +85,12 @@ impl InkList {
         max
     }
 
-    pub fn get_min_item(&self) -> (Option<&InkListItem>, i32) {
-        let mut min = (None, 0);
+    pub fn get_min_item(&self) -> Option<(&InkListItem, i32)> {
+        let mut min: Option<(&InkListItem, i32)> = None;
 
         for (k,v) in &self.items {
-            if min.0.is_none() || *v < min.1 {
-                min = (Some(k), *v);
+            if min.is_none() || *v < min.as_ref().unwrap().1 {
+                min = Some((k, *v));
             }
 
         }
@@ -150,15 +150,15 @@ impl InkList {
     }
 
     pub fn has(&self, other_list: &InkList) -> InkList {
-        let mut intersection = InkList::new();
+        let mut result = InkList::new();
        
         for (k, v) in &self.items {
             if other_list.items.contains_key(k) {
-                intersection.items.insert(k.clone(), *v);
+                result.items.insert(k.clone(), *v);
             }
         }
 
-        intersection
+        result
     }
 
     pub fn contains(&self, other_list: &InkList) -> bool {
@@ -192,7 +192,7 @@ impl InkList {
             min_value = *v;
         } else if let ValueType::List(l) = min_bound {
             if !l.items.is_empty() {
-                min_value = l.get_min_item().1;
+                min_value = l.get_min_item().unwrap().1;
             }
         }
 
@@ -200,7 +200,7 @@ impl InkList {
             max_value = *v;
         } else if let ValueType::List(l) = max_bound {
             if !l.items.is_empty() {
-                max_value = l.get_min_item().1;
+                max_value = l.get_max_item().unwrap().1;
             }
         }
 
@@ -228,7 +228,95 @@ impl InkList {
         }
 
         list
-    } 
+    }
+
+    pub fn max_as_list(&self) -> InkList {
+        match self.items.is_empty() {
+            true => InkList::new(),
+            false => {
+                let item = self.get_max_item();
+                InkList::from_single_element((item.as_ref().unwrap().0.clone(), item.as_ref().unwrap().1))
+            },
+        }
+    }
+
+    pub fn min_as_list(&self) -> InkList {
+        match self.items.is_empty() {
+            true => InkList::new(),
+            false => {
+                let item = self.get_min_item();
+                InkList::from_single_element((item.as_ref().unwrap().0.clone(), item.as_ref().unwrap().1))
+            },
+        }
+    }
+
+    // Returns true if all the item values in the current list are greater than all
+    // the item values in the passed-in list.
+    pub fn greater_than(&self, other_list: &InkList) -> bool {
+        if self.items.is_empty() {
+            return false;
+        }
+        if other_list.items.is_empty() {
+            return true;
+        }
+        
+        // All greater
+        self.get_min_item().unwrap().1 > other_list.get_max_item().unwrap().1
+    }
+
+    // Returns true if the item values in the current list overlap or are all
+    // greater than the item values in the passed-in list.
+    pub fn greater_than_or_equals(&self, other_list: &InkList) -> bool {
+        if self.items.is_empty() {
+            return false;
+        }
+        if other_list.items.is_empty() {
+            return true;
+        }
+        
+        // All greater
+        self.get_min_item().unwrap().1 >= other_list.get_min_item().unwrap().1
+            && self.get_max_item().unwrap().1 >= other_list.get_max_item().unwrap().1
+    }
+
+    // Returns true if all the item values in the current list are less than all the
+    // item values in the passed-in list.
+    pub fn less_than(&self, other_list: &InkList) -> bool {
+        if other_list.items.is_empty() {
+            return false;
+        }
+        if self.items.is_empty() {
+            return true;
+        }
+        
+        self.get_max_item().unwrap().1 < other_list.get_min_item().unwrap().1
+    }
+
+    // Returns true if the item values in the current list overlap or are all less
+    // than the item values in the passed-in list.
+    pub fn less_than_or_equals(&self, other_list: &InkList) -> bool {
+        if other_list.items.is_empty() {
+            return false;
+        }
+        if self.items.is_empty() {
+            return true;
+        }
+        
+        self.get_max_item().unwrap().1 <= other_list.get_max_item().unwrap().1
+            && self.get_min_item().unwrap().1 <= other_list.get_min_item().unwrap().1
+    }
+}
+
+impl PartialEq for InkList {
+    fn eq(&self, other: &Self) -> bool {
+        if other.items.len() != self.items.len() {return false;}
+
+        for key in self.items.keys() {
+            if !other.items.contains_key(key) {return false;}
+        }
+
+        true
+    }
 }
 
 impl fmt::Display for InkList {

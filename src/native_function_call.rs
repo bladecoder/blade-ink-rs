@@ -158,11 +158,11 @@ impl NativeFunctionCall {
             Op::Negate => todo!(),
             Op::Equal => self.equal_op(&coerced_params),
             Op::Greater => self.greater_op(&coerced_params),
-            Op::Less => todo!(),
-            Op::GreaterThanOrEquals => todo!(),
-            Op::LessThanOrEquals => todo!(),
+            Op::Less => self.less_op(&coerced_params),
+            Op::GreaterThanOrEquals => self.greater_than_or_equals_op(&coerced_params),
+            Op::LessThanOrEquals => self.less_than_or_equals_op(&coerced_params),
             Op::NotEquals => self.not_equals_op(&coerced_params),
-            Op::Not => todo!(),
+            Op::Not => self.not_op(&coerced_params),
             Op::And => self.and_op(&coerced_params),
             Op::Or => self.or_op(&coerced_params),
             Op::Min => self.min_op(&coerced_params),
@@ -175,10 +175,10 @@ impl NativeFunctionCall {
             Op::Has => self.has(&coerced_params),
             Op::Hasnt => self.hasnt(&coerced_params),
             Op::Intersect => self.intersect_op(&coerced_params),
-            Op::ListMin => todo!(),
-            Op::ListMax => todo!(),
+            Op::ListMin => self.list_min_op(&coerced_params),
+            Op::ListMax => self.list_max_op(&coerced_params),
             Op::All => self.all_op(&coerced_params),
-            Op::Count => todo!(),
+            Op::Count => self.count_op(&coerced_params),
             Op::ValueOfList => self.value_of_list_op(&coerced_params),
             Op::Invert => self.inverse_op(&coerced_params),
         }
@@ -215,7 +215,7 @@ impl NativeFunctionCall {
             }
         }
 
-        return result;
+        result
     }
 
     fn and_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
@@ -232,7 +232,10 @@ impl NativeFunctionCall {
                 ValueType::Float(op2) => Rc::new(Value::new_bool(*op1 != 0.0 && op2 != 0.0)),
                 _ => panic!()
             },
-            ValueType::List(l) => todo!(),
+            ValueType::List(op1) => match &params[1].value {
+                ValueType::List(op2) => Rc::new(Value::new_bool(!op1.items.is_empty()  && !op2.items.is_empty())),
+                _ => panic!()
+            },
             _ => panic!()
         }
     }
@@ -247,7 +250,65 @@ impl NativeFunctionCall {
                 ValueType::Float(op2) => Rc::new(Value::new_bool(*op1 > op2)),
                 _ => panic!()
             },
-            ValueType::List(l) => todo!(),
+            ValueType::List(op1) => match &params[1].value {
+                ValueType::List(op2) => Rc::new(Value::new_bool(op1.greater_than(op2))),
+                _ => panic!()
+            },
+            _ => panic!()
+        }
+    }
+
+
+    fn less_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::Int(op1) => match params[1].value {
+                ValueType::Int(op2) => Rc::new(Value::new_bool(*op1 < op2)),
+                _ => panic!()
+            },
+            ValueType::Float(op1) => match params[1].value {
+                ValueType::Float(op2) => Rc::new(Value::new_bool(*op1 < op2)),
+                _ => panic!()
+            },
+            ValueType::List(op1) => match &params[1].value {
+                ValueType::List(op2) => Rc::new(Value::new_bool(op1.less_than(op2))),
+                _ => panic!()
+            },
+            _ => panic!()
+        }
+    }
+
+    fn greater_than_or_equals_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::Int(op1) => match params[1].value {
+                ValueType::Int(op2) => Rc::new(Value::new_bool(*op1 >= op2)),
+                _ => panic!()
+            },
+            ValueType::Float(op1) => match params[1].value {
+                ValueType::Float(op2) => Rc::new(Value::new_bool(*op1 >= op2)),
+                _ => panic!()
+            },
+            ValueType::List(op1) => match &params[1].value {
+                ValueType::List(op2) => Rc::new(Value::new_bool(op1.greater_than_or_equals(op2))),
+                _ => panic!()
+            },
+            _ => panic!()
+        }
+    }
+
+    fn less_than_or_equals_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::Int(op1) => match params[1].value {
+                ValueType::Int(op2) => Rc::new(Value::new_bool(*op1 <= op2)),
+                _ => panic!()
+            },
+            ValueType::Float(op1) => match params[1].value {
+                ValueType::Float(op2) => Rc::new(Value::new_bool(*op1 <= op2)),
+                _ => panic!()
+            },
+            ValueType::List(op1) => match &params[1].value {
+                ValueType::List(op2) => Rc::new(Value::new_bool(op1.less_than_or_equals(op2))),
+                _ => panic!()
+            },
             _ => panic!()
         }
     }
@@ -339,7 +400,22 @@ impl NativeFunctionCall {
                 ValueType::Float(op2) => Rc::new(Value::new_bool(*op1 != 0.0 || op2 != 0.0)),
                 _ => panic!()
             },
-            ValueType::List(l) => todo!(),
+            ValueType::List(op1) => match &params[1].value {
+                ValueType::List(op2) => Rc::new(Value::new_bool(!op1.items.is_empty()  || !op2.items.is_empty())),
+                _ => panic!()
+            },
+            _ => panic!()
+        }
+    }
+
+    fn not_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::Int(op1) => Rc::new(Value::new_bool(*op1 == 0)),
+            ValueType::Float(op1) => Rc::new(Value::new_bool(*op1 == 0.0)),
+            ValueType::List(op1) =>  Rc::new(Value::new_int(match op1.items.is_empty() {
+                true => 1,
+                false => 0,
+            } )),
             _ => panic!()
         }
     }
@@ -392,7 +468,10 @@ impl NativeFunctionCall {
                 ValueType::String(op2) => Rc::new(Value::new_bool(op1.string.eq(&op2.string))),
                 _ => panic!()
             },
-            ValueType::List(l) => todo!(),
+            ValueType::List(op1) => match &params[1].value {
+                ValueType::List(op2) => Rc::new(Value::new_bool(op1.eq(op2))),
+                _ => panic!()
+            },
             _ => panic!()
         }
     }
@@ -415,7 +494,10 @@ impl NativeFunctionCall {
                 ValueType::String(op2) => Rc::new(Value::new_bool(!op1.string.eq(&op2.string))),
                 _ => panic!()
             },
-            ValueType::List(l) => todo!(),
+            ValueType::List(op1) => match &params[1].value {
+                ValueType::List(op2) => Rc::new(Value::new_bool(!op1.eq(op2))),
+                _ => panic!()
+            },
             _ => panic!()
         }
     }
@@ -475,7 +557,10 @@ impl NativeFunctionCall {
     fn value_of_list_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
         match &params[0].value {
             ValueType::List(op1) => {
-                Rc::new(Value::new_int(op1.get_max_item().1))
+                match op1.get_max_item() {
+                    Some(i) => Rc::new(Value::new_int(i.1)),
+                    None => Rc::new(Value::new_int(0)),
+                }
             },
             _ => panic!()
         }
@@ -494,6 +579,33 @@ impl NativeFunctionCall {
         match &params[0].value {
             ValueType::List(op1) => {
                 Rc::new(Value::new_list(op1.inverse()))
+            },
+            _ => panic!()
+        }
+    }
+
+    fn count_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::List(op1) => {
+                Rc::new(Value::new_int(op1.items.len() as i32))
+            },
+            _ => panic!()
+        }
+    }
+
+    fn list_max_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::List(op1) => {
+                Rc::new(Value::new_list(op1.max_as_list()))
+            },
+            _ => panic!()
+        }
+    }
+
+    fn list_min_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::List(op1) => {
+                Rc::new(Value::new_list(op1.min_as_list()))
             },
             _ => panic!()
         }
