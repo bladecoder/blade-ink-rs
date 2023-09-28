@@ -56,4 +56,9 @@ impl StatePatch {
         let key = Object::get_path(container).to_string();
         self.turn_indices.insert(key, index as usize);
     }
+
+    pub(crate) fn get_turn_index(&self, container: &Container) -> Option<&usize> {
+        let key = Object::get_path(container).to_string();
+        return self.turn_indices.get(&key);
+    }
 }

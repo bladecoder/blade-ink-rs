@@ -241,7 +241,7 @@ impl NativeFunctionCall {
             Op::Divide => self.divide_op(&coerced_params),
             Op::Multiply => self.multiply_op(&coerced_params),
             Op::Mod => self.mod_op(&coerced_params),
-            Op::Negate => todo!(),
+            Op::Negate => self.negate_op(&coerced_params),
             Op::Equal => self.equal_op(&coerced_params),
             Op::Greater => self.greater_op(&coerced_params),
             Op::Less => self.less_op(&coerced_params),
@@ -253,11 +253,11 @@ impl NativeFunctionCall {
             Op::Or => self.or_op(&coerced_params),
             Op::Min => self.min_op(&coerced_params),
             Op::Max => self.max_op(&coerced_params),
-            Op::Pow => todo!(),
-            Op::Floor => todo!(),
-            Op::Ceiling => todo!(),
-            Op::Int => todo!(),
-            Op::Float => todo!(),
+            Op::Pow => self.pow_op(&coerced_params),
+            Op::Floor => self.floor_op(&coerced_params),
+            Op::Ceiling => self.ceiling_op(&coerced_params),
+            Op::Int => self.int_op(&coerced_params),
+            Op::Float => self.float_op(&coerced_params),
             Op::Has => self.has(&coerced_params),
             Op::Hasnt => self.hasnt(&coerced_params),
             Op::Intersect => self.intersect_op(&coerced_params),
@@ -452,6 +452,20 @@ impl NativeFunctionCall {
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Rc::new(Value::new_float(op1 / op2)),
+                _ => panic!()
+            },
+            _ => panic!()
+        }
+    }
+
+    fn pow_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+        match params[0].value {
+            ValueType::Int(op1) => match params[1].value {
+                ValueType::Int(op2) => Rc::new(Value::new_float((op1 as f32).powf(op2 as f32))),
+                _ => panic!()
+            },
+            ValueType::Float(op1) => match params[1].value {
+                ValueType::Float(op2) => Rc::new(Value::new_float(op1.powf(op2))),
                 _ => panic!()
             },
             _ => panic!()
@@ -692,6 +706,66 @@ impl NativeFunctionCall {
         match &params[0].value {
             ValueType::List(op1) => {
                 Rc::new(Value::new_list(op1.min_as_list()))
+            },
+            _ => panic!()
+        }
+    }
+
+    fn negate_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::Int(op1) => {
+                Rc::new(Value::new_int(-op1))
+            },
+            ValueType::Float(op1) => {
+                Rc::new(Value::new_float(-op1))
+            },
+            _ => panic!()
+        }
+    }
+
+    fn floor_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::Int(op1) => {
+                Rc::new(Value::new_int(*op1))
+            },
+            ValueType::Float(op1) => {
+                Rc::new(Value::new_float(op1.floor()))
+            },
+            _ => panic!()
+        }
+    }
+
+    fn ceiling_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::Int(op1) => {
+                Rc::new(Value::new_int(*op1))
+            },
+            ValueType::Float(op1) => {
+                Rc::new(Value::new_float(op1.ceil()))
+            },
+            _ => panic!()
+        }
+    }
+
+    fn int_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::Int(op1) => {
+                Rc::new(Value::new_int(*op1))
+            },
+            ValueType::Float(op1) => {
+                Rc::new(Value::new_int(*op1 as i32))
+            },
+            _ => panic!()
+        }
+    }
+
+    fn float_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+        match &params[0].value {
+            ValueType::Int(op1) => {
+                Rc::new(Value::new_float(*op1 as f32))
+            },
+            ValueType::Float(op1) => {
+                Rc::new(Value::new_float(*op1))
             },
             _ => panic!()
         }

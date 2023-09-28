@@ -14,16 +14,18 @@ Currently under development. This is the implementation status:
 - [x] Nested flows
 - [ ] Variables and Logic
 - [x] Conditional blocks (if/else)
-- [ ] Temporary Variables
+- [x] Temporary Variables
 - [x] Functions
 - [x] Tunnels
 - [x] Threads
 - [x] Tags
-- [ ] Lists
+- [x] Lists
 - [ ] Load/Save state
 
 ## TODO
 
+- [ ] Test for visit counts
+- [ ] Test for flow
 - [ ] Use OnceCell to lazy init the cache fields of RTObjects
 - [ ] Error handling
 - [ ] Split large files. ex. Get the error handling out of the Story class. The performLogic 

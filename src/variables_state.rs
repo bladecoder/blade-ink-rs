@@ -154,6 +154,45 @@ impl VariablesState {
         Rc::new(Value::new_variable_pointer(&var_pointer.variable_name, context_index))
     }
 
+    pub fn set_str(&mut self, variable_name: &str, value: &str) {
+
+        if !self.default_global_variables.as_ref().unwrap().contains_key(variable_name) {
+            // throw new StoryException(
+            //         "Cannot assign to a variable (" + variableName + ") that hasn't been declared in the story");
+            panic!()
+        }
+
+        let val = Value::new_string(value);
+
+        self.set_global(variable_name, Rc::new(val));
+    }
+
+    pub fn set_int(&mut self, variable_name: &str, value: i32) {
+
+        if !self.default_global_variables.as_ref().unwrap().contains_key(variable_name) {
+            // throw new StoryException(
+            //         "Cannot assign to a variable (" + variableName + ") that hasn't been declared in the story");
+            panic!()
+        }
+
+        let val = Value::new_int(value);
+
+        self.set_global(variable_name, Rc::new(val));
+    }
+
+    pub fn set_float(&mut self, variable_name: &str, value: f32) {
+
+        if !self.default_global_variables.as_ref().unwrap().contains_key(variable_name) {
+            // throw new StoryException(
+            //         "Cannot assign to a variable (" + variableName + ") that hasn't been declared in the story");
+            panic!()
+        }
+
+        let val = Value::new_float(value);
+
+        self.set_global(variable_name, Rc::new(val));
+    }
+
         // Make copy of the variable pointer so we're not using the value direct
     // from
     // the runtime. Temporary must be local to the current scope.
