@@ -38,4 +38,6 @@ subtract:{(a1,b1,c1) - (b1)}
 ~ SEED_RANDOM(10)
 random:{LIST_RANDOM(t)}
 
+listinc:{(a1) + 1}
+
 

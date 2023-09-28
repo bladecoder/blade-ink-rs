@@ -1,8 +1,8 @@
-use std::{fmt, collections::HashMap, rc::Rc};
+use std::{fmt, rc::Rc};
 
-use crate::{object::{Object, RTObject}, value::{Value, ValueType}, void::Void};
+use crate::{object::{Object, RTObject}, value::{Value, ValueType}, void::Void, ink_list::InkList};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Op {
     Add,
     Subtract,
@@ -129,9 +129,9 @@ impl NativeFunctionCall {
         }
     }
 
-    pub(crate) fn call(&self, params: Vec<Rc<dyn RTObject>>) -> std::rc::Rc<dyn RTObject> {
+    pub(crate) fn call(&self, params: Vec<Rc<dyn RTObject>>) -> Rc<dyn RTObject> {
 
-        if self.get_number_of_parameters() != params.len() || params.len() < 1 || params.len() > 2 {
+        if self.get_number_of_parameters() != params.len() {
             panic!("Unexpected number of parameters");
         }
 
@@ -147,8 +147,94 @@ impl NativeFunctionCall {
             }
         }
 
+        // Binary operations on lists are treated outside of the standard
+        // coerscion rules
+        if params.len() == 2 && has_list {
+            return self.call_binary_list_operation(&params);
+        }
+
         let coerced_params = self.coerce_values_to_single_type(params);
 
+        self.call_type(coerced_params)
+    }
+
+    fn call_binary_list_operation(&self, params: &Vec<Rc<dyn RTObject>>) -> Rc<dyn RTObject> {
+        // List-Int addition/subtraction returns a List (e.g., "alpha" + 1 = "beta")
+        if (self.op == Op::Add || self.op == Op::Subtract) && 
+                Value::get_list_value(params[0].as_ref()).is_some() &&
+                Value::get_int_value(params[1].as_ref()).is_some() {
+            return self.call_list_increment_operation(params);
+        }
+
+        let v1 = params[0].clone().into_any().downcast::<Value>().unwrap();
+        let v2 = params[1].clone().into_any().downcast::<Value>().unwrap();
+
+        // And/or with any other type requires coercion to bool
+        if (self.op == Op::And || self.op == Op::Or) &&
+                ( Value::get_list_value(params[0].as_ref()).is_none() ||
+                Value::get_list_value(params[1].as_ref()).is_none()) {
+            
+            let result = {
+                if self.op == Op::And {
+                    v1.is_truthy() && v2.is_truthy()
+                } else {
+                    v1.is_truthy() || v2.is_truthy()
+                }
+            };
+
+            return Rc::new(Value::new_bool(result));
+        }
+
+        // Normal (list • list) operation
+        if Value::get_list_value(params[0].as_ref()).is_some() &&
+                Value::get_list_value(params[1].as_ref()).is_some() {
+            let mut p = vec![v1.clone(), v2.clone()];
+            
+            return self.call_type(p);
+        }
+
+        // Err(StoryError::new(format!(
+        //     "Can not call use '{}' operation on {} and {}",
+        //     self.name,
+        //     v1.value_type(),
+        //     v2.value_type()
+        // )))
+        panic!()
+    }
+
+    fn call_list_increment_operation(&self, list_int_params: &Vec<Rc<dyn RTObject>>) -> Rc<Value> {
+        let list_val = Value::get_list_value(list_int_params[0].as_ref()).unwrap();
+        let int_val = Value::get_int_value(list_int_params[1].as_ref()).unwrap();
+    
+        let mut result_raw_list = InkList::new();
+    
+        for (list_item, list_item_value) in list_val.items.iter() {
+            
+            let target_int = {
+                if self.op == Op::Add {
+                    list_item_value + int_val
+                } else {
+                    list_item_value - int_val
+                }
+            };
+
+            let origins = list_val.origins.borrow();
+    
+            let item_origin = origins.iter().find(|origin| {
+                origin.get_name() == list_item.get_origin_name().unwrap_or(&"".to_owned())
+            });
+    
+            if let Some(item_origin) = item_origin {
+                if let Some(incremented_item) = item_origin.get_item_with_value(target_int) {
+                    result_raw_list.items.insert(incremented_item.clone(), target_int);
+                }
+            }
+        }
+    
+        Rc::new(Value::new_list(result_raw_list))
+    }
+
+    fn call_type(&self, coerced_params: Vec<Rc<Value>>) -> Rc<dyn RTObject> {
         match self.op {
             Op::Add => self.add_op(&coerced_params),
             Op::Subtract => self.subtract_op(&coerced_params),

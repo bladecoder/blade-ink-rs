@@ -102,7 +102,7 @@ fn more_list_operations2_test() -> Result<(), String>  {
         common::get_json_string("examples/inkfiles/lists/more-list-operations2.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
 
-    assert_eq!("a1, b1, c1\na1\na1, b2\ncount:2\nmax:c2\nmin:a1\ntrue\ntrue\nfalse\nempty\na2\na2, b2, c2\nrange:a1, b2\na1\nsubtract:a1, c1\nrandom:c2\n", &story.continue_maximally()?);
+    assert_eq!("a1, b1, c1\na1\na1, b2\ncount:2\nmax:c2\nmin:a1\ntrue\ntrue\nfalse\nempty\na2\na2, b2, c2\nrange:a1, b2\na1\nsubtract:a1, c1\nrandom:c2\nlistinc:b1\n", &story.continue_maximally()?);
 
     Ok(())
 }
