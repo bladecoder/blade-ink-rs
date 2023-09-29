@@ -572,6 +572,10 @@ impl NativeFunctionCall {
                 ValueType::List(op2) => Rc::new(Value::new_bool(op1.eq(op2))),
                 _ => panic!()
             },
+            ValueType::DivertTarget(op1) => match &params[1].value {
+                ValueType::DivertTarget(op2) => Rc::new(Value::new_bool(op1.eq(op2))),
+                _ => panic!()
+            },
             _ => panic!()
         }
     }
@@ -596,6 +600,10 @@ impl NativeFunctionCall {
             },
             ValueType::List(op1) => match &params[1].value {
                 ValueType::List(op2) => Rc::new(Value::new_bool(!op1.eq(op2))),
+                _ => panic!()
+            },
+            ValueType::DivertTarget(op1) => match &params[1].value {
+                ValueType::DivertTarget(op2) => Rc::new(Value::new_bool(!op1.eq(op2))),
                 _ => panic!()
             },
             _ => panic!()
