@@ -1302,7 +1302,7 @@ impl Story {
             // the temporary context, but attempt to create them globally
             // var prioritiseHigherInCallStack = _temporaryEvaluationContainer
             // != null;
-
+            let assigned_val = assigned_val.into_any().downcast::<Value>().unwrap();
             self.get_state_mut().get_variables_state_mut().assign( var_ass, assigned_val);
 
             return true;
@@ -1310,7 +1310,7 @@ impl Story {
 
         // Variable reference
         if let Ok(var_ref) = content_obj.clone().into_any().downcast::<VariableReference>() {
-            let mut found_value: Option<Rc<dyn RTObject>> = None;
+            let mut found_value: Option<Rc<Value>> = None;
 
             // Explicit read count value
             if let Some(p) = &var_ref.path_for_count {

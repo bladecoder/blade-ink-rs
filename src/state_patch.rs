@@ -2,11 +2,11 @@ use std::{
     rc::Rc, collections::{HashMap, HashSet},
 };
 
-use crate::{object::{RTObject, Object}, container::Container};
+use crate::{object::{RTObject, Object}, container::Container, value::Value};
 
 #[derive(Clone)]
 pub struct StatePatch {
-    pub globals: HashMap<String, Rc<dyn RTObject>>,
+    pub globals: HashMap<String, Rc<Value>>,
     pub changed_variables: HashSet<String>,
     pub visit_counts: HashMap<String, usize>,
     pub turn_indices: HashMap<String, usize>,
@@ -40,11 +40,11 @@ impl StatePatch {
         self.visit_counts.insert(key, count);
     }
 
-    pub fn  get_global(&self, name: &str) -> Option<Rc<dyn RTObject>>{
+    pub fn  get_global(&self, name: &str) -> Option<Rc<Value>>{
         self.globals.get(name).cloned()
     }
 
-    pub fn set_global(&mut self, name: &str, value: Rc<dyn RTObject>) {
+    pub fn set_global(&mut self, name: &str, value: Rc<Value>) {
         self.globals.insert(name.to_string(), value);
     }
 

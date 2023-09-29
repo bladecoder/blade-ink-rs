@@ -1,8 +1,10 @@
 use core::fmt;
 use std::{collections::HashMap, cell::RefCell};
 
-use crate::{ink_list_item::InkListItem, list_definition::ListDefinition, list_definitions_origin::ListDefinitionsOrigin, value::ValueType};
+use crate::{ink_list_item::InkListItem, list_definition::ListDefinition, list_definitions_origin::ListDefinitionsOrigin, value_type::ValueType};
 
+
+#[derive(Clone)]
 pub struct InkList {
     pub items: HashMap<InkListItem, i32>,
     pub origins: RefCell<Vec<ListDefinition>>,

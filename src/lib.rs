@@ -1,4 +1,5 @@
 pub mod story;
+pub mod value_type;
 mod json_serialization;
 mod object;
 mod value;

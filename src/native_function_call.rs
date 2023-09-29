@@ -1,6 +1,6 @@
 use std::{fmt, rc::Rc};
 
-use crate::{object::{Object, RTObject}, value::{Value, ValueType}, void::Void, ink_list::InkList};
+use crate::{object::{Object, RTObject}, value::Value, void::Void, ink_list::InkList, value_type::ValueType};
 
 #[derive(Debug, PartialEq)]
 pub enum Op {

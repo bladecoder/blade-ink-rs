@@ -7,7 +7,7 @@ use as_any::Downcast;
 
 use crate::{
     object::{Object, RTObject},
-    value::{ValueType, Value}, path::{Path, Component}, search_result::SearchResult,
+    value::Value, path::{Path, Component}, search_result::SearchResult, value_type::ValueType,
 };
 
 const COUNTFLAGS_VISITS: i32 = 1;

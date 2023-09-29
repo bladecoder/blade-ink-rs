@@ -5,7 +5,7 @@ use crate::{pointer::{Pointer, self}, object::RTObject, push_pop::PushPopType, s
 pub struct Element {
     pub current_pointer: Pointer,
     pub in_expression_evaluation: bool,
-    pub temporary_variables: HashMap<String, Rc<dyn RTObject>>,
+    pub temporary_variables: HashMap<String, Rc<Value>>,
     pub push_pop_type: PushPopType,
     pub evaluation_stack_height_when_pushed: usize,
     pub function_start_in_output_stream: i32,
@@ -206,7 +206,7 @@ impl CallStack {
     pub fn set_temporary_variable(
         &mut self,
         name: String,
-        value: Rc<dyn RTObject>,
+        value: Rc<Value>,
         declare_new: bool,
         mut context_index: i32,
     ) -> Result<(), String> {
@@ -224,7 +224,6 @@ impl CallStack {
 
         if let Some(old_value) = &old_value {
             Value::retain_list_origins_for_assignment(old_value.as_ref(), value.as_ref());
-
         }
 
         context_element.temporary_variables.insert(name, value);
@@ -242,7 +241,7 @@ impl CallStack {
         0
     }
 
-    pub fn get_temporary_variable_with_name(&self, name: &str, context_index: i32) -> Option<Rc<dyn RTObject>> {
+    pub fn get_temporary_variable_with_name(&self, name: &str, context_index: i32) -> Option<Rc<Value>> {
         let mut context_index = context_index;
         if context_index == -1 {
             context_index = self.get_current_element_index() + 1;
