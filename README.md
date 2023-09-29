@@ -24,9 +24,9 @@ Currently under development. This is the implementation status:
 
 ## TODO
 
-- [ ] Test for flow
-- [ ] Use OnceCell to lazy init the cache fields of RTObjects
 - [ ] Error handling
+- [ ] Cache components string in Path
+- [ ] Use OnceCell to lazy init the cache fields of RTObjects
 - [ ] Split large files. ex. Get the error handling out of the Story class. The performLogic 
 
 
