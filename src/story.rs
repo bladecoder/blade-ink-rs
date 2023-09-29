@@ -118,11 +118,11 @@ impl Story {
     }
 
     fn reset_state(&mut self) {
-        //TODO ifAsyncWeCant("ResetState");
+        self.if_async_we_cant("ResetState");
 
         self.state = Some(StoryState::new(self.main_content_container.clone(), self.list_definitions.clone()));
 
-        // TODO state.getVariablesState().setVariableChangedEvent(this);
+        // TODO self.get_state_mut().get_variables_state().setVariableChangedEvent(this);
 
         self.reset_globals();
     }
@@ -169,7 +169,7 @@ impl Story {
     }
 
     pub fn continue_maximally(&mut self) -> Result<String, String> {
-        // TODO self.ifAsyncWeCant("ContinueMaximally");
+        self.if_async_we_cant("continue_maximally");
 
         let mut sb = String::new();
 
@@ -200,7 +200,7 @@ impl Story {
             self.async_continue_active = is_async_time_limited;
             if !self.can_continue() {
                 return Err(
-                    "Can't continue - should check canContinue before calling Continue".to_owned(),
+                    "Can't continue - should check can_continue before calling Continue".to_owned(),
                 );
             }
 
@@ -462,16 +462,15 @@ impl Story {
             }
         }
 
-        // outputStreamEndsInNewline = false
-        return Ok(false);    
+        Ok(false)
     }
 
     pub fn get_current_text(&mut self) -> String {
-        //TODO ifAsyncWeCant("call currentText since it's a work in progress");
+        self.if_async_we_cant("call currentText since it's a work in progress");
         self.get_state_mut().get_current_text()
     }
 
-    pub fn get_main_content_container(&self) -> Rc<Container> {
+    pub(crate) fn get_main_content_container(&self) -> Rc<Container> {
         match self.temporaty_evaluation_container.as_ref() {
             Some(c) => c.clone(),
             None => self.main_content_container.clone(),
@@ -726,8 +725,9 @@ impl Story {
         // saving, we simply stay in a "patching" state,
         // albeit with the newer cloned patch.
         
-        // TODO
-        //if (!asyncSaving) state.applyAnyPatch();
+        if !self.async_saving {
+            self.get_state_mut().apply_any_patch();
+        }
 
         // No longer need the snapshot.
         self.state_snapshot_at_last_new_line = None;    
@@ -1707,7 +1707,7 @@ impl Story {
 
     // TODO: The result and the args should be an object not a String
     pub fn evaluate_function(&mut self, func_name: &str, args: Option<&Vec<String>>, text_output: &mut String) -> Result<Option<String>, String> {
-        // TODO ifAsyncWeCant("evaluate a function");
+        self.if_async_we_cant("evaluate a function");
 
         if func_name.trim().is_empty() {
             return Err("Function is empty or white space.".to_owned());
@@ -1718,7 +1718,7 @@ impl Story {
         if func_container.is_none() {
             let mut e = "Function doesn't exist: '".to_owned();
             e.push_str(func_name);
-            e.push_str("'");
+            e.push('\'');
 
             return Err(e);
         }
@@ -1857,12 +1857,12 @@ impl Story {
     }
 
     pub fn get_current_tags(&mut self) -> Vec<String> {
-        // TODO ifAsyncWeCant("call currentTags since it's a work in progress");
+        self.if_async_we_cant("call currentTags since it's a work in progress");
         return self.get_state_mut().get_current_tags();
     }
 
     pub fn choose_path_string(&mut self, path: &str, reset_call_stack: bool, args: Option<&Vec<String>>) -> Result<(), String> {
-        // TODO ifAsyncWeCant("call ChoosePathString right now");
+        self.if_async_we_cant("call ChoosePathString right now");
 
         if reset_call_stack {
             self.reset_callstack();
@@ -1884,26 +1884,32 @@ impl Story {
             }
         }
 
-        self.get_state_mut().pass_arguments_to_evaluation_stack(args);
+        self.get_state_mut().pass_arguments_to_evaluation_stack(args)?;
         self.choose_path(&Path::new_with_components_string(Some(path)), true);
 
         Ok(())
     }
 
     fn reset_callstack(&mut self) {
-        // TODO ifAsyncWeCant("ResetCallstack");
+        self.if_async_we_cant("ResetCallstack");
 
         self.get_state_mut().force_end();
     }
 
     pub fn switch_flow(&mut self, flow_name: &str) {
-        // TODO
-        // ifAsyncWeCant("switch flow");
+        self.if_async_we_cant("switch flow");
 
-        // if (asyncSaving)
-        //     throw new Exception("Story is already in background saving mode, can't switch flow to " + flowName);
+        if self.async_saving {
+            panic!("Story is already in background saving mode, can't switch flow to {}", flow_name);
+        }
 
         self.get_state_mut().switch_flow_internal(flow_name);
+    }
+
+    fn if_async_we_cant(&self, activity_str: &str) {
+        if self.async_continue_active {
+            panic!("Can't {}. Story is in the middle of a ContinueAsync(). Make more continue_async() calls or a single cont() call beforehand.", activity_str);
+        }
     }
 }
 
