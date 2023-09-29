@@ -7,6 +7,8 @@ const CAST_INT: u8 = 1;
 const CAST_FLOAT: u8 = 2;
 const CAST_LIST: u8 = 3;
 const CAST_STRING: u8 = 4;
+const CAST_DIVERT_TARGET: u8 = 5;
+const CAST_VARIABLE_POINTER: u8 = 6;
 
 pub struct Value {
     obj: Object,
@@ -259,8 +261,22 @@ impl Value {
                     _ => panic!(),
                 }
             },
-            ValueType::DivertTarget(_) => panic!(),
-            ValueType::VariablePointer(_) => panic!(),
+            ValueType::DivertTarget(_) => {
+                match cast_dest_type {
+                    CAST_DIVERT_TARGET => {
+                        None
+                    },
+                    _ => panic!(),
+                }
+            },
+            ValueType::VariablePointer(_) => {
+                match cast_dest_type {
+                    CAST_VARIABLE_POINTER => {
+                        None
+                    },
+                    _ => panic!(),
+                }
+            },
         }
     }
 }
