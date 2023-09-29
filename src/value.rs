@@ -1,51 +1,12 @@
-use std::{fmt, rc::Rc};
+use std::fmt;
 
-use as_any::Downcast;
-
-use crate::{object::{RTObject, Object}, path::Path, ink_list::InkList};
+use crate::{object::{RTObject, Object}, path::Path, ink_list::InkList, value_type::{StringValue, ValueType, VariablePointerValue}};
 
 const CAST_BOOL: u8 = 0;
 const CAST_INT: u8 = 1;
 const CAST_FLOAT: u8 = 2;
 const CAST_LIST: u8 = 3;
 const CAST_STRING: u8 = 4;
-
-#[repr(u8)]
-pub enum ValueType {
-    Bool(bool),
-    Int(i32),
-    Float(f32),
-    List(InkList),
-    String(StringValue),
-    DivertTarget(Path),
-    VariablePointer(VariablePointerValue),
-}
-
-
-#[derive(Clone)]
-pub struct StringValue {
-    pub string: String,
-    pub is_inline_whitespace: bool,
-    pub is_newline: bool
-}
-
-impl StringValue {
-    pub fn is_non_whitespace(&self) -> bool {
-        return !self.is_newline && !self.is_inline_whitespace;
-    }
-
-}
-
-#[derive(Clone)]
-pub struct VariablePointerValue {
-    pub variable_name: String,
-
-    // Where the variable is located
-    // -1 = default, unknown, yet to be determined
-    // 0  = in global scope
-    // 1+ = callstack element index + 1 (so that the first doesn't conflict with special global scope)
-    pub context_index: i32,
-}
 
 pub struct Value {
     obj: Object,
@@ -117,15 +78,19 @@ impl Value {
         Self { obj: Object::new(), value: ValueType::List(l) }
     }
 
+    pub fn from_value_type(value_type: ValueType) -> Self {
+        Self { obj: Object::new(), value: value_type }
+    }
+
     pub fn is_truthy(&self) -> bool {
         match &self.value {
             ValueType::Bool(v) => *v,
             ValueType::Int(v) => *v != 0,
             ValueType::Float(v) => *v != 0.0,
-            ValueType::String(v) => v.string.len() > 0,
+            ValueType::String(v) => !v.string.is_empty(),
             ValueType::DivertTarget(_) => panic!(), // exception Shouldn't be checking the truthiness of a divert target??
             ValueType::VariablePointer(_) => panic!(),
-            ValueType::List(l) => l.items.len() > 0,
+            ValueType::List(l) => !l.items.is_empty(),
         }
     }
 

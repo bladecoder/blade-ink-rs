@@ -1,16 +1,16 @@
 use std::{collections::{HashMap, HashSet}, rc::Rc, cell::RefCell};
 
-use crate::{object::RTObject, callstack::CallStack, state_patch::StatePatch, variable_assigment::VariableAssignment, value::{Value, VariablePointerValue}, list_definitions_origin::ListDefinitionsOrigin};
+use crate::{callstack::CallStack, state_patch::StatePatch, variable_assigment::VariableAssignment, value::Value, list_definitions_origin::ListDefinitionsOrigin, value_type::{VariablePointerValue, ValueType}};
 
 
 #[derive(Clone)]
 pub struct VariablesState {
-    pub global_variables: HashMap<String, Rc<dyn RTObject>>,
-    pub default_global_variables: Option<HashMap<String, Rc<dyn RTObject>>>,
+    pub global_variables: HashMap<String, Rc<Value>>,
+    pub default_global_variables: Option<HashMap<String, Rc<Value>>>,
     pub batch_observing_variable_changes: bool,
     pub callstack: Rc<RefCell<CallStack>>,
     pub changed_variables_for_batch_obs: Option<HashSet<String>>,
-    pub variable_changed_event: Option<fn(variable_name: &str, newValue: &dyn RTObject)>,
+    pub variable_changed_event: Option<fn(variable_name: &str, newValue: &Value)>,
     list_defs_origin: Rc<ListDefinitionsOrigin>,
     pub patch: Option<StatePatch>,
 }
@@ -70,7 +70,7 @@ impl VariablesState {
     pub fn assign (
         &mut self,
         var_ass: &VariableAssignment,
-        value: Rc<dyn RTObject>,
+        value: Rc<Value>,
     ) {
         let mut name = var_ass.variable_name.to_string();
         let mut context_index = -1;
@@ -87,9 +87,8 @@ impl VariablesState {
         // Constructing new variable pointer reference
         if var_ass.is_new_declaration {
             if let Some(var_pointer) = Value::get_variable_pointer_value(value.as_ref()){
-                let fully_resolved_variable_pointer =
+                value =
                     self.resolve_variable_pointer(var_pointer);
-                value = fully_resolved_variable_pointer;
             }
         } else {
             // Assign to an existing variable pointer
@@ -133,7 +132,7 @@ impl VariablesState {
     // pointer that more specifically points to the exact instance: whether it's
     // global,
     // or the exact position of a temporary on the callstack.
-    fn resolve_variable_pointer(&self, var_pointer: &VariablePointerValue) -> Rc<dyn RTObject> {
+    fn resolve_variable_pointer(&self, var_pointer: &VariablePointerValue) -> Rc<Value> {
         let mut context_index = var_pointer.context_index;
         if context_index == -1 {
             context_index = self.get_context_index_of_variable_named(&var_pointer.variable_name);
@@ -154,7 +153,7 @@ impl VariablesState {
         Rc::new(Value::new_variable_pointer(&var_pointer.variable_name, context_index))
     }
 
-    pub fn set_str(&mut self, variable_name: &str, value: &str) {
+    pub fn set(&mut self, variable_name: &str, value_type: ValueType) {
 
         if !self.default_global_variables.as_ref().unwrap().contains_key(variable_name) {
             // throw new StoryException(
@@ -162,38 +161,34 @@ impl VariablesState {
             panic!()
         }
 
-        let val = Value::new_string(value);
+        let val = Value::from_value_type(value_type);
 
         self.set_global(variable_name, Rc::new(val));
     }
 
-    pub fn set_int(&mut self, variable_name: &str, value: i32) {
+    pub fn get(&self, variable_name: &str) -> Option<ValueType> {
 
-        if !self.default_global_variables.as_ref().unwrap().contains_key(variable_name) {
-            // throw new StoryException(
-            //         "Cannot assign to a variable (" + variableName + ") that hasn't been declared in the story");
-            panic!()
+        if self.patch.is_some() {
+            if let Some(var) = self.patch.as_ref().unwrap().get_global(variable_name) {
+                return Some(var.value.clone());
+            }
         }
 
-        let val = Value::new_int(value);
-
-        self.set_global(variable_name, Rc::new(val));
-    }
-
-    pub fn set_float(&mut self, variable_name: &str, value: f32) {
-
-        if !self.default_global_variables.as_ref().unwrap().contains_key(variable_name) {
-            // throw new StoryException(
-            //         "Cannot assign to a variable (" + variableName + ") that hasn't been declared in the story");
-            panic!()
+        // Search main dictionary first.
+        // If it's not found, it might be because the story content has changed,
+        // and the original default value hasn't be instantiated.
+        // Should really warn somehow, but it's difficult to see how...!
+        if let Some(var_contents) = self.global_variables.get(variable_name) {
+            return Some(var_contents.value.clone());
+        } else if let Some(var_contents) = self.default_global_variables.as_ref().unwrap().get(variable_name) {
+            return Some(var_contents.value.clone());
         }
 
-        let val = Value::new_float(value);
+        None
 
-        self.set_global(variable_name, Rc::new(val));
     }
 
-        // Make copy of the variable pointer so we're not using the value direct
+    // Make copy of the variable pointer so we're not using the value direct
     // from
     // the runtime. Temporary must be local to the current scope.
     // 0 if named variable is global
@@ -206,7 +201,7 @@ impl VariablesState {
         return self.callstack.borrow().get_current_element_index();
     }
 
-    fn get_raw_variable_with_name(&self, name: &str, context_index: i32) -> Option<Rc<dyn RTObject>> {
+    fn get_raw_variable_with_name(&self, name: &str, context_index: i32) -> Option<Rc<Value>> {
         // 0 context = global
         if context_index == 0 || context_index == -1 {
             if let Some(patch) = &self.patch {
@@ -242,8 +237,8 @@ impl VariablesState {
         var_value
     }
 
-    fn set_global(&mut self, name: &str, value: Rc<dyn RTObject>) {
-        let mut old_value: Option<Rc<dyn RTObject>> = None;
+    fn set_global(&mut self, name: &str, value: Rc<Value>) {
+        let mut old_value: Option<Rc<Value>> = None;
 
         if let Some(patch) = &self.patch {
             old_value = patch.get_global(name);
@@ -278,7 +273,7 @@ impl VariablesState {
         }
     }
 
-    pub fn get_variable_with_name(&self, name: &str, context_index: i32) -> Option<Rc<dyn RTObject>> {
+    pub fn get_variable_with_name(&self, name: &str, context_index: i32) -> Option<Rc<Value>> {
         let var_value = self.get_raw_variable_with_name(name, context_index);
         // Get value from pointer?
         if let Some(vv) = var_value.clone() {
@@ -290,7 +285,7 @@ impl VariablesState {
         var_value
     }
 
-    fn value_at_variable_pointer(&self, pointer: &VariablePointerValue) -> Option<Rc<dyn RTObject>> {
+    fn value_at_variable_pointer(&self, pointer: &VariablePointerValue) -> Option<Rc<Value>> {
         self.get_variable_with_name(&pointer.variable_name, pointer.context_index)
     }
 
