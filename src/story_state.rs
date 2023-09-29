@@ -43,8 +43,8 @@ impl StoryState {
         let mut rng = rand::thread_rng();
         let story_seed = rng.gen_range(0..100);
 
-        let mut state = StoryState { 
-            current_flow, 
+        let state = StoryState { 
+            current_flow,
             did_safe_exit: false,
             output_stream_text_dirty: true,
             output_stream_tags_dirty: true,
@@ -983,10 +983,42 @@ impl StoryState {
 
         if self.turn_indices.contains_key(&container_path_str) {
             index = *self.turn_indices.get(&container_path_str).unwrap() as i32;
-            return self.current_turn_index - index;
+            self.current_turn_index - index
         } else {
-            return -1;
+            -1
         }    
+    }
+
+    pub(crate) fn switch_flow_internal(&mut self, flow_name: &str) {
+
+        if flow_name.eq(&self.current_flow.name) {
+            return;
+        }
+
+        if self.named_flows.is_none() {
+            self.named_flows = Some(HashMap::new());
+        }
+
+        let named_flows = self.named_flows.as_mut().unwrap();
+
+        // store the current flow and retrieve and remove the next flow
+        let flow = named_flows.remove(flow_name);
+
+        let mut next_flow = match flow {
+            Some(f) => f,
+            None => {
+                self.alive_flow_names_dirty = true;
+                Flow::new(flow_name, self.main_content_container.clone())
+            }
+        };
+
+        std::mem::swap(&mut self.current_flow, &mut next_flow);
+        named_flows.insert(next_flow.name.clone(), next_flow);
+
+        self.variables_state.set_callstack(self.current_flow.callstack.clone());
+
+        // Cause text to be regenerated from output stream if necessary
+        self.output_stream_dirty();
     }
 
 }

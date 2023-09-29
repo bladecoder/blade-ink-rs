@@ -1895,6 +1895,15 @@ impl Story {
 
         self.get_state_mut().force_end();
     }
-    
+
+    pub fn switch_flow(&mut self, flow_name: &str) {
+        // TODO
+        // ifAsyncWeCant("switch flow");
+
+        // if (asyncSaving)
+        //     throw new Exception("Story is already in background saving mode, can't switch flow to " + flowName);
+
+        self.get_state_mut().switch_flow_internal(flow_name);
+    }
 }
 

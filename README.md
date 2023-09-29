@@ -24,7 +24,6 @@ Currently under development. This is the implementation status:
 
 ## TODO
 
-- [ ] Test for visit counts
 - [ ] Test for flow
 - [ ] Use OnceCell to lazy init the cache fields of RTObjects
 - [ ] Error handling
