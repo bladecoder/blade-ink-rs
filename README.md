@@ -10,9 +10,9 @@ Currently under development. This is the implementation status:
 - [x] Diverts
 - [x] Variable Text
 - [x] Conditional Text
-- [ ] Game Queries and Functions
+- [x] Game Queries and Functions
 - [x] Nested flows
-- [ ] Variables and Logic
+- [x] Variables and Logic
 - [x] Conditional blocks (if/else)
 - [x] Temporary Variables
 - [x] Functions
@@ -24,10 +24,12 @@ Currently under development. This is the implementation status:
 
 ## TODO
 
+- [ ] Optimize control command getname. Use static string array and address it by order.
 - [ ] Error handling
 - [ ] Cache components string in Path
 - [ ] Use OnceCell to lazy init the cache fields of RTObjects
 - [ ] Split large files. ex. Get the error handling out of the Story class. The performLogic 
+- [ ] Story.state y VariablesState.default_global_variables shouldn't be optionals.
 
 
 

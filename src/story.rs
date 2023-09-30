@@ -7,12 +7,12 @@ use rand::{Rng, rngs::StdRng, SeedableRng};
 use crate::{
     container::Container,
     error::ErrorType,
-    json_serialization,
+    json_read,
     push_pop::PushPopType,
     story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::NativeFunctionCall, variable_reference::VariableReference, list_definitions_origin::ListDefinitionsOrigin, ink_list::InkList, ink_list_item::InkListItem, variables_state::VariablesState,
 };
 
-const INK_VERSION_CURRENT: i32 = 21;
+pub const INK_VERSION_CURRENT: i32 = 21;
 const INK_VERSION_MINIMUM_COMPATIBLE: i32 = 18;
 
 #[derive(PartialEq)]
@@ -73,7 +73,7 @@ impl Story {
         };
 
         let list_definitions = match json.get("listDefs") {
-            Some(def) => Rc::new(json_serialization::jtoken_to_list_definitions(def)?),
+            Some(def) => Rc::new(json_read::jtoken_to_list_definitions(def)?),
             None => {
                 return Err(
                     "List Definitions node for ink not found. Are you sure it's a valid .ink.json file?"
@@ -82,7 +82,7 @@ impl Story {
             }
         };
 
-        let main_content_container = json_serialization::jtoken_to_runtime_object(root_token, None)?;
+        let main_content_container = json_read::jtoken_to_runtime_object(root_token, None)?;
 
         let main_content_container = main_content_container.into_any().downcast::<Container>();
 
@@ -109,7 +109,7 @@ impl Story {
         Ok(story)
     }
 
-    fn get_state(&self) -> &StoryState {
+    pub fn get_state(&self) -> &StoryState {
         self.state.as_ref().unwrap()
     }
 

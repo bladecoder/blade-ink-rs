@@ -1,6 +1,8 @@
 use std::{collections::{HashMap, HashSet}, rc::Rc, cell::RefCell};
 
-use crate::{callstack::CallStack, state_patch::StatePatch, variable_assigment::VariableAssignment, value::Value, list_definitions_origin::ListDefinitionsOrigin, value_type::{VariablePointerValue, ValueType}};
+use serde_json::Map;
+
+use crate::{callstack::CallStack, state_patch::StatePatch, variable_assigment::VariableAssignment, value::Value, list_definitions_origin::ListDefinitionsOrigin, value_type::{VariablePointerValue, ValueType}, json_write};
 
 
 #[derive(Clone)]
@@ -153,17 +155,17 @@ impl VariablesState {
         Rc::new(Value::new_variable_pointer(&var_pointer.variable_name, context_index))
     }
 
-    pub fn set(&mut self, variable_name: &str, value_type: ValueType) {
+    pub fn set(&mut self, variable_name: &str, value_type: ValueType) -> Result<(), String> {
 
         if !self.default_global_variables.as_ref().unwrap().contains_key(variable_name) {
-            // throw new StoryException(
-            //         "Cannot assign to a variable (" + variableName + ") that hasn't been declared in the story");
-            panic!()
+            return Err(format!("Cannot assign to a variable {} that hasn't been declared in the story", variable_name));
         }
 
         let val = Value::from_value_type(value_type);
 
         self.set_global(variable_name, Rc::new(val));
+
+        Ok(())
     }
 
     pub fn get(&self, variable_name: &str) -> Option<ValueType> {
@@ -292,4 +294,55 @@ impl VariablesState {
     pub fn set_callstack(&mut self, callstack: Rc<RefCell<CallStack>>) {
         self.callstack = callstack;
     } 
+
+    pub(crate) fn write_json(&self) -> serde_json::Value {
+        let mut jobj: Map<String, serde_json::Value> = Map::new();
+
+        for (name, val) in self.global_variables.iter() {
+
+            // Don't write out values that are the same as the default global values
+            let default_val = self.default_global_variables.as_ref().unwrap().get(name);
+            if let Some(default_val) = default_val {
+                if self.val_equal(val, default_val) {continue;}
+            }
+
+            jobj.insert(name.clone(), json_write::write_rtobject(val.clone()));
+        }
+
+        serde_json::Value::Object(jobj)
+    }
+
+    fn val_equal(&self, val: &Value, default_val: &Value) -> bool {
+        match &val.value {
+            ValueType::Bool(val) => match default_val.value {
+                ValueType::Bool(default_val) => *val == default_val,
+                _ => false,
+            },
+            ValueType::Int(val) => match default_val.value {
+                ValueType::Int(default_val) => *val == default_val,
+                _ => false,
+            },
+            ValueType::Float(val) => match default_val.value {
+                ValueType::Float(default_val) => *val == default_val,
+                _ => false,
+            },
+            ValueType::List(val) => match &default_val.value {
+                ValueType::List(default_val) => *val == *default_val,
+                _ => false,
+            },
+            ValueType::String(val) => match &default_val.value {
+                ValueType::String(default_val) => val.string.eq(&default_val.string),
+                _ =>  false,
+            },
+            ValueType::DivertTarget(val) => match &default_val.value {
+                ValueType::DivertTarget(default_val) => *val == *default_val,
+                _ => false,
+            },
+            ValueType::VariablePointer(val) => match &default_val.value {
+                ValueType::VariablePointer(default_val) => *val == *default_val,
+                _ => false,
+            },
+        }
+    }
+
 }

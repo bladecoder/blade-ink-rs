@@ -15,6 +15,22 @@ pub enum ValueType {
 }
 
 impl ValueType {
+    pub fn new_string(str: &str) -> ValueType {
+        let mut inline_ws = true;
+
+        for c in str.chars() {
+            if c != ' ' && c != '\t' {
+                inline_ws = false;
+                break;
+            }
+        }
+        
+        ValueType::String(StringValue {
+                string: str.to_string(), 
+                is_inline_whitespace: inline_ws, 
+                is_newline: str.eq("\n")})
+    }
+
     pub fn get_bool(&self) -> Option<bool> {
         match self {
             ValueType::Bool(v) => Some(*v),
@@ -58,7 +74,7 @@ impl StringValue {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct VariablePointerValue {
     pub variable_name: String,
 

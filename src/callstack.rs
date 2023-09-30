@@ -1,6 +1,8 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::{pointer::{Pointer, self}, object::RTObject, push_pop::PushPopType, story::Story, container::Container, value::Value};
+use serde_json::{Map, json};
+
+use crate::{pointer::{Pointer, self}, push_pop::PushPopType, container::Container, value::Value, object::Object, json_read, json_write};
 
 pub struct Element {
     pub current_pointer: Pointer,
@@ -36,7 +38,7 @@ impl Element {
 pub struct Thread {
     pub callstack: Vec<Element>,
     pub previous_pointer: Pointer,
-    thread_index: usize
+    pub thread_index: usize
 }
 
 impl Thread {
@@ -59,6 +61,38 @@ impl Thread {
         copy.previous_pointer = self.previous_pointer.clone();
         
         copy
+    }
+
+    pub(crate) fn write_json(&self) -> serde_json::Value {
+        let mut thread: Map<String, serde_json::Value> = Map::new();
+
+        let mut cs_array: Vec<serde_json::Value> = Vec::new();
+
+        for el in self.callstack.iter() {
+            let mut el_map: Map<String, serde_json::Value> = Map::new();
+            
+            if !el.current_pointer.is_null() {
+                el_map.insert("cPath".to_owned(), json!(Object::get_path(el.current_pointer.container.as_ref().unwrap().as_ref()).get_components_string()));
+                el_map.insert("idx".to_owned(), json!(el.current_pointer.index));
+            }
+            el_map.insert("exp".to_owned(), json!(el.in_expression_evaluation));
+            el_map.insert("type".to_owned(), json!(el.push_pop_type as u32));
+
+            if el.temporary_variables.len() > 0 {
+                el_map.insert("exp".to_owned(), json_write::write_dictionary_values(&el.temporary_variables));
+            }
+
+            cs_array.push(serde_json::Value::Object(el_map));
+        }
+
+        thread.insert("callstack".to_owned(), serde_json::Value::Array(cs_array));
+        thread.insert("threadIndex".to_owned(), json!(self.thread_index));
+
+        if !self.previous_pointer.is_null() {
+            thread.insert("previousContentObject".to_owned(), json!(Object::get_path(self.previous_pointer.resolve().unwrap().as_ref()).to_string()));
+        }
+
+        serde_json::Value::Object(thread)
     }
 }
 
@@ -263,5 +297,32 @@ impl CallStack {
         element.function_start_in_output_stream = output_stream_length_with_pushed;
 
         self.get_callstack_mut().push(element);
+    }
+
+    pub(crate) fn write_json(&self) -> serde_json::Value {
+        let mut cs: Map<String, serde_json::Value> = Map::new();
+
+        let mut treads_array: Vec<serde_json::Value> = Vec::new();
+
+        for thread in &self.threads {
+            treads_array.push(thread.write_json());
+        }
+
+        cs.insert("threads".to_owned(), serde_json::Value::Array(treads_array));
+        cs.insert("threadCounter".to_owned(), json!(self.thread_counter));
+
+        serde_json::Value::Object(cs)
+    }
+
+    pub fn get_thread_with_index(&self, index: usize) -> Option<&Thread> {
+        // return threads.Find (t => t.threadIndex == index);
+
+        for t in self.threads.iter() {
+            if t.thread_index == index {
+                return Some(t);
+            }
+        }
+
+        return None;
     }
 }

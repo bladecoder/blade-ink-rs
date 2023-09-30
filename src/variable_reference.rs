@@ -26,7 +26,7 @@ impl VariableReference {
         }
     }
 
-    pub fn get_path_string_for_count(self: Rc<Self>) -> Option<String> {
+    pub fn get_path_string_for_count(self: &Rc<Self>) -> Option<String> {
         if let Some(path_for_count) = &self.path_for_count {
             Some(Object::compact_path_string(self.clone(), path_for_count))
         } else {
