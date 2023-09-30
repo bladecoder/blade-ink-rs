@@ -2,7 +2,7 @@ use std::{fmt, rc::Rc};
 
 use crate::{object::{Object, RTObject}, value::Value, void::Void, ink_list::InkList, value_type::ValueType};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Op {
     Add,
     Subtract,
@@ -45,10 +45,17 @@ pub enum Op {
 
 pub struct NativeFunctionCall {
     obj: Object,
-    op: Op,
+    pub op: Op,
 }
 
 impl NativeFunctionCall {
+    pub fn new(op: Op) -> Self {
+        Self {
+            obj: Object::new(),
+            op,
+        }
+    }
+
     pub fn new_from_name(name: &str) -> Option<Self> {
         match name {
             "+" => Some(Self::new(Op::Add)),
@@ -86,10 +93,39 @@ impl NativeFunctionCall {
         }
     }
 
-    pub fn new(op: Op) -> Self {
-        Self {
-            obj: Object::new(),
-            op,
+    pub fn get_name(op: Op) -> String {
+        match op {
+            Op::Add => "+".to_owned(),
+            Op::Subtract => "-".to_owned(),
+            Op::Divide =>  "/".to_owned(),
+            Op::Multiply => "*".to_owned(),
+            Op::Mod => "%".to_owned(),
+            Op::Negate => "_".to_owned(),
+            Op::Equal => "==".to_owned(),
+            Op::Greater => ">".to_owned(),
+            Op::Less => "<".to_owned(),
+            Op::GreaterThanOrEquals =>  ">=".to_owned(),
+            Op::LessThanOrEquals => "<=".to_owned(),
+            Op::NotEquals => "!=".to_owned(),
+            Op::Not => "!".to_owned(),
+            Op::And => "&&".to_owned(),
+            Op::Or => "||".to_owned(),
+            Op::Min => "MIN".to_owned(),
+            Op::Max => "MAX".to_owned(),
+            Op::Pow => "POW".to_owned(),
+            Op::Floor => "FLOOR".to_owned(),
+            Op::Ceiling => "CEILING".to_owned(),
+            Op::Int => "INT".to_owned(),
+            Op::Float => "FLOAT".to_owned(),
+            Op::Has => "?".to_owned(),
+            Op::Hasnt => "!?".to_owned(),
+            Op::Intersect => "^".to_owned(),
+            Op::ListMin => "LIST_MIN".to_owned(),
+            Op::ListMax => "LIST_MAX".to_owned(),
+            Op::All => "LIST_ALL".to_owned(),
+            Op::Count => "LIST_COUNT".to_owned(),
+            Op::ValueOfList => "LIST_VALUE".to_owned(),
+            Op::Invert => "LIST_INVERT".to_owned(),
         }
     }
 

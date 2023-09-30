@@ -4,7 +4,7 @@ use strum::Display;
 
 use crate::object::{RTObject, Object};
 
-#[derive(PartialEq, Display)]
+#[derive(PartialEq, Display, Clone, Copy)]
 pub enum CommandType {
     EvalStart,
     EvalOutput,
@@ -40,6 +40,7 @@ pub struct ControlCommand {
 }
 
 impl ControlCommand {
+
     pub fn new_from_name(name: &str) -> Option<Self> {
         match name {
             "ev" => Some(Self::new(CommandType::EvalStart)),
@@ -69,6 +70,38 @@ impl ControlCommand {
             "#" => Some(Self::new(CommandType::BeginTag)),
             "/#" => Some(Self::new(CommandType::EndTag)),
             _ => None,
+        }
+
+    }
+
+    pub fn get_name(c: CommandType) -> String {
+        match c {
+            CommandType::EvalStart => "ev".to_owned(),
+            CommandType::EvalOutput => "out".to_owned(),
+            CommandType::EvalEnd => "/ev".to_owned(),
+            CommandType::Duplicate => "du".to_owned(),
+            CommandType::PopEvaluatedValue => "pop".to_owned(),
+            CommandType::PopFunction => "~ret".to_owned(),
+            CommandType::PopTunnel => "->->".to_owned(),
+            CommandType::BeginString => "str".to_owned(),
+            CommandType::EndString => "/str".to_owned(),
+            CommandType::NoOp => "nop".to_owned(),
+            CommandType::ChoiceCount => "choiceCnt".to_owned(),
+            CommandType::Turns => "turn".to_owned(),
+            CommandType::TurnsSince => "turns".to_owned(),
+            CommandType::ReadCount => "readc".to_owned(),
+            CommandType::Random => "rnd".to_owned(),
+            CommandType::SeedRandom => "srnd".to_owned(),
+            CommandType::VisitIndex => "visit".to_owned(),
+            CommandType::SequenceShuffleIndex => "seq".to_owned(),
+            CommandType::StartThread => "thread".to_owned(),
+            CommandType::Done => "done".to_owned(),
+            CommandType::End => "end".to_owned(),
+            CommandType::ListFromInt => "listInt".to_owned(),
+            CommandType::ListRange => "range".to_owned(),
+            CommandType::ListRandom => "lrnd".to_owned(),
+            CommandType::BeginTag => "#".to_owned(),
+            CommandType::EndTag => "/#".to_owned(),
         }
     }
 

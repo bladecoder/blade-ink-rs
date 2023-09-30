@@ -49,23 +49,11 @@ impl Value {
     }
 
     pub fn new_string(v:&str) -> Self {
-
-        let mut inline_ws = true;
-
-        for c in v.chars() {
-            if c != ' ' && c != '\t' {
-                inline_ws = false;
-                break;
-            }
-        }
         
         Self { 
             obj: Object::new(), 
-            value: ValueType::String(StringValue {
-                string: v.to_string(), 
-                is_inline_whitespace: inline_ws, 
-                is_newline: v.eq("\n")}) 
-            }
+            value: ValueType::new_string(v),
+        }
     }
 
     pub fn new_divert_target(p:Path) -> Self {
@@ -126,10 +114,30 @@ impl Value {
         }
     }
 
+    pub(crate) fn get_bool_value(o: &dyn RTObject) -> Option<bool> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::Bool(v) => Some(*v),
+                _ => None,
+            },
+            None => None,
+        }
+    }
+
     pub fn get_int_value(o: &dyn RTObject) -> Option<i32> {
         match o.as_any().downcast_ref::<Value>() {
             Some(v) => match &v.value {
                 ValueType::Int(v) => Some(*v),
+                _ => None,
+            },
+            None => None,
+        }
+    }
+
+    pub fn get_float_value(o: &dyn RTObject) -> Option<f32> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::Float(v) => Some(*v),
                 _ => None,
             },
             None => None,
@@ -150,6 +158,16 @@ impl Value {
         match o.as_any().downcast_ref::<Value>() {
             Some(v) => match &v.value {
                 ValueType::List(v) => Some(v),
+                _ => None,
+            },
+            None => None,
+        }
+    }
+
+    pub fn get_divert_value(o: &dyn RTObject) -> Option<&Path> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::DivertTarget(v) => Some(v),
                 _ => None,
             },
             None => None,

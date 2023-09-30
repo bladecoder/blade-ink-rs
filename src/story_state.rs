@@ -2,9 +2,10 @@
 
 use std::{rc::Rc, cell::RefCell, collections::HashMap};
 
-use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::{RTObject, Object}, value::Value, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch, story::Story, path::Path, void::Void, tag::Tag, list_definitions_origin::ListDefinitionsOrigin, value_type::ValueType};
+use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::{RTObject, Object}, value::Value, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch, story::{Story, INK_VERSION_CURRENT}, path::Path, void::Void, tag::Tag, list_definitions_origin::ListDefinitionsOrigin, value_type::ValueType, json_write};
 
 use rand::Rng;
+use serde_json::{json, Map};
 
 pub const INK_SAVE_STATE_VERSION: u32 = 10;
 pub const MIN_COMPATIBLE_LOAD_VERSION: u32 = 8;
@@ -1021,4 +1022,70 @@ impl StoryState {
         self.output_stream_dirty();
     }
 
+    pub fn visit_count_at_path_string(&self, path_string: &str) -> usize {
+        let mut visit_count_out = None;
+
+        if self.patch.is_some() {
+            let container = self.main_content_container.content_at_path(&Path::new_with_components_string(Some(path_string)), 0, -1).get_container();
+            if container.is_none() { panic!("Content at path not found: {}", path_string);}
+
+            visit_count_out = self.patch.as_ref().unwrap().get_visit_count(container.as_ref().unwrap());
+            if let Some(visit_count_out) = visit_count_out {return visit_count_out;}
+        }
+
+        visit_count_out = self.visit_counts.get(path_string).copied();
+        if let Some(visit_count_out) = visit_count_out {return visit_count_out;}
+
+        0
+    }
+
+    pub fn to_json(&self) -> String {
+        self.write_json().to_string()
+    }
+
+    pub fn load_json(&self, save_string: &str) {
+        todo!()
+    }
+
+    fn write_json(&self) -> serde_json::Value {
+        let mut obj: Map<String, serde_json::Value> = Map::new();
+
+        // Flows
+        let mut flows: Map<String, serde_json::Value> = Map::new();
+
+        // current flow
+        flows.insert(self.current_flow.name.clone(), self.current_flow.write_json());
+
+        // named flows
+        if let Some(named_flows) = &self.named_flows {
+            for (k,v) in named_flows {
+                flows.insert(k.clone(), v.write_json());
+            }
+        }
+
+        obj.insert("flows".to_owned(), serde_json::Value::Object(flows));
+
+
+        obj.insert("currentFlowName".to_owned(), json!(self.current_flow.name));
+        obj.insert("variablesState".to_owned(), self.variables_state.write_json());
+        obj.insert("evalStack".to_owned(), json_write::write_list_rt_objs(&self.evaluation_stack));
+
+        if !self.diverted_pointer.is_null() {
+            obj.insert("currentDivertTarget".to_owned(), json!(self.diverted_pointer.get_path().unwrap().get_components_string()));
+        }
+        
+        obj.insert("visitCounts".to_owned(), json_write::write_int_dictionary(&self.visit_counts));
+        obj.insert("turnIndices".to_owned(), json_write::write_int_dictionary(&self.turn_indices));
+
+        obj.insert("turnIdx".to_owned(), json!(self.current_turn_index));
+        obj.insert("storySeed".to_owned(), json!(self.story_seed));
+        obj.insert("previousRandom".to_owned(), json!(self.previous_random));
+        
+        obj.insert("inkSaveVersion".to_owned(), json!(INK_SAVE_STATE_VERSION));
+
+        // Not using this right now, but could do in future.
+        obj.insert("inkFormatVersion".to_owned(), json!(INK_VERSION_CURRENT));
+
+        serde_json::Value::Object(obj)
+    }
 }

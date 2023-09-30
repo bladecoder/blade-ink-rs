@@ -40,7 +40,7 @@ impl Divert {
         }
     }
 
-    fn get_target_path_string(&self) -> Option<String> {
+    pub fn get_target_path_string(&self) -> Option<String> {
         match self.target_path.borrow().as_ref() {
             Some(p) => Some(self.compact_path_string(p)),
             None => None,
