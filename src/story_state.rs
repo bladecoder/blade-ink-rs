@@ -1219,4 +1219,25 @@ impl StoryState {
 
         Ok(())
     }
+
+    pub(crate) fn remove_flow_internal(&mut self, flow_name: &str) -> Result<(), String> {
+        if flow_name.eq(DEFAULT_FLOW_NAME) {return Err("Cannot destroy default flow".to_owned());}
+
+        // If we're currently in the flow that's being removed, switch back to default
+        if self.current_flow.name.eq(flow_name) {
+            self.switch_to_default_flow_internal();
+        }
+
+        self.named_flows.as_mut().unwrap().remove(flow_name);
+        self.alive_flow_names_dirty = true;    
+        
+        Ok(())
+    }
+
+    fn switch_to_default_flow_internal(&mut self) {
+        match self.named_flows {
+            Some(_) => self.switch_flow_internal(DEFAULT_FLOW_NAME),
+            None => (),
+        }
+    }
 }

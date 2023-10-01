@@ -71,7 +71,7 @@ pub fn write_rtobject(o: Rc<dyn RTObject>) -> serde_json::Value {
         let mut s = String::new();
 
         if v.is_newline {
-            s.push_str("\n");
+            s.push('\n');
         } else {
             s.push('^');
             s.push_str(&v.string);

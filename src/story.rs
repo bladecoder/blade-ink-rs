@@ -1911,5 +1911,9 @@ impl Story {
             panic!("Can't {}. Story is in the middle of a ContinueAsync(). Make more continue_async() calls or a single cont() call beforehand.", activity_str);
         }
     }
+
+    pub fn remove_flow(&mut self, flow_name: &str) {
+        self.get_state_mut().remove_flow_internal(flow_name);
+    }
 }
 
