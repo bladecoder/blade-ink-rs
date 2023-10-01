@@ -2,7 +2,7 @@ use std::{collections::HashMap, rc::Rc};
 
 use serde_json::{Map, json};
 
-use crate::{pointer::{Pointer, self}, push_pop::PushPopType, container::{Container, self}, value::Value, object::Object, json_read, json_write_state, path::Path, story::Story};
+use crate::{pointer::{Pointer, self}, push_pop::PushPopType, container::{Container, self}, value::Value, object::Object, json_read, json_write_state, path::Path, story::Story, story_error::StoryError};
 
 pub struct Element {
     pub current_pointer: Pointer,
@@ -50,16 +50,16 @@ impl Thread {
         }
     }
 
-    pub fn from_json(main_content_container: &Rc<Container>, j_obj: &Map<String, serde_json::Value>) -> Result<Thread, String> {
+    pub fn from_json(main_content_container: &Rc<Container>, j_obj: &Map<String, serde_json::Value>) -> Result<Thread, StoryError> {
         let mut thread = Thread::new();
 
-        thread.thread_index = j_obj.get("threadIndex").and_then(|i| i.as_i64()).ok_or("Invalid thread index")? as usize;
+        thread.thread_index = j_obj.get("threadIndex").and_then(|i| i.as_i64()).ok_or(StoryError::BadJson("Invalid thread index".to_owned()))? as usize;
 
         if let Some(j_thread_callstack) = j_obj.get("callstack").and_then(|callstack| callstack.as_array()) {
 
             for j_el_tok in j_thread_callstack.iter() {
                 if let Some(j_element_obj) = j_el_tok.as_object() {
-                    let push_pop_type = PushPopType::from_value(j_element_obj.get("type").and_then(|t| t.as_i64()).ok_or("Invalid push/pop type")? as usize);
+                    let push_pop_type = PushPopType::from_value(j_element_obj.get("type").and_then(|t| t.as_i64()).ok_or(StoryError::BadJson("Invalid push/pop type".to_owned()))? as usize);
 
                     let mut pointer = pointer::NULL.clone();
 
@@ -68,7 +68,7 @@ impl Thread {
                         let thread_pointer_result = main_content_container.content_at_path(&Path::new_with_components_string (current_container_path_str), 0, -1);
 
                         pointer.container = thread_pointer_result.container();
-                        let pointer_index = j_element_obj.get("idx").and_then(|i| i.as_i64()).ok_or("Invalid pointer index")? as i32;
+                        let pointer_index = j_element_obj.get("idx").and_then(|i| i.as_i64()).ok_or(StoryError::BadJson("Invalid pointer index".to_owned()))? as i32;
                         pointer.index = pointer_index;
 
                         // TODO
@@ -209,12 +209,12 @@ impl CallStack {
         return self.threads.len() > 1 && !self.element_is_evaluate_from_game();
     }
 
-    pub fn pop_thread(&mut self) -> Result<(), String> {
+    pub fn pop_thread(&mut self) -> Result<(), StoryError> {
         if self.can_pop_thread() {
             self.threads.remove(self.threads.len() - 1);
             Ok(())
         } else {
-            Err("Can't pop thread".to_owned())
+            Err(StoryError::InvalidStoryState("Can't pop thread".to_owned()))
         }
     }
 
@@ -297,7 +297,7 @@ impl CallStack {
         value: Rc<Value>,
         declare_new: bool,
         mut context_index: i32,
-    ) -> Result<(), String> {
+    ) -> Result<(), StoryError> {
         if context_index == -1 {
             context_index = self.get_current_element_index() + 1;
         }
@@ -305,7 +305,7 @@ impl CallStack {
         let context_element = self.get_callstack_mut().get_mut((context_index - 1) as usize).unwrap();
 
         if !declare_new && !context_element.temporary_variables.contains_key(&name) {
-            return Err(format!("Could not find temporary variable to set: {}", name));
+            return Err(StoryError::InvalidStoryState(format!("Could not find temporary variable to set: {}", name)));
         }
 
         let old_value = context_element.temporary_variables.get(&name).cloned();
@@ -380,7 +380,7 @@ impl CallStack {
         return None;
     }
 
-    pub fn load_json(&mut self, main_content_container: &Rc<Container>, j_obj: &Map<String, serde_json::Value>) -> Result<(), String> {
+    pub fn load_json(&mut self, main_content_container: &Rc<Container>, j_obj: &Map<String, serde_json::Value>) -> Result<(), StoryError> {
 
         self.threads.clear();
 

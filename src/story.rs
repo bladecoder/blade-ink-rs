@@ -9,7 +9,7 @@ use crate::{
     error::ErrorType,
     json_read,
     push_pop::PushPopType,
-    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::NativeFunctionCall, variable_reference::VariableReference, list_definitions_origin::ListDefinitionsOrigin, ink_list::InkList, ink_list_item::InkListItem, variables_state::VariablesState,
+    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::NativeFunctionCall, variable_reference::VariableReference, list_definitions_origin::ListDefinitionsOrigin, ink_list::InkList, ink_list_item::InkListItem, variables_state::VariablesState, story_error::StoryError, value_type::ValueType,
 };
 
 pub const INK_VERSION_CURRENT: i32 = 21;
@@ -37,27 +37,27 @@ pub struct Story {
 }
 
 impl Story {
-    pub fn new(json_string: &str) -> Result<Self, String> {
+    pub fn new(json_string: &str) -> Result<Self, StoryError> {
         let json: serde_json::Value = match serde_json::from_str(json_string) {
             Ok(value) => value,
-            Err(_) => return Err("Story not in JSON format.".to_owned()),
+            Err(_) => return Err(StoryError::BadJson("Story not in JSON format.".to_owned())),
         };
 
         let version_opt = json.get("inkVersion");
 
         if version_opt.is_none() || !version_opt.unwrap().is_number() {
-            return Err(
+            return Err(StoryError::BadJson(
                 "ink version number not found. Are you sure it's a valid .ink.json file?"
-                    .to_string(),
+                    .to_owned()),
             );
         }
 
         let version: i32 = version_opt.unwrap().as_i64().unwrap().try_into().unwrap();
 
         if version > INK_VERSION_CURRENT {
-            return Err("Version of ink used to build story was newer than the current version of the engine".to_owned());
+            return Err(StoryError::BadJson("Version of ink used to build story was newer than the current version of the engine".to_owned()));
         } else if version < INK_VERSION_MINIMUM_COMPATIBLE {
-            return Err("Version of ink used to build story is too old to be loaded by this version of the engine".to_owned());
+            return Err(StoryError::BadJson("Version of ink used to build story is too old to be loaded by this version of the engine".to_owned()));
         } else if version != INK_VERSION_CURRENT {
             log::debug!("WARNING: Version of ink used to build story doesn't match current version of engine. Non-critical, but recommend synchronising.");
         }
@@ -65,9 +65,9 @@ impl Story {
         let root_token = match json.get("root") {
             Some(value) => value,
             None => {
-                return Err(
+                return Err(StoryError::BadJson(
                     "Root node for ink not found. Are you sure it's a valid .ink.json file?"
-                        .to_string(),
+                        .to_owned()),
                 )
             }
         };
@@ -76,8 +76,8 @@ impl Story {
             Some(def) => Rc::new(json_read::jtoken_to_list_definitions(def)?),
             None => {
                 return Err(
-                    "List Definitions node for ink not found. Are you sure it's a valid .ink.json file?"
-                        .to_string(),
+                    StoryError::BadJson("List Definitions node for ink not found. Are you sure it's a valid .ink.json file?"
+                        .to_owned()),
                 )
             }
         };
@@ -87,7 +87,7 @@ impl Story {
         let main_content_container = main_content_container.into_any().downcast::<Container>();
 
         if main_content_container.is_err() {
-            return Err("Root node for ink is not a container?".to_owned());
+            return Err(StoryError::BadJson("Root node for ink is not a container?".to_owned()));
         };
 
         let mut story = Story {
@@ -163,12 +163,12 @@ impl Story {
         self.get_state().can_continue()
     }
 
-    pub fn cont(&mut self) -> Result<String, String> {
+    pub fn cont(&mut self) -> Result<String, StoryError> {
         self.continue_async(0.0)?;
         Ok(self.get_current_text())
     }
 
-    pub fn continue_maximally(&mut self) -> Result<String, String> {
+    pub fn continue_maximally(&mut self) -> Result<String, StoryError> {
         self.if_async_we_cant("continue_maximally");
 
         let mut sb = String::new();
@@ -180,7 +180,7 @@ impl Story {
         Ok(sb)
     }
 
-    pub fn continue_async(&mut self, millisecs_limit_async: f32) -> Result<(), String> {
+    pub fn continue_async(&mut self, millisecs_limit_async: f32) -> Result<(), StoryError> {
         // TODO: if (!hasValidatedExternals) validateExternalBindings();
 
         self.continue_internal(millisecs_limit_async)?;
@@ -188,7 +188,7 @@ impl Story {
         Ok(())
     }
 
-    fn continue_internal(&mut self, millisecs_limit_async: f32) -> Result<(), String> {
+    fn continue_internal(&mut self, millisecs_limit_async: f32) -> Result<(), StoryError> {
         let is_async_time_limited = millisecs_limit_async > 0.0;
 
         self.recursive_continue_count += 1;
@@ -200,7 +200,7 @@ impl Story {
             self.async_continue_active = is_async_time_limited;
             if !self.can_continue() {
                 return Err(
-                    "Can't continue - should check can_continue before calling Continue".to_owned(),
+                    StoryError::InvalidStoryState("Can't continue - should check can_continue before calling Continue".to_owned()),
                 );
             }
 
@@ -387,7 +387,7 @@ impl Story {
                         sb.push_str(self.get_state().get_current_warnings()[0].to_string().as_str());
                     }
 
-                    return Err(sb);
+                    return Err(StoryError::InvalidStoryState(sb));
                 }
             }
         }
@@ -395,9 +395,9 @@ impl Story {
         Ok(())
     }
 
-    fn continue_single_step(&mut self) -> Result<bool, String> {
+    fn continue_single_step(&mut self) -> Result<bool, StoryError> {
         // Run main step function (walks through content)
-        self.step();
+        self.step()?;
 
         // Run out of content and we have a default invisible choice that we can follow?
         if !self.can_continue() && !self.get_state().get_callstack().borrow().element_is_evaluate_from_game() {
@@ -503,14 +503,14 @@ impl Story {
         todo!()
     }
 
-    fn step(&mut self) {
+    fn step(&mut self) -> Result<(), StoryError> {
         let mut should_add_to_stream = true;
 
         // Get current content
         let mut pointer = self.get_state().get_current_pointer().clone();
 
         if pointer.is_null() {
-            return;
+            return Ok(());
         }
 
         // Step directly to the first element of content in a container (if
@@ -558,11 +558,11 @@ impl Story {
         // that was diverted to rather than called as a function)
         let mut current_content_obj = pointer.resolve();
 
-        let is_logic_or_flow_control = self.perform_logic_and_flow_control(&current_content_obj);
+        let is_logic_or_flow_control = self.perform_logic_and_flow_control(&current_content_obj)?;
 
         // Has flow been forced to end by flow control above?
         if self.get_state().get_current_pointer().is_null() {
-            return;
+            return Ok(());
         }
 
         if is_logic_or_flow_control {
@@ -632,6 +632,8 @@ impl Story {
                 }
             }
         }
+
+        Ok(())
 
     }
 
@@ -753,12 +755,12 @@ impl Story {
         self.get_state_mut().get_variables_state_mut()
     }
 
-    fn perform_logic_and_flow_control(&mut self, content_obj: &Option<Rc<dyn RTObject>>) -> bool {
+    fn perform_logic_and_flow_control(&mut self, content_obj: &Option<Rc<dyn RTObject>>) -> Result<bool, StoryError> {
         let content_obj = match content_obj {
             Some(content_obj) => {
                 content_obj.clone()
             },
-            None => return false,
+            None => return Ok(false),
         };
 
         // Divert
@@ -766,7 +768,7 @@ impl Story {
             if current_divert.is_conditional {
                 let o = self.get_state_mut().pop_evaluation_stack();
                 if !self.is_truthy(o) {
-                    return true;
+                    return Ok(true);
                 }
             }
 
@@ -777,24 +779,22 @@ impl Story {
                         let p = Self::pointer_at_path(&self.main_content_container, target);
                         self.get_state_mut().set_diverted_pointer(p);
                     } else {
-                        // TODO
-                        // let int_content = var_contents.downcast_ref::<IntValue>();
-                        // let error_message = format!(
-                        //     "Tried to divert to a target from a variable, but the variable ({}) didn't contain a divert target, it ",
-                        //     var_name
-                        // );
-                        // let error_message = if let Some(int_content) = int_content {
-                        //     if int_content.value == 0 {
-                        //         format!("{}was empty/null (the value 0).", error_message)
-                        //     } else {
-                        //         format!("{}contained '{}'.", error_message, var_contents)
-                        //     }
-                        // } else {
-                        //     error_message
-                        // };
+                        let error_message = format!(
+                            "Tried to divert to a target from a variable, but the variable ({}) didn't contain a divert target, it ",
+                            var_name.as_ref().unwrap()
+                        );
 
-                        // error(error_message);
-                        panic!();
+                        let error_message = if let ValueType::Int(int_content) = var_contents.value {
+                            if int_content == 0 {
+                                format!("{}was empty/null (the value 0).", error_message)
+                            } else {
+                                format!("{}contained '{}'.", error_message, var_contents)
+                            }
+                        } else {
+                            error_message
+                        };
+
+                    return Err(StoryError::InvalidStoryState(error_message));
                     }
                 } else {
                     // TODO
@@ -806,7 +806,7 @@ impl Story {
                 }
             } else if current_divert.is_external {
                 //call_external_function(&current_divert.get_target_path_string(), current_divert.get_external_args());
-                return true;
+                return Ok(true);
             } else {
                 self.get_state_mut().set_diverted_pointer(current_divert.get_target_pointer());
             }
@@ -821,7 +821,7 @@ impl Story {
                 //     error(format!("Divert resolution failed: {:?}", current_divert));
             }
 
-            return true;
+            return Ok(true);
         }
 
         if let Some(eval_command) = content_obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
@@ -886,7 +886,7 @@ impl Story {
                     }
 
                     if self.get_state_mut().try_exit_function_evaluation_from_game() {
-                        return true;
+                        return Ok(true);
                     } else if self.get_state().get_callstack().borrow().get_current_element().push_pop_type != pop_type
                             || !self.get_state().get_callstack().borrow().can_pop() {
 
@@ -1290,7 +1290,7 @@ impl Story {
                 },
             }
 
-            return true;
+            return Ok(true);
         }
 
         // Variable assignment
@@ -1305,7 +1305,7 @@ impl Story {
             let assigned_val = assigned_val.into_any().downcast::<Value>().unwrap();
             self.get_state_mut().get_variables_state_mut().assign( var_ass, assigned_val);
 
-            return true;
+            return Ok(true);
         }
 
         // Variable reference
@@ -1337,7 +1337,7 @@ impl Story {
 
             self.get_state_mut().push_evaluation_stack(found_value.unwrap());
 
-            return true;
+            return Ok(true);
         }
 
         // Native function call
@@ -1347,11 +1347,11 @@ impl Story {
             let result = func.call(func_params);
             self.get_state_mut().push_evaluation_stack(result);
 
-            return true;
+            return Ok(true);
         }
         
 
-        false
+        Ok(false)
     }
 
     fn next_content(&mut self) {
@@ -1706,11 +1706,11 @@ impl Story {
     }
 
     // TODO: The result and the args should be an object not a String
-    pub fn evaluate_function(&mut self, func_name: &str, args: Option<&Vec<String>>, text_output: &mut String) -> Result<Option<String>, String> {
+    pub fn evaluate_function(&mut self, func_name: &str, args: Option<&Vec<String>>, text_output: &mut String) -> Result<Option<String>, StoryError> {
         self.if_async_we_cant("evaluate a function");
 
         if func_name.trim().is_empty() {
-            return Err("Function is empty or white space.".to_owned());
+            return Err(StoryError::InvalidStoryState("Function is empty or white space.".to_owned()));
         }
 
         // Get the content that we need to run
@@ -1720,7 +1720,7 @@ impl Story {
             e.push_str(func_name);
             e.push('\'');
 
-            return Err(e);
+            return Err(StoryError::BadArgument(e));
         }
 
         // Snapshot the output stream
@@ -1742,9 +1742,7 @@ impl Story {
         self.get_state_mut().reset_output(Some(output_stream_before));
 
         // Finish evaluation, and see whether anything was produced
-        let result = self.get_state_mut().complete_function_evaluation_from_game();
-
-        return result;    
+        self.get_state_mut().complete_function_evaluation_from_game()
     }
 
     fn knot_container_with_name(&self, name: &str) -> Option<Rc<Container>> {
@@ -1797,15 +1795,15 @@ impl Story {
         panic!("Should never reach here");
     }
 
-    pub fn get_global_tags(&self) -> Result<Vec<String>, String> {
+    pub fn get_global_tags(&self) -> Result<Vec<String>, StoryError> {
         self.tags_at_start_of_flow_container_with_path_string("")
     }
 
-    pub fn tags_for_content_at_path(&self, path: &str) -> Result<Vec<String>, String> {
+    pub fn tags_for_content_at_path(&self, path: &str) -> Result<Vec<String>, StoryError> {
         self.tags_at_start_of_flow_container_with_path_string(path)
     }
 
-    fn tags_at_start_of_flow_container_with_path_string(&self, path_string: &str) -> Result<Vec<String>, String> {
+    fn tags_at_start_of_flow_container_with_path_string(&self, path_string: &str) -> Result<Vec<String>, StoryError> {
         let path = Path::new_with_components_string(Some(path_string));
 
         // Expected to be global story, knot, or stitch
@@ -1839,7 +1837,7 @@ impl Story {
                             tags.push(string_value.string.clone());
                         } else {
                             return Err(
-                                "Tag contained non-text content. Only plain text is allowed when using globalTags or TagsAtContentPath. If you want to evaluate dynamic content, you need to use story.Continue()".to_owned(),
+                                StoryError::InvalidStoryState("Tag contained non-text content. Only plain text is allowed when using globalTags or TagsAtContentPath. If you want to evaluate dynamic content, you need to use story.Continue()".to_owned()),
                             );
                         }
                     } else {
@@ -1861,7 +1859,7 @@ impl Story {
         return self.get_state_mut().get_current_tags();
     }
 
-    pub fn choose_path_string(&mut self, path: &str, reset_call_stack: bool, args: Option<&Vec<String>>) -> Result<(), String> {
+    pub fn choose_path_string(&mut self, path: &str, reset_call_stack: bool, args: Option<&Vec<String>>) -> Result<(), StoryError> {
         self.if_async_we_cant("call ChoosePathString right now");
 
         if reset_call_stack {
@@ -1880,7 +1878,7 @@ impl Story {
                 // Err("Story was running a function " + funcDetail + "when you called ChoosePathString("
                 //         + path + ") - this is almost certainly not not what you want! Full stack trace: \n"
                 //         + state.getCallStack().getCallStackTrace());
-                return Err("Story was running a function".to_owned());
+                return Err(StoryError::InvalidStoryState("Story was running a function".to_owned()));
             }
         }
 

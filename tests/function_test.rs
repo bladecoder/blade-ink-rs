@@ -1,9 +1,9 @@
-use bladeink::story::Story;
+use bladeink::{story::Story, story_error::StoryError};
 
 mod common;
 
 #[test]
-fn fun_basic_test() -> Result<(), String>  {
+fn fun_basic_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/function/func-basic.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -17,7 +17,7 @@ fn fun_basic_test() -> Result<(), String>  {
 }
 
 #[test]
-fn fun_none_test() -> Result<(), String>  {
+fn fun_none_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/function/func-none.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -31,7 +31,7 @@ fn fun_none_test() -> Result<(), String>  {
 }
 
 #[test]
-fn fun_inline_test() -> Result<(), String>  {
+fn fun_inline_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/function/func-inline.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -45,7 +45,7 @@ fn fun_inline_test() -> Result<(), String>  {
 }
 
 #[test]
-fn setvar_test() -> Result<(), String>  {
+fn setvar_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/function/setvar-func.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -59,7 +59,7 @@ fn setvar_test() -> Result<(), String>  {
 }
 
 #[test]
-fn complex_func1_test() -> Result<(), String>  {
+fn complex_func1_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/function/complex-func1.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -73,7 +73,7 @@ fn complex_func1_test() -> Result<(), String>  {
 }
 
 #[test]
-fn complex_func2_test() -> Result<(), String>  {
+fn complex_func2_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/function/complex-func2.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -87,7 +87,7 @@ fn complex_func2_test() -> Result<(), String>  {
 }
 
 #[test]
-fn complex_func3_test() -> Result<(), String>  {
+fn complex_func3_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/function/complex-func3.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -102,7 +102,7 @@ fn complex_func3_test() -> Result<(), String>  {
 }
 
 #[test]
-fn rnd() -> Result<(), String>  {
+fn rnd() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/function/rnd-func.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -119,7 +119,7 @@ fn rnd() -> Result<(), String>  {
 }
 
 #[test]
-fn evaluating_function_variable_state_bug_test() -> Result<(), String>  {
+fn evaluating_function_variable_state_bug_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/function/evaluating-function-variablestate-bug.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();

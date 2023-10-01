@@ -1,9 +1,9 @@
-use bladeink::story::Story;
+use bladeink::{story::Story, story_error::StoryError};
 
 mod common;
 
 #[test]
-fn list_basic_operations_test() -> Result<(), String>  {
+fn list_basic_operations_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/lists/basic-operations.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -14,7 +14,7 @@ fn list_basic_operations_test() -> Result<(), String>  {
 }
 
 #[test]
-fn list_mixed_items_test() -> Result<(), String>  {
+fn list_mixed_items_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/lists/list-mixed-items.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -25,7 +25,7 @@ fn list_mixed_items_test() -> Result<(), String>  {
 }
 
 #[test]
-fn more_list_operations_test() -> Result<(), String>  {
+fn more_list_operations_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/lists/more-list-operations.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -36,7 +36,7 @@ fn more_list_operations_test() -> Result<(), String>  {
 }
 
 #[test]
-fn empty_list_origin_test() -> Result<(), String>  {
+fn empty_list_origin_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/lists/empty-list-origin.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -47,7 +47,7 @@ fn empty_list_origin_test() -> Result<(), String>  {
 }
 
 #[test]
-fn list_save_load_test() -> Result<(), String>  {
+fn list_save_load_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/lists/list-save-load.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -68,7 +68,7 @@ fn list_save_load_test() -> Result<(), String>  {
 }
 
 #[test]
-fn empty_list_origin_after_assinment_test() -> Result<(), String>  {
+fn empty_list_origin_after_assinment_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/lists/empty-list-origin-after-assignment.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -79,7 +79,7 @@ fn empty_list_origin_after_assinment_test() -> Result<(), String>  {
 }
 
 #[test]
-fn list_range_test() -> Result<(), String>  {
+fn list_range_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/lists/list-range.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -90,7 +90,7 @@ fn list_range_test() -> Result<(), String>  {
 }
 
 #[test]
-fn list_bug_adding_element_test() -> Result<(), String>  {
+fn list_bug_adding_element_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/lists/bug-adding-element.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -107,7 +107,7 @@ fn list_bug_adding_element_test() -> Result<(), String>  {
 }
 
 #[test]
-fn more_list_operations2_test() -> Result<(), String>  {
+fn more_list_operations2_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/lists/more-list-operations2.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();

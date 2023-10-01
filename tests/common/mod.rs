@@ -1,9 +1,9 @@
 use std::{error::Error, path::Path, fs};
 
-use bladeink::story::Story;
+use bladeink::{story::Story, story_error::StoryError};
 use rand::Rng;
 
-pub fn next_all(story: &mut Story, text: &mut Vec<String>) -> Result<(), String> {
+pub fn next_all(story: &mut Story, text: &mut Vec<String>) -> Result<(), StoryError> {
     while story.can_continue() {
         let line = story.cont()?;
         print!("{line}");
@@ -14,7 +14,7 @@ pub fn next_all(story: &mut Story, text: &mut Vec<String>) -> Result<(), String>
     }
 
     if story.has_error() {
-        return Err(join_text(&story.get_current_errors()));
+        panic!("{}", join_text(&story.get_current_errors()));
     }
 
     Ok(())
@@ -35,7 +35,7 @@ pub fn run_story(
     filename: &str,
     choice_list: Option<Vec<usize>>,
     errors: &mut Vec<String>,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, StoryError> {
     // 1) Load story
     let json = get_json_string(filename).unwrap();
 

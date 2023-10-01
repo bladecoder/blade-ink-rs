@@ -1,9 +1,9 @@
-use bladeink::story::Story;
+use bladeink::{story::Story, story_error::StoryError};
 
 mod common;
 
 #[test]
-fn sequence_test() -> Result<(), String>  {
+fn sequence_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/variabletext/sequence.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -46,7 +46,7 @@ fn sequence_test() -> Result<(), String>  {
 }
 
 #[test]
-fn cycle_test() -> Result<(), String>  {
+fn cycle_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/variabletext/cycle.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -89,7 +89,7 @@ fn cycle_test() -> Result<(), String>  {
 }
 
 #[test]
-fn once_test() -> Result<(), String>  {
+fn once_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/variabletext/once.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -132,7 +132,7 @@ fn once_test() -> Result<(), String>  {
 }
 
 #[test]
-fn empty_elements_test() -> Result<(), String>  {
+fn empty_elements_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/variabletext/empty-elements.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -161,7 +161,7 @@ fn empty_elements_test() -> Result<(), String>  {
 }
 
 #[test]
-fn list_in_choice_test() -> Result<(), String>  {
+fn list_in_choice_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/variabletext/list-in-choice.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();

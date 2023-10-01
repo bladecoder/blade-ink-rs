@@ -1,9 +1,9 @@
-use bladeink::story::Story;
+use bladeink::{story::Story, story_error::StoryError};
 
 mod common;
 
 #[test]
-fn variable_declaration_test() -> Result<(), String>  {
+fn variable_declaration_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/variable/variable-declaration.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -17,7 +17,7 @@ fn variable_declaration_test() -> Result<(), String>  {
 }
 
 #[test]
-fn var_calc_test() -> Result<(), String>  {
+fn var_calc_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/variable/varcalc.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -31,7 +31,7 @@ fn var_calc_test() -> Result<(), String>  {
 }
 
 #[test]
-fn var_string_ink_bug_test() -> Result<(), String>  {
+fn var_string_ink_bug_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/variable/varstringinc.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -49,7 +49,7 @@ fn var_string_ink_bug_test() -> Result<(), String>  {
 }
 
 #[test]
-fn var_divert_test() -> Result<(), String>  {
+fn var_divert_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/variable/var-divert.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();

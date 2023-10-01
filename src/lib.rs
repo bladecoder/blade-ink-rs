@@ -1,5 +1,6 @@
 pub mod story;
 pub mod value_type;
+pub mod story_error;
 mod json_read;
 mod json_write_state;
 mod object;

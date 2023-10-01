@@ -1,9 +1,9 @@
-use bladeink::{story::Story, value_type::ValueType};
+use bladeink::{story::Story, value_type::ValueType, story_error::StoryError};
 
 mod common;
 
 #[test]
-fn operations_test() -> Result<(), String>  {
+fn operations_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/misc/operations.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -14,7 +14,7 @@ fn operations_test() -> Result<(), String>  {
 }
 
 #[test]
-fn read_counts_test() -> Result<(), String>  {
+fn read_counts_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/misc/read-counts.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -25,7 +25,7 @@ fn read_counts_test() -> Result<(), String>  {
 }
 
 #[test]
-fn turns_since_test() -> Result<(), String>  {
+fn turns_since_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/misc/turns-since.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -41,7 +41,7 @@ fn turns_since_test() -> Result<(), String>  {
  * Issue: https://github.com/bladecoder/blade-ink/issues/15
  */
 #[test]
-fn issue15_test() -> Result<(), String>  {
+fn issue15_test() -> Result<(), StoryError>  {
     let json_string =
     common::get_json_string("examples/inkfiles/misc/issue15.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
