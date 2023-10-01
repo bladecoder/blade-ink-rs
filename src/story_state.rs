@@ -495,7 +495,7 @@ impl StoryState {
         let mut include_in_output = true;
     
         // New glue, so chomp away any whitespace from the end of the stream
-        if let Ok(_) = glue {
+        if glue.is_ok() {
             self.trim_newlines_from_output_stream();
             include_in_output = true;
         }
@@ -512,7 +512,7 @@ impl StoryState {
                 let cs = self.get_callstack().borrow();
                 let curr_el = cs.get_current_element();
                 if curr_el.push_pop_type == PushPopType::Function {
-                    function_trim_index = curr_el.function_start_in_output_stream as i32;
+                    function_trim_index = curr_el.function_start_in_output_stream;
                 }
             }
     
@@ -526,7 +526,7 @@ impl StoryState {
 
                         break;
                     }
-                } else if let Some(_) = o.as_ref().as_any().downcast_ref::<Glue>() {
+                } else if o.as_ref().as_any().is::<Glue>() {
                     glue_trim_index = i as i32;
                     break;
                 }
@@ -1144,12 +1144,13 @@ impl StoryState {
                 }
             }
 
-            if let Some(named_flows) = &self.named_flows {
+            if let Some(named_flows) = &mut self.named_flows {
                 if named_flows.len() > 1 {
                     if let Some(current_flow_name) = j_object.get("currentFlowName") {
                         if let Some(curr_flow_name) = current_flow_name.as_str() {
                             if let Some(curr_flow) = named_flows.get(curr_flow_name) {
                                 self.current_flow = curr_flow.clone();
+                                named_flows.remove(curr_flow_name);
                             }
                         }
                     }
@@ -1235,9 +1236,8 @@ impl StoryState {
     }
 
     fn switch_to_default_flow_internal(&mut self) {
-        match self.named_flows {
-            Some(_) => self.switch_flow_internal(DEFAULT_FLOW_NAME),
-            None => (),
+        if self.named_flows.is_some() {
+            self.switch_flow_internal(DEFAULT_FLOW_NAME);
         }
     }
 }
