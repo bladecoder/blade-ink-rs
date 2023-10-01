@@ -7,16 +7,6 @@ use crate::{
     object::RTObject, value::Value, glue::Glue, choice_point::ChoicePoint, push_pop::PushPopType, divert::Divert, ink_list::InkList, control_command::ControlCommand, native_function_call::NativeFunctionCall, variable_reference::VariableReference, variable_assigment::VariableAssignment, tag::Tag, void::Void, choice::Choice,
 };
 
-pub fn write_dictionary_runtime_objs(objs: &HashMap<String, Rc<dyn RTObject>>) -> serde_json::Value {
-    let mut jobjs: Map<String, serde_json::Value> = Map::new();
-
-    for (k,o) in objs {
-        jobjs.insert(k.clone(), write_rtobject(o.clone()));
-    }
-
-    serde_json::Value::Object(jobjs)
-}
-
 pub fn write_dictionary_values(objs: &HashMap<String, Rc<Value>>) -> serde_json::Value {
     let mut jobjs: Map<String, serde_json::Value> = Map::new();
 
@@ -81,7 +71,7 @@ pub fn write_rtobject(o: Rc<dyn RTObject>) -> serde_json::Value {
         let mut s = String::new();
 
         if v.is_newline {
-            s.push_str("\\n");
+            s.push_str("\n");
         } else {
             s.push('^');
             s.push_str(&v.string);
@@ -91,7 +81,7 @@ pub fn write_rtobject(o: Rc<dyn RTObject>) -> serde_json::Value {
     }
 
     if let Some(v) = Value::get_list_value(o.as_ref()) {
-        write_ink_list(v);
+        return write_ink_list(v);
     }
 
     if let Some(v) = Value::get_divert_target_value(o.as_ref()) {
@@ -257,7 +247,7 @@ pub(crate) fn write_list_rt_objs(objs: &[Rc<dyn RTObject>]) -> serde_json::Value
     serde_json::Value::Array(c_array)
 }
 
-pub(crate) fn write_int_dictionary(map: &HashMap<String, usize>) -> serde_json::Value {
+pub(crate) fn write_int_dictionary(map: &HashMap<String, i32>) -> serde_json::Value {
     let mut jobj: Map<String, serde_json::Value> = Map::new();
 
     for (key, val) in map {

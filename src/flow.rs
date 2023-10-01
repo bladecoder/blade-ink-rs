@@ -31,7 +31,7 @@ impl Flow {
         };
 
         flow.callstack.borrow_mut().load_json(&main_content_container, j_obj.get("callstack").ok_or("loading callstack")?.as_object().unwrap())?;
-        let j_choice_threads = j_obj.get("choiceThreads").ok_or("loading choice threads")?;
+        let j_choice_threads = j_obj.get("choiceThreads");
 
         flow.load_flow_choice_threads(j_choice_threads, main_content_container)?;
 
@@ -50,18 +50,14 @@ impl Flow {
         let mut has_choice_threads = false;
         let mut jct: Map<String, serde_json::Value> = Map::new();
         for c in self.current_choices.iter() {
-            // c.original_thread_index = c.get_thread_at_generation().unwrap().thread_index;
-            let original_thread_index = match c.get_thread_at_generation() {
-                Some(t) => Some(t.thread_index),
-                None => None,
-            }.unwrap();
+            c.original_thread_index.replace(c.get_thread_at_generation().unwrap().thread_index);
 
-            if self.callstack.borrow().get_thread_with_index(original_thread_index).is_none() {
+            if self.callstack.borrow().get_thread_with_index(*c.original_thread_index.borrow()).is_none() {
                 if !has_choice_threads {
                     has_choice_threads = true;
                 }
 
-                jct.insert(original_thread_index.to_string(), c.get_thread_at_generation().unwrap().write_json());
+                jct.insert(c.original_thread_index.borrow().to_string(), c.get_thread_at_generation().unwrap().write_json());
             }
         }
 
@@ -79,14 +75,16 @@ impl Flow {
         serde_json::Value::Object(flow)
     }
 
-    pub fn load_flow_choice_threads(&mut self, j_choice_threads: &serde_json::Value, main_content_container: Rc<Container>) -> Result<(), String>{
+    pub fn load_flow_choice_threads(&mut self, j_choice_threads: Option<&serde_json::Value>, main_content_container: Rc<Container>) -> Result<(), String>{
         for choice in self.current_choices.iter_mut() {
-            self.callstack.borrow().get_thread_with_index(choice.original_thread_index).map(|o| choice.set_thread_at_generation(o.copy())).or_else(|| {
+            self.callstack.borrow().get_thread_with_index(*choice.original_thread_index.borrow())
+            .map(|o| choice.set_thread_at_generation(o.copy()))
+            .or_else(|| {
                 let j_saved_choice_thread =
-                        j_choice_threads.get(&choice.original_thread_index.to_string()).ok_or("loading choice threads").unwrap();
+                        j_choice_threads.and_then(|c| c.get(choice.original_thread_index.borrow().to_string())).ok_or("loading choice threads").unwrap();
                 choice.set_thread_at_generation(Thread::from_json(&main_content_container, j_saved_choice_thread.as_object().unwrap()).unwrap());
                 Some(())
-            }).unwrap();
+            });
         }
 
         Ok(())

@@ -52,7 +52,17 @@ fn list_save_load_test() -> Result<(), String>  {
         common::get_json_string("examples/inkfiles/lists/list-save-load.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
 
-    //TODO
+    assert_eq!("a, x, c\n", &story.continue_maximally()?);
+
+    let saved_state = story.get_state().to_json();
+
+    let mut story = Story::new(&json_string).unwrap();
+
+    story.get_state_mut().load_json(&saved_state)?;
+
+    story.choose_path_string("elsewhere", true, None)?;
+    
+    assert_eq!("z\n", &story.continue_maximally()?);
 
     Ok(())
 }

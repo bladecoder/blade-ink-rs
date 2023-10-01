@@ -802,7 +802,7 @@ impl Story {
                     //     "Tried to divert using a target from a variable that could not be found ({})",
                     //     var_name
                     // ));
-                    panic!();
+                    panic!("Tried to divert using a target from a variable that could not be found ({})", var_name.as_ref().unwrap());
                 }
             } else if current_divert.is_external {
                 //call_external_function(&current_divert.get_target_path_string(), current_divert.get_external_args());

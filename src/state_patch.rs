@@ -8,8 +8,8 @@ use crate::{object::{RTObject, Object}, container::Container, value::Value};
 pub struct StatePatch {
     pub globals: HashMap<String, Rc<Value>>,
     pub changed_variables: HashSet<String>,
-    pub visit_counts: HashMap<String, usize>,
-    pub turn_indices: HashMap<String, usize>,
+    pub visit_counts: HashMap<String, i32>,
+    pub turn_indices: HashMap<String, i32>,
 }
 
 impl StatePatch {
@@ -30,12 +30,12 @@ impl StatePatch {
         }
     }
 
-    pub fn get_visit_count(&self, container: &Rc<Container>) -> Option<usize> {
+    pub fn get_visit_count(&self, container: &Rc<Container>) -> Option<i32> {
         let key = Object::get_path(container.as_ref()).to_string();
         self.visit_counts.get(&key).copied()
     }
 
-    pub fn set_visit_count(&mut self, container: &Rc<Container>, count: usize) {
+    pub fn set_visit_count(&mut self, container: &Rc<Container>, count: i32) {
         let key = Object::get_path(container.as_ref()).to_string();
         self.visit_counts.insert(key, count);
     }
@@ -54,10 +54,10 @@ impl StatePatch {
 
     pub(crate) fn set_turn_index(&mut self, container: &Container, index: i32) {
         let key = Object::get_path(container).to_string();
-        self.turn_indices.insert(key, index as usize);
+        self.turn_indices.insert(key, index);
     }
 
-    pub(crate) fn get_turn_index(&self, container: &Container) -> Option<&usize> {
+    pub(crate) fn get_turn_index(&self, container: &Container) -> Option<&i32> {
         let key = Object::get_path(container).to_string();
         return self.turn_indices.get(&key);
     }

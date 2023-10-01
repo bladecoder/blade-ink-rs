@@ -22,8 +22,9 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
         },
 
         serde_json::Value::String(value) => {
-            let unscaped = unscape_string(value)?;
-            let str = unscaped.as_str();
+            //let unscaped = unscape_string(value)?;
+            //let str = unscaped.as_str();
+            let str = value.as_str();
             
             // String value
             let first_char = str.chars().next().unwrap();
@@ -382,11 +383,12 @@ pub(crate) fn jobject_to_hashmap_rtobjects(jobj: &Map<String, serde_json::Value>
     Ok(dict)
 }
 
-pub(crate) fn jobject_to_usize_hashmap(jobj: &Map<String, serde_json::Value>) -> Result<HashMap<String, usize>, String>  {
-    let mut dict: HashMap<String, usize> = HashMap::new();
+pub(crate) fn jobject_to_int_hashmap(jobj: &Map<String, serde_json::Value>) -> Result<HashMap<String, i32>, String>  {
+    let mut dict: HashMap<String, i32> = HashMap::new();
 
     for (k, v) in jobj.iter() {
-        dict.insert(k.clone(), v.as_i64().unwrap() as usize);
+        println!("{}", v);
+        dict.insert(k.clone(), v.as_i64().unwrap() as i32);
     }
 
     Ok(dict)
