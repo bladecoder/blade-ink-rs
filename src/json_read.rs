@@ -22,8 +22,6 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
         },
 
         serde_json::Value::String(value) => {
-            //let unscaped = unscape_string(value)?;
-            //let str = unscaped.as_str();
             let str = value.as_str();
             
             // String value
@@ -236,49 +234,6 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
         },
     }
 
-}
-
-fn unscape_string(text: &str) -> Result<String, String> {
-    let mut sb = String::new();
-    let mut offset = 0;
-
-    while offset < text.len() {
-        let c = text.chars().nth(offset).unwrap();
-        offset += 1;
-
-        if c == '\\' {
-            // Escaped character
-            if offset >= text.len() {
-                return Err("Unexpected EOF while reading string".to_string());
-            }
-            let escaped_char = text.chars().nth(offset).unwrap();
-            offset += 1;
-            match escaped_char {
-                '"' | '\\' | '/' => sb.push(escaped_char),
-                'n' => sb.push('\n'),
-                't' => sb.push('\t'),
-                'r' | 'b' | 'f' => { /* Ignore other control characters */ }
-                'u' => {
-                    // 4-digit Unicode
-                    if offset + 4 >= text.len() {
-                        return Err("Unexpected EOF while reading string".to_string());
-                    }
-                    let digits = &text[offset..offset + 4];
-                    if let Ok(uchar) = u32::from_str_radix(digits, 16) {
-                        sb.push(char::from_u32(uchar).ok_or(format!("Invalid Unicode escape character at offset {}", offset - 1))?);
-                        offset += 4;
-                    } else {
-                        return Err(format!("Invalid Unicode escape character at offset {}", offset - 1));
-                    }
-                }
-                _ => return Err(format!("Invalid Unicode escape character at offset {}", offset - 1)),
-            }
-        } else {
-            sb.push(c);
-        }
-    }
-
-    Ok(sb)
 }
 
 fn jarray_to_container(jarray: &Vec<serde_json::Value>, name: Option<String>) -> Result<Rc<dyn RTObject>, String> {
