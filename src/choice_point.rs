@@ -39,7 +39,7 @@ impl ChoicePoint {
     }
 
     pub fn get_choice_target(self: &Rc<Self>) -> Option<Rc<Container>> {
-        Object::resolve_path(self.clone(), &self.path_on_choice.borrow().as_ref().unwrap()).get_container()
+        Object::resolve_path(self.clone(), &self.path_on_choice.borrow().as_ref().unwrap()).container()
     }
 
     pub fn get_flags(&self) -> i32 {

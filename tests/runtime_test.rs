@@ -145,9 +145,11 @@ fn load_save_test() -> Result<(), String>  {
     // save the game state
     let save_string = story.get_state().to_json();
 
+    println!("{}", save_string);
+
     // recreate game and load state
     Story::new(&json_string).unwrap();
-    story.get_state().load_json(&save_string);
+    story.get_state_mut().load_json(&save_string)?;
     
     story.choose_choice_index(0);
 

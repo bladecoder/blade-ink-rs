@@ -2,7 +2,7 @@ use std::{collections::HashMap, rc::Rc};
 
 use serde_json::{Map, json};
 
-use crate::{pointer::{Pointer, self}, push_pop::PushPopType, container::Container, value::Value, object::Object, json_read, json_write};
+use crate::{pointer::{Pointer, self}, push_pop::PushPopType, container::{Container, self}, value::Value, object::Object, json_read, json_write_state, path::Path, story::Story};
 
 pub struct Element {
     pub current_pointer: Pointer,
@@ -17,9 +17,9 @@ impl Element {
     fn new(push_pop_type: PushPopType, pointer: Pointer, in_expression_evaluation: bool) -> Element {
         Element {
             current_pointer: pointer,
-            in_expression_evaluation: in_expression_evaluation,
+            in_expression_evaluation,
             temporary_variables: HashMap::new(),
-            push_pop_type: push_pop_type,
+            push_pop_type,
             evaluation_stack_height_when_pushed:0,
             function_start_in_output_stream: 0
         }
@@ -48,6 +48,60 @@ impl Thread {
             previous_pointer: pointer::NULL.clone(),
             thread_index: 0,
         }
+    }
+
+    pub fn from_json(main_content_container: &Rc<Container>, j_obj: &Map<String, serde_json::Value>) -> Result<Thread, String> {
+        let mut thread = Thread::new();
+
+        thread.thread_index = j_obj.get("threadIndex").and_then(|i| i.as_i64()).ok_or("Invalid thread index")? as usize;
+
+        if let Some(j_thread_callstack) = j_obj.get("callstack").and_then(|callstack| callstack.as_array()) {
+
+            for j_el_tok in j_thread_callstack.iter() {
+                if let Some(j_element_obj) = j_el_tok.as_object() {
+                    let push_pop_type = PushPopType::from_value(j_element_obj.get("type").and_then(|t| t.as_i64()).ok_or("Invalid push/pop type")? as usize);
+
+                    let mut pointer = pointer::NULL.clone();
+
+                    let current_container_path_str = j_element_obj.get("cPath").and_then(|c| c.as_str());
+                    if current_container_path_str.is_some() {
+                        let thread_pointer_result = main_content_container.content_at_path(&Path::new_with_components_string (current_container_path_str), 0, -1);
+
+                        pointer.container = thread_pointer_result.container();
+                        let pointer_index = j_element_obj.get("idx").and_then(|i| i.as_i64()).ok_or("Invalid pointer index")? as i32;
+                        pointer.index = pointer_index;
+
+                        // TODO
+                        // if thread_pointer_result.obj.is_none() {
+                        //     return Err(format!("When loading state, internal story location couldn't be found: {}. Has the story changed since this save data was created?", current_container_path_str));
+                        // } else 
+                        
+                        if thread_pointer_result.approximate {
+                            // story_context.warning(format!("When loading state, exact internal story location couldn't be found: '{}', so it was approximated to '{}' to recover. Has the story changed since this save data was created?", current_container_path_str, pointer_container.get_path().to_string()));
+                        }
+                    }
+
+                    let in_expression_evaluation = j_element_obj.get("exp").and_then(|exp| exp.as_bool()).unwrap_or(false);
+
+                    let mut el = Element::new(push_pop_type, pointer, in_expression_evaluation);
+
+                    if let Some(temps) = j_element_obj.get("temp").and_then(|temp| temp.as_object()) {
+                        el.temporary_variables = json_read::jobject_to_hashmap_values(temps)?;
+                    } else {
+                        el.temporary_variables.clear();
+                    }
+
+                    thread.callstack.push(el);
+                }
+            }
+        }
+
+        if let Some(prev_content_obj_path) = j_obj.get("previousContentObject").and_then(|p| p.as_str()) {
+            let prev_path = Path::new_with_components_string(Some(prev_content_obj_path));
+            thread.previous_pointer = Story::pointer_at_path(main_content_container, &prev_path);
+        }
+
+        Ok(thread)
     }
 
     pub fn copy(&self) -> Thread {
@@ -79,7 +133,7 @@ impl Thread {
             el_map.insert("type".to_owned(), json!(el.push_pop_type as u32));
 
             if el.temporary_variables.len() > 0 {
-                el_map.insert("exp".to_owned(), json_write::write_dictionary_values(&el.temporary_variables));
+                el_map.insert("exp".to_owned(), json_write_state::write_dictionary_values(&el.temporary_variables));
             }
 
             cs_array.push(serde_json::Value::Object(el_map));
@@ -165,10 +219,10 @@ impl CallStack {
     }
 
     pub fn push_thread(&mut self) {
-        let mut newThread = self.get_current_thread().copy();
+        let mut new_thread = self.get_current_thread().copy();
         self.thread_counter += 1;
-        newThread.thread_index = self.thread_counter;
-        self.threads.push(newThread);
+        new_thread.thread_index = self.thread_counter;
+        self.threads.push(new_thread);
     }
 
     pub fn can_pop(&self) -> bool {
@@ -324,5 +378,23 @@ impl CallStack {
         }
 
         return None;
+    }
+
+    pub fn load_json(&mut self, main_content_container: &Rc<Container>, j_obj: &Map<String, serde_json::Value>) -> Result<(), String> {
+
+        self.threads.clear();
+
+        let j_threads = j_obj.get("threads").unwrap();
+
+        for  jThreadTok in j_threads.as_array().unwrap().iter() {
+            let j_thread_obj = jThreadTok.as_object().unwrap();
+            let thread = Thread::from_json(main_content_container, j_thread_obj)?;
+            self.threads.push(thread);
+        }
+
+        self.thread_counter = j_obj.get("threadCounter").unwrap().as_i64().unwrap() as usize;
+        self.start_of_root = Pointer::start_of(main_content_container.clone()).clone();
+
+        Ok(())
     }
 }
