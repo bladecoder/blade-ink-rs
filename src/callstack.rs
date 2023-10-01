@@ -133,7 +133,7 @@ impl Thread {
             el_map.insert("type".to_owned(), json!(el.push_pop_type as u32));
 
             if el.temporary_variables.len() > 0 {
-                el_map.insert("exp".to_owned(), json_write_state::write_dictionary_values(&el.temporary_variables));
+                el_map.insert("temp".to_owned(), json_write_state::write_dictionary_values(&el.temporary_variables));
             }
 
             cs_array.push(serde_json::Value::Object(el_map));

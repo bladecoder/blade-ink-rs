@@ -9,7 +9,7 @@ pub struct Choice {
     pub is_invisible_default: bool,
     pub tags: Vec<String>,
     pub index: RefCell<usize>,
-    pub original_thread_index: usize,
+    pub original_thread_index: RefCell<usize>,
     pub text: String,
     thread_at_generation: RefCell<Option<Thread>>,
     pub source_path: String
@@ -17,16 +17,16 @@ pub struct Choice {
 
 impl Choice {
     pub fn new(target_path: Path, source_path: String, is_invisible_default: bool, tags: Vec<String>, thread_at_generation: Thread, text: String, index: usize, original_thread_index: usize) -> Choice {
-        Choice {
+        Self {
             obj: Object::new(),
-            target_path: target_path,
-            is_invisible_default: is_invisible_default,
-            tags: tags,
+            target_path,
+            is_invisible_default,
+            tags,
             index: RefCell::new(index),
-            original_thread_index: original_thread_index,
-            text: text,
+            original_thread_index: RefCell::new(original_thread_index),
+            text,
             thread_at_generation: RefCell::new(Some(thread_at_generation)),
-            source_path: source_path,
+            source_path,
         }
     }
 
@@ -38,10 +38,10 @@ impl Choice {
             is_invisible_default: false,
             tags: Vec::new(),
             index: RefCell::new(index),
-            original_thread_index: original_thread_index,
+            original_thread_index: RefCell::new(original_thread_index),
             text: text.to_string(),
             thread_at_generation: RefCell::new(None),
-            source_path: source_path,
+            source_path,
         }
     }
 

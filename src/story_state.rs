@@ -27,8 +27,8 @@ pub struct StoryState {
     patch: Option<StatePatch>,
     named_flows: Option<HashMap<String, Flow>>,
     pub diverted_pointer: Pointer,
-    pub visit_counts: HashMap<String, usize>,
-    pub turn_indices: HashMap<String, usize>,
+    pub visit_counts: HashMap<String, i32>,
+    pub turn_indices: HashMap<String, i32>,
     pub current_turn_index: i32,
     pub story_seed: i32,
     pub previous_random: i32,
@@ -380,7 +380,7 @@ impl StoryState {
         }
     }
 
-    pub fn visit_count_for_container(&mut self, container: &Rc<Container>) -> usize {
+    pub fn visit_count_for_container(&mut self, container: &Rc<Container>) -> i32 {
         if !container.visits_should_be_counted {
             // TODO
 
@@ -414,7 +414,7 @@ impl StoryState {
         }
 
         let container_path_str = Object::get_path(container).to_string();
-        self.turn_indices.insert(container_path_str, self.current_turn_index as usize);
+        self.turn_indices.insert(container_path_str, self.current_turn_index);
     }
 
     fn try_splitting_head_tail_whitespace(text: &str) -> Option<Vec<Value>> {
@@ -780,7 +780,7 @@ impl StoryState {
         self.patch = None;
     }
 
-    fn apply_count_changes(&mut self, container: &str, new_count: usize, is_visit: bool) {
+    fn apply_count_changes(&mut self, container: &str, new_count: i32, is_visit: bool) {
         let counts = if is_visit {&mut self.visit_counts} else {&mut self.turn_indices};
 
         counts.insert(container.to_string(), new_count);
@@ -1022,7 +1022,7 @@ impl StoryState {
         self.output_stream_dirty();
     }
 
-    pub fn visit_count_at_path_string(&self, path_string: &str) -> usize {
+    pub fn visit_count_at_path_string(&self, path_string: &str) -> i32 {
         let mut visit_count_out = None;
 
         if self.patch.is_some() {
@@ -1173,9 +1173,8 @@ impl StoryState {
                 self.current_flow.current_choices = json_read::jarray_to_runtime_obj_list(&current_choices_obj.as_array().unwrap(), false)?.iter().map(|o| o.clone().into_any().downcast::<Choice>().unwrap()).collect();
             }
 
-            if let Some(j_choice_threads_obj) = j_object.get("choiceThreads") {
-                self.current_flow.load_flow_choice_threads(j_choice_threads_obj, self.main_content_container.clone())?;
-            }
+            let j_choice_threads_obj = j_object.get("choiceThreads");
+            self.current_flow.load_flow_choice_threads(j_choice_threads_obj, self.main_content_container.clone())?;
         }
 
         self.output_stream_dirty();
@@ -1196,11 +1195,11 @@ impl StoryState {
         }
 
         if let Some(visit_counts_obj) = j_object.get("visitCounts") {
-            self.visit_counts = json_read::jobject_to_usize_hashmap(visit_counts_obj.as_object().ok_or_else(|| "Invalid visit counts object".to_string())?)?;
+            self.visit_counts = json_read::jobject_to_int_hashmap(visit_counts_obj.as_object().ok_or_else(|| "Invalid visit counts object".to_string())?)?;
         }
 
         if let Some(turn_indices_obj) = j_object.get("turnIndices") {
-            self.turn_indices = json_read::jobject_to_usize_hashmap(turn_indices_obj.as_object().ok_or_else(|| "Invalid turn indices object".to_string())?)?;
+            self.turn_indices = json_read::jobject_to_int_hashmap(turn_indices_obj.as_object().ok_or_else(|| "Invalid turn indices object".to_string())?)?;
         }
 
         if let Some(current_turn_index) = j_object.get("turnIdx") {

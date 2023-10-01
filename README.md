@@ -20,10 +20,11 @@ Currently under development. This is the implementation status:
 - [x] Threads
 - [x] Tags
 - [x] Lists
-- [ ] Load/Save state
+- [x] Load/Save state
 
 ## TODO
 
+- [ ] Eliminar código de unscape.
 - [ ] Al cargar los flows, el current flow hay que eliminarlo.
 - [ ] Optimize control command getname. Use static string array and address it by order.
 - [ ] Error handling
