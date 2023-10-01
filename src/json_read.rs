@@ -22,7 +22,9 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
         },
 
         serde_json::Value::String(value) => {
-            let str = value.as_str();
+            let unscaped = unscape_string(value)?;
+            let str = unscaped.as_str();
+            
             // String value
             let first_char = str.chars().next().unwrap();
             if first_char == '^' {return Ok(Rc::new(Value::new_string(&str[1..])));}     
@@ -235,6 +237,49 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
 
 }
 
+fn unscape_string(text: &str) -> Result<String, String> {
+    let mut sb = String::new();
+    let mut offset = 0;
+
+    while offset < text.len() {
+        let c = text.chars().nth(offset).unwrap();
+        offset += 1;
+
+        if c == '\\' {
+            // Escaped character
+            if offset >= text.len() {
+                return Err("Unexpected EOF while reading string".to_string());
+            }
+            let escaped_char = text.chars().nth(offset).unwrap();
+            offset += 1;
+            match escaped_char {
+                '"' | '\\' | '/' => sb.push(escaped_char),
+                'n' => sb.push('\n'),
+                't' => sb.push('\t'),
+                'r' | 'b' | 'f' => { /* Ignore other control characters */ }
+                'u' => {
+                    // 4-digit Unicode
+                    if offset + 4 >= text.len() {
+                        return Err("Unexpected EOF while reading string".to_string());
+                    }
+                    let digits = &text[offset..offset + 4];
+                    if let Ok(uchar) = u32::from_str_radix(digits, 16) {
+                        sb.push(char::from_u32(uchar).ok_or(format!("Invalid Unicode escape character at offset {}", offset - 1))?);
+                        offset += 4;
+                    } else {
+                        return Err(format!("Invalid Unicode escape character at offset {}", offset - 1));
+                    }
+                }
+                _ => return Err(format!("Invalid Unicode escape character at offset {}", offset - 1)),
+            }
+        } else {
+            sb.push(c);
+        }
+    }
+
+    Ok(sb)
+}
+
 fn jarray_to_container(jarray: &Vec<serde_json::Value>, name: Option<String>) -> Result<Rc<dyn RTObject>, String> {
     // Final object in the array is always a combination of
     //  - named content
@@ -269,7 +314,7 @@ fn jarray_to_container(jarray: &Vec<serde_json::Value>, name: Option<String>) ->
     Ok(container)
 }
 
-fn jarray_to_runtime_obj_list(jarray: &Vec<serde_json::Value>, skip_last: bool) -> Result<Vec<Rc<dyn RTObject>>, String> {
+pub fn jarray_to_runtime_obj_list(jarray: &Vec<serde_json::Value>, skip_last: bool) -> Result<Vec<Rc<dyn RTObject>>, String> {
     let mut count = jarray.len();
 
     if skip_last {
@@ -314,4 +359,35 @@ pub fn jtoken_to_list_definitions(def: &serde_json::Value) -> Result<ListDefinit
     }
 
     Ok(ListDefinitionsOrigin::new(&mut all_defs))
+}
+
+pub(crate) fn jobject_to_hashmap_values(jobj: &Map<String, serde_json::Value>) ->  Result<HashMap<String, Rc<Value>>, String> {
+    let mut dict: HashMap<String, Rc<Value>> = HashMap::new();
+
+    for (k, v) in jobj.iter() {
+        dict.insert(k.clone(), jtoken_to_runtime_object(v, None)?.into_any().downcast::<Value>().unwrap());
+    }
+
+    Ok(dict)
+}
+
+pub(crate) fn jobject_to_hashmap_rtobjects(jobj: &Map<String, serde_json::Value>) -> Result<HashMap<String, Rc<dyn RTObject>>, String>  {
+
+    let mut dict: HashMap<String, Rc<dyn RTObject>> = HashMap::new();
+
+    for (k, v) in jobj.iter() {
+        dict.insert(k.clone(), jtoken_to_runtime_object(v, None)?);
+    }
+
+    Ok(dict)
+}
+
+pub(crate) fn jobject_to_usize_hashmap(jobj: &Map<String, serde_json::Value>) -> Result<HashMap<String, usize>, String>  {
+    let mut dict: HashMap<String, usize> = HashMap::new();
+
+    for (k, v) in jobj.iter() {
+        dict.insert(k.clone(), v.as_i64().unwrap() as usize);
+    }
+
+    Ok(dict)
 }

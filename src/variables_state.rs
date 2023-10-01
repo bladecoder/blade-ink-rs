@@ -2,7 +2,7 @@ use std::{collections::{HashMap, HashSet}, rc::Rc, cell::RefCell};
 
 use serde_json::Map;
 
-use crate::{callstack::CallStack, state_patch::StatePatch, variable_assigment::VariableAssignment, value::Value, list_definitions_origin::ListDefinitionsOrigin, value_type::{VariablePointerValue, ValueType}, json_write};
+use crate::{callstack::CallStack, state_patch::StatePatch, variable_assigment::VariableAssignment, value::Value, list_definitions_origin::ListDefinitionsOrigin, value_type::{VariablePointerValue, ValueType}, json_write_state, json_read};
 
 
 #[derive(Clone)]
@@ -306,7 +306,7 @@ impl VariablesState {
                 if self.val_equal(val, default_val) {continue;}
             }
 
-            jobj.insert(name.clone(), json_write::write_rtobject(val.clone()));
+            jobj.insert(name.clone(), json_write_state::write_rtobject(val.clone()));
         }
 
         serde_json::Value::Object(jobj)
@@ -343,6 +343,22 @@ impl VariablesState {
                 _ => false,
             },
         }
+    }
+
+    pub(crate) fn load_json(&mut self, jobj: &Map<String, serde_json::Value>) ->  Result<(), String> {
+        self.global_variables.clear();
+
+        for (k, v) in self.default_global_variables.as_ref().unwrap().iter() {
+            let loaded_token = jobj.get(k);
+
+            if let Some(loaded_token) = loaded_token {
+                self.global_variables.insert(k.to_string(), json_read::jtoken_to_runtime_object(loaded_token, None)?.into_any().downcast::<Value>().unwrap());
+            } else {
+                self.global_variables.insert(k.clone(), v.clone());
+            }
+        }
+
+        Ok(())   
     }
 
 }

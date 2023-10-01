@@ -45,7 +45,7 @@ impl Choice {
         }
     }
 
-    pub fn set_thread_at_generation(&mut self, thread: Thread) {
+    pub fn set_thread_at_generation(&self, thread: Thread) {
         self.thread_at_generation.replace(Some(thread));
     }
 
