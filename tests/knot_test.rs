@@ -1,9 +1,9 @@
-use bladeink::story::Story;
+use bladeink::{story::Story, story_error::StoryError};
 
 mod common;
 
 #[test]
-fn single_line_test() -> Result<(), String>  {
+fn single_line_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/knot/single-line.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -18,7 +18,7 @@ fn single_line_test() -> Result<(), String>  {
 }
 
 #[test]
-fn multi_line_test() -> Result<(), String>  {
+fn multi_line_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/knot/multi-line.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -35,7 +35,7 @@ fn multi_line_test() -> Result<(), String>  {
 }
 
 #[test]
-fn strip_empty_lines_test() -> Result<(), String>  {
+fn strip_empty_lines_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/knot/strip-empty-lines.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -52,7 +52,7 @@ fn strip_empty_lines_test() -> Result<(), String>  {
 }
 
 #[test]
-fn param_strings_test() -> Result<(), String>  {
+fn param_strings_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/knot/param-strings.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -71,7 +71,7 @@ fn param_strings_test() -> Result<(), String>  {
 }
 
 #[test]
-fn param_ints_test() -> Result<(), String>  {
+fn param_ints_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/knot/param-ints.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -90,7 +90,7 @@ fn param_ints_test() -> Result<(), String>  {
 }
 
 #[test]
-fn param_floats_test() -> Result<(), String>  {
+fn param_floats_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/knot/param-floats.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -109,7 +109,7 @@ fn param_floats_test() -> Result<(), String>  {
 }
 
 #[test]
-fn param_vars_test() -> Result<(), String>  {
+fn param_vars_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/knot/param-vars.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -128,7 +128,7 @@ fn param_vars_test() -> Result<(), String>  {
 }
 
 #[test]
-fn param_multi_test() -> Result<(), String>  {
+fn param_multi_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/knot/param-multi.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -147,7 +147,7 @@ fn param_multi_test() -> Result<(), String>  {
 }
 
 #[test]
-fn param_recurse_test() -> Result<(), String>  {
+fn param_recurse_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/knot/param-recurse.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();

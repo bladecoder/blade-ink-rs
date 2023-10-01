@@ -1,9 +1,9 @@
-use bladeink::story::Story;
+use bladeink::{story::Story, story_error::StoryError};
 
 mod common;
 
 #[test]
-fn iftrue_test() -> Result<(), String>  {
+fn iftrue_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/iftrue.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -19,7 +19,7 @@ fn iftrue_test() -> Result<(), String>  {
 }
 
 #[test]
-fn iffalse_test() -> Result<(), String>  {
+fn iffalse_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/iffalse.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -35,7 +35,7 @@ fn iffalse_test() -> Result<(), String>  {
 }
 
 #[test]
-fn ifelse_test() -> Result<(), String>  {
+fn ifelse_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/ifelse.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -51,7 +51,7 @@ fn ifelse_test() -> Result<(), String>  {
 }
 
 #[test]
-fn ifelse_ext_test() -> Result<(), String>  {
+fn ifelse_ext_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/ifelse-ext.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -67,7 +67,7 @@ fn ifelse_ext_test() -> Result<(), String>  {
 }
 
 #[test]
-fn ifelse_ext_text1_test() -> Result<(), String>  {
+fn ifelse_ext_text1_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/ifelse-ext-text1.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -89,7 +89,7 @@ fn ifelse_ext_text1_test() -> Result<(), String>  {
 }
 
 #[test]
-fn ifelse_ext_text2_test() -> Result<(), String>  {
+fn ifelse_ext_text2_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/ifelse-ext-text2.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -111,7 +111,7 @@ fn ifelse_ext_text2_test() -> Result<(), String>  {
 }
 
 #[test]
-fn ifelse_ext_text3_test() -> Result<(), String>  {
+fn ifelse_ext_text3_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/ifelse-ext-text3.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -133,7 +133,7 @@ fn ifelse_ext_text3_test() -> Result<(), String>  {
 }
 
 #[test]
-fn cond_text1_test() -> Result<(), String>  {
+fn cond_text1_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/condtext.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -152,7 +152,7 @@ fn cond_text1_test() -> Result<(), String>  {
 }
 
 #[test]
-fn cond_text2_test() -> Result<(), String>  {
+fn cond_text2_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/condtext.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -171,7 +171,7 @@ fn cond_text2_test() -> Result<(), String>  {
 }
 
 #[test]
-fn cond_opt1_test() -> Result<(), String>  {
+fn cond_opt1_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/condopt.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -189,7 +189,7 @@ fn cond_opt1_test() -> Result<(), String>  {
 }
 
 #[test]
-fn cond_opt2_test() -> Result<(), String>  {
+fn cond_opt2_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/condopt.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -207,7 +207,7 @@ fn cond_opt2_test() -> Result<(), String>  {
 }
 
 #[test]
-fn stopping_test() -> Result<(), String>  {
+fn stopping_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/stopping.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -241,7 +241,7 @@ fn stopping_test() -> Result<(), String>  {
 }
 
 #[test]
-fn cycle_test() -> Result<(), String>  {
+fn cycle_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/cycle.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -275,7 +275,7 @@ fn cycle_test() -> Result<(), String>  {
 }
 
 #[test]
-fn once_test() -> Result<(), String>  {
+fn once_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/once.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -306,7 +306,7 @@ fn once_test() -> Result<(), String>  {
 }
 
 #[test]
-fn shuffle_test() -> Result<(), String>  {
+fn shuffle_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/shuffle.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -337,7 +337,7 @@ fn shuffle_test() -> Result<(), String>  {
 }
 
 #[test]
-fn shuffle_stopping() -> Result<(), String>  {
+fn shuffle_stopping() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/shuffle_stopping.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -370,7 +370,7 @@ fn shuffle_stopping() -> Result<(), String>  {
 }
 
 #[test]
-fn shuffle_once() -> Result<(), String>  {
+fn shuffle_once() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/shuffle_once.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -401,7 +401,7 @@ fn shuffle_once() -> Result<(), String>  {
 }
 
 #[test]
-fn multiline_test() -> Result<(), String>  {
+fn multiline_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/multiline.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -430,7 +430,7 @@ fn multiline_test() -> Result<(), String>  {
 }
 
 #[test]
-fn multiline_divert_test() -> Result<(), String>  {
+fn multiline_divert_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/multiline-divert.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -459,7 +459,7 @@ fn multiline_divert_test() -> Result<(), String>  {
 }
 
 #[test]
-fn multiline_choice_test() -> Result<(), String>  {
+fn multiline_choice_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/conditional/multiline-choice.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();

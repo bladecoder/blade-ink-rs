@@ -2,7 +2,7 @@ use std::{rc::Rc, cell::RefCell};
 
 use serde_json::Map;
 
-use crate::{callstack::{CallStack, Thread}, choice::Choice, object::RTObject, container::Container, json_write_state, json_read};
+use crate::{callstack::{CallStack, Thread}, choice::Choice, object::RTObject, container::Container, json_write_state, json_read, story_error::StoryError};
 
 #[derive(Clone)]
 pub struct Flow {
@@ -22,15 +22,15 @@ impl Flow {
         }
     }
 
-    pub fn from_json(name: &str, main_content_container: Rc<Container>, j_obj: &Map<String, serde_json::Value>) -> Result<Flow, String> {
+    pub fn from_json(name: &str, main_content_container: Rc<Container>, j_obj: &Map<String, serde_json::Value>) -> Result<Flow, StoryError> {
         let mut flow = Self { 
             name: name.to_string(),
             callstack: Rc::new(RefCell::new(CallStack::new(main_content_container.clone()))),
-            output_stream: json_read::jarray_to_runtime_obj_list(j_obj.get("outputStream").ok_or("outputStream not found.")?.as_array().unwrap(), false)?,
-            current_choices: json_read::jarray_to_runtime_obj_list(j_obj.get("currentChoices").ok_or("currentChoices not found.")?.as_array().unwrap(), false)?.iter().map(|o| o.clone().into_any().downcast::<Choice>().unwrap()).collect::<Vec<Rc<Choice>>>(),
+            output_stream: json_read::jarray_to_runtime_obj_list(j_obj.get("outputStream").ok_or(StoryError::BadJson("outputStream not found.".to_owned()))?.as_array().unwrap(), false)?,
+            current_choices: json_read::jarray_to_runtime_obj_list(j_obj.get("currentChoices").ok_or(StoryError::BadJson("currentChoices not found.".to_owned()))?.as_array().unwrap(), false)?.iter().map(|o| o.clone().into_any().downcast::<Choice>().unwrap()).collect::<Vec<Rc<Choice>>>(),
         };
 
-        flow.callstack.borrow_mut().load_json(&main_content_container, j_obj.get("callstack").ok_or("loading callstack")?.as_object().unwrap())?;
+        flow.callstack.borrow_mut().load_json(&main_content_container, j_obj.get("callstack").ok_or(StoryError::BadJson("loading callstack".to_owned()))?.as_object().unwrap())?;
         let j_choice_threads = j_obj.get("choiceThreads");
 
         flow.load_flow_choice_threads(j_choice_threads, main_content_container)?;
@@ -75,7 +75,7 @@ impl Flow {
         serde_json::Value::Object(flow)
     }
 
-    pub fn load_flow_choice_threads(&mut self, j_choice_threads: Option<&serde_json::Value>, main_content_container: Rc<Container>) -> Result<(), String>{
+    pub fn load_flow_choice_threads(&mut self, j_choice_threads: Option<&serde_json::Value>, main_content_container: Rc<Container>) -> Result<(), StoryError>{
         for choice in self.current_choices.iter_mut() {
             self.callstack.borrow().get_thread_with_index(*choice.original_thread_index.borrow())
             .map(|o| choice.set_thread_at_generation(o.copy()))

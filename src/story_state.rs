@@ -2,7 +2,7 @@
 
 use std::{rc::Rc, cell::RefCell, collections::HashMap};
 
-use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::{RTObject, Object}, value::Value, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch, story::{Story, INK_VERSION_CURRENT}, path::Path, void::Void, tag::Tag, list_definitions_origin::ListDefinitionsOrigin, value_type::ValueType, json_write_state, json_read};
+use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::{RTObject, Object}, value::Value, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch, story::{Story, INK_VERSION_CURRENT}, path::Path, void::Void, tag::Tag, list_definitions_origin::ListDefinitionsOrigin, value_type::ValueType, json_write_state, json_read, story_error::StoryError};
 
 use rand::Rng;
 use serde_json::{json, Map};
@@ -883,7 +883,7 @@ impl StoryState {
         self.evaluation_stack.last()
     }
 
-    pub fn start_function_evaluation_from_game(&mut self, func_container: Rc<Container>, arguments: Option<&Vec<String>>) -> Result<(), String> {
+    pub fn start_function_evaluation_from_game(&mut self, func_container: Rc<Container>, arguments: Option<&Vec<String>>) -> Result<(), StoryError> {
         self.get_callstack().borrow_mut().push(PushPopType::FunctionEvaluationFromGame, self.evaluation_stack.len(), 0);
         self.get_callstack().borrow_mut().get_current_element_mut().current_pointer = Pointer::start_of(func_container);
 
@@ -892,7 +892,7 @@ impl StoryState {
         Ok(())
     }
 
-    pub fn pass_arguments_to_evaluation_stack(&mut self, arguments: Option<&Vec<String>>) -> Result<(), String> {
+    pub fn pass_arguments_to_evaluation_stack(&mut self, arguments: Option<&Vec<String>>) -> Result<(), StoryError> {
         // Pass arguments onto the evaluation stack
         if let Some(arguments) = arguments {
             for arg in arguments {
@@ -918,12 +918,12 @@ impl StoryState {
         Ok(())
     }
 
-    pub fn complete_function_evaluation_from_game(&mut self) -> Result<Option<String>, String> {
+    pub fn complete_function_evaluation_from_game(&mut self) -> Result<Option<String>, StoryError> {
         if self.get_callstack().borrow().get_current_element().push_pop_type != PushPopType::FunctionEvaluationFromGame {
             // TODO
             // return Err(format!("Expected external function evaluation to be complete. Stack trace: {}", getCallStack().getCallStackTrace());
 
-            return Err("Expected external function evaluation to be complete. Stack trace".to_owned());
+            return Err(StoryError::InvalidStoryState("Expected external function evaluation to be complete. Stack trace".to_owned()));
         }
 
         let original_evaluation_stack_height = self.get_callstack().borrow().get_current_element().evaluation_stack_height_when_pushed;
@@ -1043,10 +1043,10 @@ impl StoryState {
         self.write_json().to_string()
     }
 
-    pub fn load_json(&mut self, save_string: &str) -> Result<(), String> {
+    pub fn load_json(&mut self, save_string: &str) -> Result<(), StoryError> {
         match serde_json::from_str(save_string) {
             Ok(value) => self.load_json_obj(value),
-            Err(_) => Err("State not in JSON format.".to_owned()),
+            Err(_) => Err(StoryError::BadJson("State not in JSON format.".to_owned())),
         }
     }
 
@@ -1092,26 +1092,26 @@ impl StoryState {
         serde_json::Value::Object(obj)
     }
 
-    fn load_json_obj(&mut self, j_object: serde_json::Value) -> Result<(), String> {
+    fn load_json_obj(&mut self, j_object: serde_json::Value) -> Result<(), StoryError> {
         let j_save_version = match j_object.get("inkSaveVersion") {
             Some(version) => version,
-            None => return Err("ink save format incorrect, can't load.".to_string()),
+            None => return Err(StoryError::BadJson("ink save format incorrect, can't load.".to_owned())),
         };
 
         if let Some(version) = j_save_version.as_i64() {
             if version < MIN_COMPATIBLE_LOAD_VERSION as i64 {
-                return Err(format!(
+                return Err(StoryError::BadJson(format!(
                     "Ink save format isn't compatible with the current version (saw '{}', but minimum is {}), so can't load.",
                     version,
                     MIN_COMPATIBLE_LOAD_VERSION
-                ));
+                )));
             }
         }
 
         // Flows: Always exists in latest format (even if there's just one default)
         // but this dictionary doesn't exist in prev format
         if let Some(flows_obj) = j_object.get("flows") {
-            let flows_obj_dict = flows_obj.as_object().ok_or_else(|| "Invalid flows object".to_string())?;
+            let flows_obj_dict = flows_obj.as_object().ok_or_else(|| StoryError::BadJson("Invalid flows object".to_string()))?;
 
             // Single default flow
             if flows_obj_dict.len() == 1 {
@@ -1129,7 +1129,7 @@ impl StoryState {
             // Load up each flow (there may only be one)
             for (named_flow_name, named_flow_obj) in flows_obj_dict.iter() {
                 let name = named_flow_name.clone();
-                let flow_obj = named_flow_obj.as_object().ok_or_else(|| "Invalid flow object".to_string())?;
+                let flow_obj = named_flow_obj.as_object().ok_or_else(|| StoryError::BadJson("Invalid flow object".to_string()))?;
 
                 // Load up this flow using JSON data
                 let flow = Flow::from_json(&name, self.main_content_container.clone(), flow_obj)?;
@@ -1139,7 +1139,7 @@ impl StoryState {
                 } else {
                     self.named_flows
                         .as_mut()
-                        .ok_or_else(|| "Named flows should be initialized".to_string())?
+                        .ok_or_else(|| StoryError::BadJson("Named flows should be initialized".to_string()))?
                         .insert(name, flow);
                 }
             }
@@ -1164,7 +1164,7 @@ impl StoryState {
             self.current_flow.name = "default".to_string(); // Replace with the default flow name
             self.current_flow
                 .callstack
-                .borrow_mut().load_json(&self.main_content_container, j_object.get("callstackThreads").and_then(|o| o.as_object()).ok_or("loading callstack threads")?);
+                .borrow_mut().load_json(&self.main_content_container, j_object.get("callstackThreads").and_then(|o| o.as_object()).ok_or(StoryError::BadJson("loading callstack threads".to_owned()))?);
 
             if let Some(output_stream_obj) = j_object.get("outputStream") {
                 self.current_flow.output_stream = json_read::jarray_to_runtime_obj_list(&output_stream_obj.as_array().unwrap(), false)?;
@@ -1182,7 +1182,7 @@ impl StoryState {
         self.alive_flow_names_dirty = true;
 
         if let Some(variables_state_obj) = j_object.get("variablesState") {
-            self.variables_state.load_json(variables_state_obj.as_object().ok_or_else(|| "Invalid variables state object".to_string())?)?;
+            self.variables_state.load_json(variables_state_obj.as_object().ok_or_else(|| StoryError::BadJson("Invalid variables state object".to_string()))?)?;
             self.variables_state.set_callstack(self.current_flow.callstack.clone());
         }
 
@@ -1196,24 +1196,24 @@ impl StoryState {
         }
 
         if let Some(visit_counts_obj) = j_object.get("visitCounts") {
-            self.visit_counts = json_read::jobject_to_int_hashmap(visit_counts_obj.as_object().ok_or_else(|| "Invalid visit counts object".to_string())?)?;
+            self.visit_counts = json_read::jobject_to_int_hashmap(visit_counts_obj.as_object().ok_or_else(|| StoryError::BadJson("Invalid visit counts object".to_string()))?)?;
         }
 
         if let Some(turn_indices_obj) = j_object.get("turnIndices") {
-            self.turn_indices = json_read::jobject_to_int_hashmap(turn_indices_obj.as_object().ok_or_else(|| "Invalid turn indices object".to_string())?)?;
+            self.turn_indices = json_read::jobject_to_int_hashmap(turn_indices_obj.as_object().ok_or_else(|| StoryError::BadJson("Invalid turn indices object".to_string()))?)?;
         }
 
         if let Some(current_turn_index) = j_object.get("turnIdx") {
-            self.current_turn_index = current_turn_index.as_i64().ok_or_else(|| "Invalid current turn index".to_string())? as i32;
+            self.current_turn_index = current_turn_index.as_i64().ok_or_else(|| StoryError::BadJson("Invalid current turn index".to_string()))? as i32;
         }
 
         if let Some(story_seed) = j_object.get("storySeed") {
-            self.story_seed = story_seed.as_i64().ok_or_else(|| "Invalid story seed".to_string())? as i32;
+            self.story_seed = story_seed.as_i64().ok_or_else(|| StoryError::BadJson("Invalid story seed".to_string()))? as i32;
         }
 
         // Not optional, but bug in inkjs means it's actually missing in inkjs saves
         if let Some(previous_random_obj) = j_object.get("previousRandom") {
-            self.previous_random = previous_random_obj.as_i64().ok_or_else(|| "Invalid previous random value".to_string())? as i32;
+            self.previous_random = previous_random_obj.as_i64().ok_or_else(|| StoryError::BadJson("Invalid previous random value".to_string()))? as i32;
         } else {
             self.previous_random = 0;
         }
@@ -1221,8 +1221,8 @@ impl StoryState {
         Ok(())
     }
 
-    pub(crate) fn remove_flow_internal(&mut self, flow_name: &str) -> Result<(), String> {
-        if flow_name.eq(DEFAULT_FLOW_NAME) {return Err("Cannot destroy default flow".to_owned());}
+    pub(crate) fn remove_flow_internal(&mut self, flow_name: &str) -> Result<(), StoryError> {
+        if flow_name.eq(DEFAULT_FLOW_NAME) {return Err(StoryError::BadArgument("Cannot destroy default flow".to_owned()));}
 
         // If we're currently in the flow that's being removed, switch back to default
         if self.current_flow.name.eq(flow_name) {

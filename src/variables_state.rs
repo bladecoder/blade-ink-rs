@@ -2,7 +2,7 @@ use std::{collections::{HashMap, HashSet}, rc::Rc, cell::RefCell};
 
 use serde_json::Map;
 
-use crate::{callstack::CallStack, state_patch::StatePatch, variable_assigment::VariableAssignment, value::Value, list_definitions_origin::ListDefinitionsOrigin, value_type::{VariablePointerValue, ValueType}, json_write_state, json_read};
+use crate::{callstack::CallStack, state_patch::StatePatch, variable_assigment::VariableAssignment, value::Value, list_definitions_origin::ListDefinitionsOrigin, value_type::{VariablePointerValue, ValueType}, json_write_state, json_read, story_error::StoryError};
 
 
 #[derive(Clone)]
@@ -155,10 +155,10 @@ impl VariablesState {
         Rc::new(Value::new_variable_pointer(&var_pointer.variable_name, context_index))
     }
 
-    pub fn set(&mut self, variable_name: &str, value_type: ValueType) -> Result<(), String> {
+    pub fn set(&mut self, variable_name: &str, value_type: ValueType) -> Result<(), StoryError> {
 
         if !self.default_global_variables.as_ref().unwrap().contains_key(variable_name) {
-            return Err(format!("Cannot assign to a variable {} that hasn't been declared in the story", variable_name));
+            return Err(StoryError::BadArgument(format!("Cannot assign to a variable {} that hasn't been declared in the story", variable_name)));
         }
 
         let val = Value::from_value_type(value_type);
@@ -345,7 +345,7 @@ impl VariablesState {
         }
     }
 
-    pub(crate) fn load_json(&mut self, jobj: &Map<String, serde_json::Value>) ->  Result<(), String> {
+    pub(crate) fn load_json(&mut self, jobj: &Map<String, serde_json::Value>) ->  Result<(), StoryError> {
         self.global_variables.clear();
 
         for (k, v) in self.default_global_variables.as_ref().unwrap().iter() {

@@ -1,9 +1,9 @@
-use bladeink::story::Story;
+use bladeink::{story::Story, story_error::StoryError};
 
 mod common;
 
 #[test]
-fn tags_test() -> Result<(), String>  {
+fn tags_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/tags/tags.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -42,7 +42,7 @@ fn tags_test() -> Result<(), String>  {
 }
 
 #[test]
-fn tags_in_seq_test() -> Result<(), String>  {
+fn tags_in_seq_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/tags/tagsInSeq.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -61,7 +61,7 @@ fn tags_in_seq_test() -> Result<(), String>  {
 }
 
 #[test]
-fn tags_in_choice_test() -> Result<(), String>  {
+fn tags_in_choice_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/tags/tagsInChoice.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -87,7 +87,7 @@ fn tags_in_choice_test() -> Result<(), String>  {
 }
 
 #[test]
-fn tags_dynamic_content_test() -> Result<(), String>  {
+fn tags_dynamic_content_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/tags/tagsDynamicContent.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();

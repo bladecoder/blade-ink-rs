@@ -1,9 +1,9 @@
-use bladeink::story::Story;
+use bladeink::{story::Story, story_error::StoryError};
 
 mod common;
 
 #[test]
-fn basics_test() -> Result<(), String>  {
+fn basics_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/runtime/multiflow-basics.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -26,7 +26,7 @@ fn basics_test() -> Result<(), String>  {
 }
 
 #[test]
-fn multiflow_save_load_threads() -> Result<(), String>  {
+fn multiflow_save_load_threads() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/runtime/multiflow-saveloadthreads.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();

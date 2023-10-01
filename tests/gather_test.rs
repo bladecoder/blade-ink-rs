@@ -1,9 +1,9 @@
-use bladeink::story::Story;
+use bladeink::{story::Story, story_error::StoryError};
 
 mod common;
 
 #[test]
-fn gather_basic_test() -> Result<(), String>  {
+fn gather_basic_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/gather/gather-basic.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -24,7 +24,7 @@ fn gather_basic_test() -> Result<(), String>  {
 }
 
 #[test]
-fn gather_chain_test() -> Result<(), String>  {
+fn gather_chain_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/gather/gather-chain.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -52,7 +52,7 @@ fn gather_chain_test() -> Result<(), String>  {
 }
 
 #[test]
-fn nested_flow_test() -> Result<(), String>  {
+fn nested_flow_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/gather/nested-flow.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -75,7 +75,7 @@ fn nested_flow_test() -> Result<(), String>  {
 }
 
 #[test]
-fn deep_nesting_test() -> Result<(), String>  {
+fn deep_nesting_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/gather/deep-nesting.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -111,7 +111,7 @@ fn deep_nesting_test() -> Result<(), String>  {
 
 
 #[test]
-fn complex_flow1_test() -> Result<(), String>  {
+fn complex_flow1_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/gather/complex-flow.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -129,7 +129,7 @@ fn complex_flow1_test() -> Result<(), String>  {
 }
 
 #[test]
-fn complex_flow2_test() -> Result<(), String>  {
+fn complex_flow2_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/gather/complex-flow.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();

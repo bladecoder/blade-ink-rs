@@ -1,9 +1,9 @@
-use bladeink::story::Story;
+use bladeink::{story::Story, story_error::StoryError};
 
 mod common;
 
 #[test]
-fn thread_test() -> Result<(), String>  {
+fn thread_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/threads/thread-bug.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -28,7 +28,7 @@ fn thread_test() -> Result<(), String>  {
 }
 
 #[test]
-fn thread_test_bug() -> Result<(), String>  {    
+fn thread_test_bug() -> Result<(), StoryError>  {    
     let json_string =
         common::get_json_string("examples/inkfiles/threads/thread-bug.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();

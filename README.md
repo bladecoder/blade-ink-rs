@@ -24,6 +24,7 @@ Currently under development. This is the implementation status:
 
 ## TODO
 
+- [ ] Variable observers.
 - [ ] Optimize control command getname. Use static string array and address it by order.
 - [ ] Error handling
 - [ ] Cache components string in Path

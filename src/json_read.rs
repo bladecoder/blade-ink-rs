@@ -4,10 +4,10 @@ use serde_json::Map;
 
 use crate::{
     container::Container,
-    object::{self, RTObject}, control_command::ControlCommand, value::Value, glue::Glue, path::Path, choice_point::ChoicePoint, choice::Choice, push_pop::PushPopType, divert::Divert, variable_assigment::VariableAssignment, void::Void, variable_reference::VariableReference, native_function_call::NativeFunctionCall, tag::Tag, ink_list::InkList, ink_list_item::InkListItem, list_definitions_origin::ListDefinitionsOrigin, list_definition::ListDefinition,
+    object::{self, RTObject}, control_command::ControlCommand, value::Value, glue::Glue, path::Path, choice_point::ChoicePoint, choice::Choice, push_pop::PushPopType, divert::Divert, variable_assigment::VariableAssignment, void::Void, variable_reference::VariableReference, native_function_call::NativeFunctionCall, tag::Tag, ink_list::InkList, ink_list_item::InkListItem, list_definitions_origin::ListDefinitionsOrigin, list_definition::ListDefinition, story_error::StoryError,
 };
 
-pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>) -> Result<Rc<dyn RTObject>, String> {
+pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>) -> Result<Rc<dyn RTObject>, StoryError> {
     match token {
         serde_json::Value::Null =>  Ok(Rc::new(object::Null::new())),
         serde_json::Value::Bool(value) => Ok(Rc::new(Value::new_bool(value.to_owned()))),
@@ -52,7 +52,7 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
             if "void".eq(str) {return Ok(Rc::new(Void::new()));}
 
 
-            Err(format!("Failed to convert token to runtime RTObject: {}", &token.to_string()))
+            Err(StoryError::BadJson(format!("Failed to convert token to runtime RTObject: {}", &token.to_string())))
         },
         serde_json::Value::Array(value) => Ok(jarray_to_container(value, name)?),
         serde_json::Value::Object(obj) => {
@@ -230,13 +230,13 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
                 return jobject_to_choice(obj);
             }
 
-            Err(format!("Failed to convert token to runtime RTObject: {}", &token.to_string()))
+            Err(StoryError::BadJson(format!("Failed to convert token to runtime RTObject: {}", &token.to_string())))
         },
     }
 
 }
 
-fn jarray_to_container(jarray: &Vec<serde_json::Value>, name: Option<String>) -> Result<Rc<dyn RTObject>, String> {
+fn jarray_to_container(jarray: &Vec<serde_json::Value>, name: Option<String>) -> Result<Rc<dyn RTObject>, StoryError> {
     // Final object in the array is always a combination of
     //  - named content
     //  - a "#f" key with the countFlags
@@ -270,7 +270,7 @@ fn jarray_to_container(jarray: &Vec<serde_json::Value>, name: Option<String>) ->
     Ok(container)
 }
 
-pub fn jarray_to_runtime_obj_list(jarray: &Vec<serde_json::Value>, skip_last: bool) -> Result<Vec<Rc<dyn RTObject>>, String> {
+pub fn jarray_to_runtime_obj_list(jarray: &Vec<serde_json::Value>, skip_last: bool) -> Result<Vec<Rc<dyn RTObject>>, StoryError> {
     let mut count = jarray.len();
 
     if skip_last {
@@ -288,7 +288,7 @@ pub fn jarray_to_runtime_obj_list(jarray: &Vec<serde_json::Value>, skip_last: bo
     Ok(list)
 }
 
-fn jobject_to_choice(obj: &Map<String, serde_json::Value>) -> Result<Rc<dyn RTObject>, String>  {
+fn jobject_to_choice(obj: &Map<String, serde_json::Value>) -> Result<Rc<dyn RTObject>, StoryError>  {
     let text = obj.get("text").unwrap().as_str().unwrap();
     let index = obj.get("index").unwrap().as_u64().unwrap() as usize;
     let source_path = obj.get("originalChoicePath").unwrap().as_str().unwrap();
@@ -298,7 +298,7 @@ fn jobject_to_choice(obj: &Map<String, serde_json::Value>) -> Result<Rc<dyn RTOb
     Ok(Rc::new(Choice::new_from_json(path_string_on_choice, source_path.to_string(),  text, index, original_thread_index)))
 }
 
-pub fn jtoken_to_list_definitions(def: &serde_json::Value) -> Result<ListDefinitionsOrigin, String>  {
+pub fn jtoken_to_list_definitions(def: &serde_json::Value) -> Result<ListDefinitionsOrigin, StoryError>  {
 
    let mut all_defs: Vec<ListDefinition> = Vec::with_capacity(0);
 
@@ -317,7 +317,7 @@ pub fn jtoken_to_list_definitions(def: &serde_json::Value) -> Result<ListDefinit
     Ok(ListDefinitionsOrigin::new(&mut all_defs))
 }
 
-pub(crate) fn jobject_to_hashmap_values(jobj: &Map<String, serde_json::Value>) ->  Result<HashMap<String, Rc<Value>>, String> {
+pub(crate) fn jobject_to_hashmap_values(jobj: &Map<String, serde_json::Value>) ->  Result<HashMap<String, Rc<Value>>, StoryError> {
     let mut dict: HashMap<String, Rc<Value>> = HashMap::new();
 
     for (k, v) in jobj.iter() {
@@ -327,7 +327,7 @@ pub(crate) fn jobject_to_hashmap_values(jobj: &Map<String, serde_json::Value>) -
     Ok(dict)
 }
 
-pub(crate) fn jobject_to_hashmap_rtobjects(jobj: &Map<String, serde_json::Value>) -> Result<HashMap<String, Rc<dyn RTObject>>, String>  {
+pub(crate) fn jobject_to_hashmap_rtobjects(jobj: &Map<String, serde_json::Value>) -> Result<HashMap<String, Rc<dyn RTObject>>, StoryError>  {
 
     let mut dict: HashMap<String, Rc<dyn RTObject>> = HashMap::new();
 
@@ -338,11 +338,10 @@ pub(crate) fn jobject_to_hashmap_rtobjects(jobj: &Map<String, serde_json::Value>
     Ok(dict)
 }
 
-pub(crate) fn jobject_to_int_hashmap(jobj: &Map<String, serde_json::Value>) -> Result<HashMap<String, i32>, String>  {
+pub(crate) fn jobject_to_int_hashmap(jobj: &Map<String, serde_json::Value>) -> Result<HashMap<String, i32>, StoryError>  {
     let mut dict: HashMap<String, i32> = HashMap::new();
 
     for (k, v) in jobj.iter() {
-        println!("{}", v);
         dict.insert(k.clone(), v.as_i64().unwrap() as i32);
     }
 

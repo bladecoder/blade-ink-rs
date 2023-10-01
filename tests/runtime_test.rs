@@ -1,11 +1,11 @@
-use bladeink::{story::Story, value_type::{ValueType, StringValue}};
+use bladeink::{story::Story, value_type::{ValueType, StringValue}, story_error::StoryError};
 
 mod common;
 
 // TODO external functions + variable observers
 
 #[test]
-fn set_and_get_variable_test() -> Result<(), String>  {
+fn set_and_get_variable_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/runtime/set-get-variables.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -31,7 +31,7 @@ fn set_and_get_variable_test() -> Result<(), String>  {
 
 
 #[test]
-fn set_non_existant_variable_test() -> Result<(), String>  {
+fn set_non_existant_variable_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/runtime/set-get-variables.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -60,7 +60,7 @@ fn set_non_existant_variable_test() -> Result<(), String>  {
 }
 
 #[test]
-fn jump_knot_test() -> Result<(), String>  {
+fn jump_knot_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/runtime/jump-knot.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -89,7 +89,7 @@ fn jump_knot_test() -> Result<(), String>  {
 }
 
 #[test]
-fn jump_stitch_test() -> Result<(), String>  {
+fn jump_stitch_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/runtime/jump-stitch.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -118,7 +118,7 @@ fn jump_stitch_test() -> Result<(), String>  {
 }
 
 #[test]
-fn read_visit_counts_test() -> Result<(), String>  {
+fn read_visit_counts_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/runtime/read-visit-counts.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -132,7 +132,7 @@ fn read_visit_counts_test() -> Result<(), String>  {
 }
 
 #[test]
-fn load_save_test() -> Result<(), String>  {
+fn load_save_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/runtime/load-save.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();

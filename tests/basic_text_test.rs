@@ -1,10 +1,10 @@
 use std::fs;
-use bladeink::story::Story;
+use bladeink::{story::Story, story_error::StoryError};
 
 mod common;
 
 #[test]
-fn oneline_test() -> Result<(), String>  {
+fn oneline_test() -> Result<(), StoryError>  {
     let json_string =
         fs::read_to_string("examples/inkfiles/basictext/oneline.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -20,7 +20,7 @@ fn oneline_test() -> Result<(), String>  {
 }
 
 #[test]
-fn twolines_test() -> Result<(), String> {
+fn twolines_test() -> Result<(), StoryError> {
     let json_string =
         fs::read_to_string("examples/inkfiles/basictext/twolines.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();

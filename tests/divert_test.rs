@@ -1,9 +1,9 @@
-use bladeink::story::Story;
+use bladeink::{story::Story, story_error::StoryError};
 
 mod common;
 
 #[test]
-fn simple_divert_test() -> Result<(), String>  {
+fn simple_divert_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/divert/simple-divert.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -18,7 +18,7 @@ fn simple_divert_test() -> Result<(), String>  {
 }
 
 #[test]
-fn invisible_divert_test() -> Result<(), String>  {
+fn invisible_divert_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/divert/invisible-divert.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -32,7 +32,7 @@ fn invisible_divert_test() -> Result<(), String>  {
 }
 
 #[test]
-fn divert_on_choice_test() -> Result<(), String>  {
+fn divert_on_choice_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/divert/divert-on-choice.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -51,7 +51,7 @@ fn divert_on_choice_test() -> Result<(), String>  {
 }
 
 #[test]
-fn complex_branching1_test() -> Result<(), String>  {
+fn complex_branching1_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/divert/complex-branching.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
@@ -71,7 +71,7 @@ fn complex_branching1_test() -> Result<(), String>  {
 }
 
 #[test]
-fn complex_branching2_test() -> Result<(), String>  {
+fn complex_branching2_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("examples/inkfiles/divert/complex-branching.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
