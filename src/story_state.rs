@@ -794,11 +794,7 @@ impl StoryState {
     }
 
     pub fn pop_evaluation_stack(&mut self) -> Rc<dyn RTObject> {
-        let obj = self.evaluation_stack.pop().unwrap();
-
-        println!("POP: {}", obj.to_string());
-
-        obj
+        self.evaluation_stack.pop().unwrap()
     }
 
     pub fn pop_evaluation_stack_multiple(&mut self, number_of_objects: usize) -> Vec<Rc<dyn RTObject>> {
@@ -816,7 +812,7 @@ impl StoryState {
         // Changing direction, assume we need to clear current set of choices
         self.current_flow.current_choices.clear();
 
-        let mut new_pointer = Story::pointer_at_path(&self.main_content_container, &path)?;
+        let mut new_pointer = Story::pointer_at_path(&self.main_content_container, path)?;
         if !new_pointer.is_null() && new_pointer.index == -1 {
             new_pointer.index = 0;
         }
@@ -860,7 +856,7 @@ impl StoryState {
         let mut i = self.get_output_stream().len() as isize - 1;
         while i >= function_start_point as isize {
             if let Some(obj) = self.get_output_stream().get(i as usize) {
-                if let Some(_) = obj.as_any().downcast_ref::<ControlCommand>() {
+                if obj.as_any().is::<ControlCommand>() {
                     break;
                 } 
 
@@ -940,11 +936,11 @@ impl StoryState {
         }
 
         // Finally, pop the external function evaluation
-        self.get_callstack().borrow_mut().pop(Some(PushPopType::FunctionEvaluationFromGame));
+        self.get_callstack().borrow_mut().pop(Some(PushPopType::FunctionEvaluationFromGame))?;
 
         // What did we get back?
         if let Some(returned_obj) = returned_obj{
-            if let Some(_) = returned_obj.as_ref().as_any().downcast_ref::<Void>() { return Ok(None); }
+            if returned_obj.as_ref().as_any().is::<Void>() { return Ok(None); }
 
             // Some kind of value, if not void
             if let Some(return_val) = returned_obj.as_ref().as_any().downcast_ref::<Value>() {
@@ -969,17 +965,15 @@ impl StoryState {
             return Err(StoryError::InvalidStoryState(format!("TURNS_SINCE() for target ({}) unknown.", container.name.as_ref().unwrap())));
         }
 
-        let mut index = 0;
-
         if self.patch.is_some() && self.patch.as_ref().unwrap().get_turn_index(container).is_some() {
-            index = *self.patch.as_ref().unwrap().get_turn_index(container).unwrap() as i32;
+            let index = *self.patch.as_ref().unwrap().get_turn_index(container).unwrap();
             return Ok(self.current_turn_index - index);
         }
 
         let container_path_str = Object::get_path(container).to_string();
 
         if self.turn_indices.contains_key(&container_path_str) {
-            index = *self.turn_indices.get(&container_path_str).unwrap() as i32;
+            let index = *self.turn_indices.get(&container_path_str).unwrap();
             Ok(self.current_turn_index - index)
         } else {
             Ok(-1)
@@ -1157,17 +1151,17 @@ impl StoryState {
         // current/default flow
         else {
             self.named_flows = None;
-            self.current_flow.name = "default".to_string(); // Replace with the default flow name
+            self.current_flow.name = "default".to_owned(); // Replace with the default flow name
             self.current_flow
                 .callstack
-                .borrow_mut().load_json(&self.main_content_container, j_object.get("callstackThreads").and_then(|o| o.as_object()).ok_or(StoryError::BadJson("loading callstack threads".to_owned()))?);
+                .borrow_mut().load_json(&self.main_content_container, j_object.get("callstackThreads").and_then(|o| o.as_object()).ok_or(StoryError::BadJson("loading callstack threads".to_owned()))?)?;
 
             if let Some(output_stream_obj) = j_object.get("outputStream") {
-                self.current_flow.output_stream = json_read::jarray_to_runtime_obj_list(&output_stream_obj.as_array().unwrap(), false)?;
+                self.current_flow.output_stream = json_read::jarray_to_runtime_obj_list(output_stream_obj.as_array().unwrap(), false)?;
             }
 
             if let Some(current_choices_obj) = j_object.get("currentChoices") {
-                self.current_flow.current_choices = json_read::jarray_to_runtime_obj_list(&current_choices_obj.as_array().unwrap(), false)?.iter().map(|o| o.clone().into_any().downcast::<Choice>().unwrap()).collect();
+                self.current_flow.current_choices = json_read::jarray_to_runtime_obj_list(current_choices_obj.as_array().unwrap(), false)?.iter().map(|o| o.clone().into_any().downcast::<Choice>().unwrap()).collect();
             }
 
             let j_choice_threads_obj = j_object.get("choiceThreads");
