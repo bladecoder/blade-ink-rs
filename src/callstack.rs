@@ -71,12 +71,8 @@ impl Thread {
                         let pointer_index = j_element_obj.get("idx").and_then(|i| i.as_i64()).ok_or(StoryError::BadJson("Invalid pointer index".to_owned()))? as i32;
                         pointer.index = pointer_index;
 
-                        // TODO
-                        // if thread_pointer_result.obj.is_none() {
-                        //     return Err(format!("When loading state, internal story location couldn't be found: {}. Has the story changed since this save data was created?", current_container_path_str));
-                        // } else 
-                        
                         if thread_pointer_result.approximate {
+                            // TODO
                             // story_context.warning(format!("When loading state, exact internal story location couldn't be found: '{}', so it was approximated to '{}' to recover. Has the story changed since this save data was created?", current_container_path_str, pointer_container.get_path().to_string()));
                         }
                     }
