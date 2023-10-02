@@ -204,14 +204,11 @@ impl Container {
 
             current_obj = found_obj.unwrap().clone();
             current_container = if let Ok(container) = current_obj.clone().into_any().downcast::<Container>() {
-
-
                 Some(container)
             } else {
                 None
             };
         }
-
     
         SearchResult::new(current_obj, approximate)
     }

@@ -6,6 +6,15 @@ pub enum StoryError {
   BadJson(String),
   BadArgument(String),
 }
+impl StoryError {
+    pub(crate) fn get_message(&self) -> &str {
+        match self {
+            StoryError::InvalidStoryState(msg) |
+            StoryError::BadJson(msg) |
+            StoryError::BadArgument(msg) => msg.as_str(),
+        }
+    }
+}
 
 impl std::error::Error for StoryError {}
 

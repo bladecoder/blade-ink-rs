@@ -104,7 +104,7 @@ impl Story {
             list_definitions,
         };
 
-        story.reset_state();
+        story.reset_state()?;
 
         Ok(story)
     }
@@ -117,17 +117,17 @@ impl Story {
         self.state.as_mut().unwrap()
     }
 
-    fn reset_state(&mut self) {
-        self.if_async_we_cant("ResetState");
+    fn reset_state(&mut self) -> Result<(), StoryError> {
+        self.if_async_we_cant("ResetState")?;
 
         self.state = Some(StoryState::new(self.main_content_container.clone(), self.list_definitions.clone()));
 
         // TODO self.get_state_mut().get_variables_state().setVariableChangedEvent(this);
 
-        self.reset_globals();
+        self.reset_globals()
     }
 
-    fn reset_globals(&mut self) {
+    fn reset_globals(&mut self)  -> Result<(), StoryError> {
         if self.main_content_container.named_content.contains_key("global decl") {
             let original_pointer = self.get_state().get_current_pointer().clone();
 
@@ -135,12 +135,14 @@ impl Story {
 
             // Continue, but without validating external bindings,
             // since we may be doing this reset at initialisation time.
-            self.continue_internal(0.0);
+            self.continue_internal(0.0)?;
 
             self.get_state().set_current_pointer(original_pointer);
         }
 
         self.get_state_mut().get_variables_state_mut().snapshot_default_globals();
+
+        Ok(())
     }
 
     pub fn build_string_of_hierarchy(&self) -> String {
@@ -169,7 +171,7 @@ impl Story {
     }
 
     pub fn continue_maximally(&mut self) -> Result<String, StoryError> {
-        self.if_async_we_cant("continue_maximally");
+        self.if_async_we_cant("continue_maximally")?;
 
         let mut sb = String::new();
 
@@ -229,13 +231,11 @@ impl Story {
         loop {
             match self.continue_single_step() {
                 Ok(r) => output_stream_ends_in_newline = r,
-                Err(s) => {
-                    //self.add_error(s, false, e.useEndLineNumber);
+                Err(e) => {
+                    self.add_error(e.get_message(), false);
                     break;
                 }
             }
-
-            //println!("{}", self.build_string_of_hierarchy());
 
             if output_stream_ends_in_newline {
                 break;
@@ -276,7 +276,7 @@ impl Story {
                     .borrow()
                     .can_pop_thread()
                 {
-                    self.add_error("Thread available to pop, threads should always be flat by the end of evaluation?");
+                    self.add_error("Thread available to pop, threads should always be flat by the end of evaluation?", false);
                 }
 
                 if self
@@ -296,7 +296,7 @@ impl Story {
                         .borrow()
                         .can_pop_type(Some(PushPopType::Tunnel))
                     {
-                        self.add_error("unexpectedly reached end of content. Do you need a '->->' to return from a tunnel?");
+                        self.add_error("unexpectedly reached end of content. Do you need a '->->' to return from a tunnel?", false);
                     } else if self
                         .state
                         .as_ref()
@@ -306,12 +306,12 @@ impl Story {
                         .can_pop_type(Some(PushPopType::Function))
                     {
                         self.add_error(
-                            "unexpectedly reached end of content. Do you need a '~ return'?",
+                            "unexpectedly reached end of content. Do you need a '~ return'?", false
                         );
                     } else if !self.get_state().get_callstack().borrow().can_pop() {
-                        self.add_error("ran out of content. Do you need a '-> DONE' or '-> END'?");
+                        self.add_error("ran out of content. Do you need a '-> DONE' or '-> END'?", false);
                     } else {
-                        self.add_error("unexpectedly reached end of content for unknown reason. Please debug compiler!");
+                        self.add_error("unexpectedly reached end of content for unknown reason. Please debug compiler!", false);
                     }
                 }
             }
@@ -495,8 +495,21 @@ impl Story {
         }
     }
 
-    fn add_error(&self, arg: &str) {
-        todo!()
+    fn add_error(&mut self, message: &str, is_warning: bool) {
+        let error_type_str = if is_warning {"WARNING"} else {"ERROR"};
+
+        let m = 
+            if !self.get_state().get_current_pointer().is_null() {
+                format!(
+                        "RUNTIME {}: ({}): {}",
+                        error_type_str, self.get_state().get_current_pointer().get_path().unwrap(), message)
+            } else {
+                format!("RUNTIME {}: {}", error_type_str, message)
+            };
+
+        self.get_state_mut().add_error(m, is_warning);
+
+        self.get_state_mut().force_end()
     }
 
     fn reset_errors(&self) {
@@ -896,7 +909,7 @@ impl Story {
 
                         return Err(StoryError::InvalidStoryState(format!("Found {}, when expected {}", names.get(&pop_type).unwrap(), expected.unwrap())));
                     } else {
-                        self.get_state_mut().pop_callstack(None);
+                        self.get_state_mut().pop_callstack(None)?;
 
                         // Does tunnel onwards override by diverting to a new ->->
                         // target?
@@ -1009,9 +1022,8 @@ impl Story {
                                 either_count = -1; // turn count, default to never/unknown
                             } else { either_count = 0; } // visit count, assume 0 to default to allowing entry
 
-                            // warning("Failed to find container for " + evalCommand.toString() + " lookup at "
-                            //         + divertTarget.getTargetPath().toString());
-                            panic!()
+                            self.add_error(&format!("Failed to find container for {} lookup at {}", eval_command
+                                    , target), true);
                         }
                     }
 
@@ -1318,12 +1330,8 @@ impl Story {
 
                 found_value = self.get_state().get_variables_state().get_variable_with_name(&var_ref.name, -1);
 
-                if let None = found_value {
-                    // TODO
-                    // self.warning("Variable not found: '" + varRef.getName()
-                    //         + "'. Using default value of 0 (false). This can happen with temporary variables if the "
-                    //         + "declaration hasn't yet been hit. Globals are always given a default value on load if a "
-                    //         + "value doesn't exist in the save state.");
+                if found_value.is_none() {
+                    self.add_error(&format!("Variable not found: '{}'. Using default value of 0 (false). This can happen with temporary variables if the declaration hasn't yet been hit. Globals are always given a default value on load if a value doesn't exist in the save state.", var_ref.name), true);
                     
                     found_value = Some(Rc::new(Value::new_int(0)));
                 }
@@ -1348,7 +1356,7 @@ impl Story {
         Ok(false)
     }
 
-    fn next_content(&mut self) {
+    fn next_content(&mut self) -> Result<(), StoryError> {
         // Setting previousContentObject is critical for
         // VisitChangedContainersDueToDivert
         let cp = self.get_state().get_current_pointer();
@@ -1366,7 +1374,7 @@ impl Story {
 
             // Diverted location has valid content?
             if !self.get_state().get_current_pointer().is_null() {
-                return;
+                return Ok(());
             }
 
             // Otherwise, if diverted location doesn't have valid content,
@@ -1387,7 +1395,7 @@ impl Story {
             if can_pop_type {
 
                 // Pop from the call stack
-                self.get_state_mut().pop_callstack(Some(PushPopType::Function));
+                self.get_state_mut().pop_callstack(Some(PushPopType::Function))?;
 
                 // This pop was due to dropping off the end of a function that
                 // didn't return anything,
@@ -1410,7 +1418,9 @@ impl Story {
             if didPop && !self.get_state().get_current_pointer().is_null() {
                 self.next_content();
             }
-        }   
+        }
+
+        Ok(())
     }
 
     fn increment_content_pointer(&self) -> bool {
@@ -1612,6 +1622,7 @@ impl Story {
                 path
             )));
         } else if result.approximate {
+            // TODO
             // warning(format!(
             //     "Failed to find content at path '{}', so it was approximated to: '{}'.",
             //     path,

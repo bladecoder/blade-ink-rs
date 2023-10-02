@@ -173,8 +173,8 @@ impl StoryState {
                     None => None,
                 };
 
-                if !in_tag && text_content.is_some() {
-                    sb.push_str(&text_content.unwrap().string);
+                if let (false, Some(text_content)) = (in_tag, text_content) {
+                    sb.push_str(&text_content.string);
                 } else if let Some(control_command) = output_obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
                     if control_command.command_type == CommandType::BeginTag {
                         in_tag = true;
@@ -658,14 +658,14 @@ impl StoryState {
             return true;
         }
 
-        return false;
+        false
     }
 
-    pub fn pop_callstack(&mut self, t: Option<PushPopType>) {
+    pub fn pop_callstack(&mut self, t: Option<PushPopType>) -> Result<(), StoryError> {
         // Add the end of a function call, trim any whitespace from the end.
         if self.get_callstack().borrow().get_current_element().push_pop_type == PushPopType::Function {self.trim_whitespace_from_function_end();}
 
-        self.get_callstack().borrow_mut().pop(t);
+        self.get_callstack().borrow_mut().pop(t)
     }
 
     fn go_to_start(&self) {
@@ -1236,4 +1236,12 @@ impl StoryState {
             self.switch_flow_internal(DEFAULT_FLOW_NAME);
         }
     }
+
+    pub(crate) fn add_error(&mut self, message: String, is_warning: bool) {
+        if !is_warning {
+            self.current_errors.push(message);
+        } else {
+            self.current_warnings.push(message);
+        }
+    } 
 }
