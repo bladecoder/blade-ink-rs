@@ -53,7 +53,7 @@ fn multiflow_save_load_threads() -> Result<(), StoryError>  {
     assert_eq!("Thread 1 red choice", story.get_current_choices()[0].text);
 
     // Save/load test
-    let saved = story.get_state().to_json();
+    let saved = story.get_state().to_json()?;
 
     // Test choice before reloading state before resetting
     story.choose_choice_index(0);

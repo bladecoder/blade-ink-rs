@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{object::{RTObject, Object}, path::Path, ink_list::InkList, value_type::{StringValue, ValueType, VariablePointerValue}};
+use crate::{object::{RTObject, Object}, path::Path, ink_list::InkList, value_type::{StringValue, ValueType, VariablePointerValue}, story_error::StoryError};
 
 const CAST_BOOL: u8 = 0;
 const CAST_INT: u8 = 1;
@@ -72,22 +72,22 @@ impl Value {
         Self { obj: Object::new(), value: value_type }
     }
 
-    pub fn is_truthy(&self) -> bool {
+    pub fn is_truthy(&self) -> Result<bool, StoryError> {
         match &self.value {
-            ValueType::Bool(v) => *v,
-            ValueType::Int(v) => *v != 0,
-            ValueType::Float(v) => *v != 0.0,
-            ValueType::String(v) => !v.string.is_empty(),
-            ValueType::DivertTarget(_) => panic!(), // exception Shouldn't be checking the truthiness of a divert target??
-            ValueType::VariablePointer(_) => panic!(),
-            ValueType::List(l) => !l.items.is_empty(),
+            ValueType::Bool(v) => Ok(*v),
+            ValueType::Int(v) => Ok(*v != 0),
+            ValueType::Float(v) => Ok(*v != 0.0),
+            ValueType::String(v) => Ok(!v.string.is_empty()),
+            ValueType::DivertTarget(_) => Err(StoryError::InvalidStoryState("Shouldn't be checking the truthiness of a divert target".to_owned())),
+            ValueType::VariablePointer(_) => Err(StoryError::InvalidStoryState("Shouldn't be checking the truthiness of a variable pointer".to_owned())),
+            ValueType::List(l) => Ok(!l.items.is_empty()),
         }
     }
 
     pub fn get_string_value(o: &dyn RTObject) -> Option<&StringValue> {
         match o.as_any().downcast_ref::<Value>() {
             Some(v) => match &v.value {
-                ValueType::String(v) => Some(&v),
+                ValueType::String(v) => Some(v),
                 _ => None,
             },
             None => None,
@@ -178,7 +178,7 @@ impl Value {
 
         if let Some(old_list) = Self::get_list_value(old_value) {
             if let Some(new_list) = Self::get_list_value(new_value) {
-                if new_list.items.len() == 0 {
+                if new_list.items.is_empty() {
                     new_list.set_initial_origin_names(old_list.get_origin_names());
                 }
             }
@@ -195,61 +195,61 @@ impl Value {
     }
 
     // If None is returned means that casting is not needed
-    pub fn cast(&self, cast_dest_type: u8) -> Option<Value> {
+    pub fn cast(&self, cast_dest_type: u8) -> Result<Option<Value>, StoryError> {
         match &self.value {
             ValueType::Bool(v) => {
                 match cast_dest_type {
-                    CAST_BOOL => None,
+                    CAST_BOOL => Ok(None),
                     CAST_INT => if *v {
-                        Some(Self::new_int(1))
+                        Ok(Some(Self::new_int(1)))
                     } else {
-                        Some(Self::new_int(0))
+                        Ok(Some(Self::new_int(0)))
                     },
                     CAST_FLOAT => if *v {
-                        Some(Self::new_float(1.0))
+                        Ok(Some(Self::new_float(1.0)))
                     } else {
-                        Some(Self::new_float(0.0))
+                        Ok(Some(Self::new_float(0.0)))
                     },
                     CAST_STRING => if *v {
-                        Some(Self::new_string("true"))
+                        Ok(Some(Self::new_string("true")))
                     } else {
-                        Some(Self::new_string("false"))
+                        Ok(Some(Self::new_string("false")))
                     },
-                    _ => panic!(),
+                    _ => Err(StoryError::InvalidStoryState("Cast not allowed for bool".to_owned())),
                 }
             },
             ValueType::Int(v) => {
                 match cast_dest_type {
                     CAST_BOOL => if *v == 0 {
-                        Some(Self::new_bool(false))
+                        Ok(Some(Self::new_bool(false)))
                     } else {
-                        Some(Self::new_bool(true))
+                        Ok(Some(Self::new_bool(true)))
                     },
-                    CAST_INT => None,
-                    CAST_FLOAT => Some(Self::new_float(*v as f32)),
-                    CAST_STRING => Some(Self::new_string(&*v.to_string())),
-                    _ => panic!(),
+                    CAST_INT => Ok(None),
+                    CAST_FLOAT => Ok(Some(Self::new_float(*v as f32))),
+                    CAST_STRING => Ok(Some(Self::new_string(&v.to_string()))),
+                    _ => Err(StoryError::InvalidStoryState("Cast not allowed for int".to_owned())),
                 }
             },
             ValueType::Float(v) => {
                 match cast_dest_type {
                     CAST_BOOL => if *v == 0.0 {
-                        Some(Self::new_bool(false))
+                        Ok(Some(Self::new_bool(false)))
                     } else {
-                        Some(Self::new_bool(true))
+                        Ok(Some(Self::new_bool(true)))
                     },
-                    CAST_INT => Some(Self::new_int(*v as i32)),
-                    CAST_FLOAT => None,
-                    CAST_STRING => Some(Self::new_string(&*v.to_string())),
-                    _ => panic!(),
+                    CAST_INT => Ok(Some(Self::new_int(*v as i32))),
+                    CAST_FLOAT => Ok(None),
+                    CAST_STRING => Ok(Some(Self::new_string(&v.to_string()))),
+                    _ => Err(StoryError::InvalidStoryState("Cast not allowed for float".to_owned())),
                 }
             },
             ValueType::String(v) => {
                 match cast_dest_type {
-                    CAST_INT => Some(Self::new_int(v.string.parse::<i32>().unwrap())),
-                    CAST_FLOAT => Some(Self::new_float(v.string.parse::<f32>().unwrap())),
-                    CAST_STRING => None,
-                    _ => panic!(),
+                    CAST_INT => Ok(Some(Self::new_int(v.string.parse::<i32>().unwrap()))),
+                    CAST_FLOAT => Ok(Some(Self::new_float(v.string.parse::<f32>().unwrap()))),
+                    CAST_STRING => Ok(None),
+                    _ => Err(StoryError::InvalidStoryState("Cast not allowed for string".to_owned())),
                 }
             },
             ValueType::List(l) => {
@@ -257,42 +257,42 @@ impl Value {
                     CAST_INT => {
                         let max = l.get_max_item();
                         match max {
-                            Some(i) => Some(Self::new_int(i.1)),
-                            None => Some(Self::new_int(0))
+                            Some(i) => Ok(Some(Self::new_int(i.1))),
+                            None => Ok(Some(Self::new_int(0)))
                         }
                     },
                     CAST_FLOAT => {
                         let max = l.get_max_item();
                         match max {
-                            Some(i) => Some(Self::new_float(i.1 as f32)),
-                            None => Some(Self::new_float(0.0))
+                            Some(i) => Ok(Some(Self::new_float(i.1 as f32))),
+                            None => Ok(Some(Self::new_float(0.0)))
                         }
                     },
-                    CAST_LIST => None,
+                    CAST_LIST => Ok(None),
                     CAST_STRING => {
                         let max = l.get_max_item();
                         match max {
-                            Some(i) =>  Some(Self::new_string(&i.0.to_string())),
-                            None => Some(Self::new_string(""))
+                            Some(i) =>  Ok(Some(Self::new_string(&i.0.to_string()))),
+                            None => Ok(Some(Self::new_string("")))
                         }
                     },
-                    _ => panic!(),
+                    _ => Err(StoryError::InvalidStoryState("Cast not allowed for list".to_owned())),
                 }
             },
             ValueType::DivertTarget(_) => {
                 match cast_dest_type {
                     CAST_DIVERT_TARGET => {
-                        None
+                        Ok(None)
                     },
-                    _ => panic!(),
+                    _ => Err(StoryError::InvalidStoryState("Cast not allowed for divert".to_owned())),
                 }
             },
             ValueType::VariablePointer(_) => {
                 match cast_dest_type {
                     CAST_VARIABLE_POINTER => {
-                        None
+                        Ok(None)
                     },
-                    _ => panic!(),
+                    _ => Err(StoryError::InvalidStoryState("Cast not allowed for variable pointer".to_owned())),
                 }
             },
         }

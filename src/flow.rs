@@ -2,7 +2,7 @@ use std::{rc::Rc, cell::RefCell};
 
 use serde_json::Map;
 
-use crate::{callstack::{CallStack, Thread}, choice::Choice, object::RTObject, container::Container, json_write_state, json_read, story_error::StoryError};
+use crate::{callstack::{CallStack, Thread}, choice::Choice, object::RTObject, container::Container, json_write, json_read, story_error::StoryError};
 
 #[derive(Clone)]
 pub struct Flow {
@@ -38,11 +38,11 @@ impl Flow {
         Ok(flow)
     }
 
-    pub(crate) fn write_json(&self) -> serde_json::Value {
+    pub(crate) fn write_json(&self) -> Result<serde_json::Value, StoryError> {
         let mut flow: Map<String, serde_json::Value> = Map::new();
 
-        flow.insert("callstack".to_owned(), self.callstack.borrow().write_json());
-        flow.insert("outputStream".to_owned(), json_write_state::write_list_rt_objs(&self.output_stream));
+        flow.insert("callstack".to_owned(), self.callstack.borrow().write_json()?);
+        flow.insert("outputStream".to_owned(), json_write::write_list_rt_objs(&self.output_stream)?);
         
         // choiceThreads: optional
         // Has to come BEFORE the choices themselves are written out
@@ -57,7 +57,7 @@ impl Flow {
                     has_choice_threads = true;
                 }
 
-                jct.insert(c.original_thread_index.borrow().to_string(), c.get_thread_at_generation().unwrap().write_json());
+                jct.insert(c.original_thread_index.borrow().to_string(), c.get_thread_at_generation().unwrap().write_json()?);
             }
         }
 
@@ -67,12 +67,12 @@ impl Flow {
 
         let mut c_array: Vec<serde_json::Value> = Vec::new();
         for c in self.current_choices.iter() {
-            c_array.push(json_write_state::write_choice(c));
+            c_array.push(json_write::write_choice(c));
         }
 
         flow.insert("currentChoices".to_owned(), serde_json::Value::Array(c_array));
 
-        serde_json::Value::Object(flow)
+        Ok(serde_json::Value::Object(flow))
     }
 
     pub fn load_flow_choice_threads(&mut self, j_choice_threads: Option<&serde_json::Value>, main_content_container: Rc<Container>) -> Result<(), StoryError>{

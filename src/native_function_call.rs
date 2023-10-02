@@ -1,6 +1,6 @@
 use std::{fmt, rc::Rc};
 
-use crate::{object::{Object, RTObject}, value::Value, void::Void, ink_list::InkList, value_type::ValueType};
+use crate::{object::{Object, RTObject}, value::Value, void::Void, ink_list::InkList, value_type::ValueType, story_error::StoryError};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Op {
@@ -165,17 +165,17 @@ impl NativeFunctionCall {
         }
     }
 
-    pub(crate) fn call(&self, params: Vec<Rc<dyn RTObject>>) -> Rc<dyn RTObject> {
+    pub(crate) fn call(&self, params: Vec<Rc<dyn RTObject>>) -> Result<Rc<dyn RTObject>, StoryError> {
 
         if self.get_number_of_parameters() != params.len() {
-            panic!("Unexpected number of parameters");
+            return Err(StoryError::InvalidStoryState("Unexpected number of parameters".to_owned()));
         }
 
         let mut has_list = false;
 
         for p in &params {
             if p.as_ref().as_any().is::<Void>() {
-                panic!("Attempting to perform operation on a void value. Did you forget to 'return' a value from a function you called here?");
+                return Err(StoryError::InvalidStoryState("Attempting to perform operation on a void value. Did you forget to 'return' a value from a function you called here?".to_owned()));
             }
 
             if Value::get_list_value(p.as_ref()).is_some() {
@@ -189,17 +189,17 @@ impl NativeFunctionCall {
             return self.call_binary_list_operation(&params);
         }
 
-        let coerced_params = self.coerce_values_to_single_type(params);
+        let coerced_params = self.coerce_values_to_single_type(params)?;
 
         self.call_type(coerced_params)
     }
 
-    fn call_binary_list_operation(&self, params: &Vec<Rc<dyn RTObject>>) -> Rc<dyn RTObject> {
+    fn call_binary_list_operation(&self, params: &Vec<Rc<dyn RTObject>>) -> Result<Rc<dyn RTObject>, StoryError> {
         // List-Int addition/subtraction returns a List (e.g., "alpha" + 1 = "beta")
         if (self.op == Op::Add || self.op == Op::Subtract) && 
                 Value::get_list_value(params[0].as_ref()).is_some() &&
                 Value::get_int_value(params[1].as_ref()).is_some() {
-            return self.call_list_increment_operation(params);
+            return Ok(self.call_list_increment_operation(params));
         }
 
         let v1 = params[0].clone().into_any().downcast::<Value>().unwrap();
@@ -212,13 +212,13 @@ impl NativeFunctionCall {
             
             let result = {
                 if self.op == Op::And {
-                    v1.is_truthy() && v2.is_truthy()
+                    v1.is_truthy()? && v2.is_truthy()?
                 } else {
-                    v1.is_truthy() || v2.is_truthy()
+                    v1.is_truthy()? || v2.is_truthy()?
                 }
             };
 
-            return Rc::new(Value::new_bool(result));
+            return Ok(Rc::new(Value::new_bool(result)));
         }
 
         // Normal (list • list) operation
@@ -229,13 +229,12 @@ impl NativeFunctionCall {
             return self.call_type(p);
         }
 
-        // Err(StoryError::new(format!(
-        //     "Can not call use '{}' operation on {} and {}",
-        //     self.name,
-        //     v1.value_type(),
-        //     v2.value_type()
-        // )))
-        panic!()
+        Err(StoryError::InvalidStoryState(format!(
+            "Can not call use '{}' operation on {} and {}",
+            Self::get_name(self.op), // TODO implement Display for op
+            v1,
+            v2
+        )))
     }
 
     fn call_list_increment_operation(&self, list_int_params: &Vec<Rc<dyn RTObject>>) -> Rc<Value> {
@@ -270,7 +269,7 @@ impl NativeFunctionCall {
         Rc::new(Value::new_list(result_raw_list))
     }
 
-    fn call_type(&self, coerced_params: Vec<Rc<Value>>) -> Rc<dyn RTObject> {
+    fn call_type(&self, coerced_params: Vec<Rc<Value>>) -> Result<Rc<dyn RTObject>, StoryError> {
         match self.op {
             Op::Add => self.add_op(&coerced_params),
             Op::Subtract => self.subtract_op(&coerced_params),
@@ -306,7 +305,7 @@ impl NativeFunctionCall {
         }
     }
 
-    fn coerce_values_to_single_type(&self, params: Vec<Rc<dyn RTObject>>) -> Vec<Rc<Value>> {
+    fn coerce_values_to_single_type(&self, params: Vec<Rc<dyn RTObject>>) -> Result<Vec<Rc<Value>>, StoryError> {
         let mut dest_type = 1; // Int
         let mut result: Vec<Rc<Value>> = Vec::new();
 
@@ -324,494 +323,494 @@ impl NativeFunctionCall {
 
         for obj in params.iter() {
             if let Some(v) = obj.as_ref().as_any().downcast_ref::<Value>() {                
-                match v.cast(dest_type)  {
+                match v.cast(dest_type)?  {
                     Some(casted_value) => result.push(Rc::new(casted_value)),
                     None => {
                         if let Ok(obj) = obj.clone().into_any().downcast::<Value>() {
-                            result.push(obj);
+                            result.push(obj); 
                         }
                     },
                 }
             } else {
-                panic!("RTObject of type Value expected: {}", obj.to_string())
+                return Err(StoryError::InvalidStoryState(format!("RTObject of type Value expected: {}", obj.to_string())));
             }
         }
 
-        result
+        Ok(result)
     }
 
-    fn and_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn and_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Bool(op1) => match params[1].value {
-                ValueType::Bool(op2) => Rc::new(Value::new_bool(*op1 && op2)),
-                _ => panic!()
+                ValueType::Bool(op2) => Ok(Rc::new(Value::new_bool(*op1 && op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_bool(*op1 != 0 && op2 != 0)),
-                _ => panic!()
+                ValueType::Int(op2) => Ok(Rc::new(Value::new_bool(*op1 != 0 && op2 != 0))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_bool(*op1 != 0.0 && op2 != 0.0)),
-                _ => panic!()
+                ValueType::Float(op2) => Ok(Rc::new(Value::new_bool(*op1 != 0.0 && op2 != 0.0))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::List(op1) => match &params[1].value {
-                ValueType::List(op2) => Rc::new(Value::new_bool(!op1.items.is_empty()  && !op2.items.is_empty())),
-                _ => panic!()
+                ValueType::List(op2) => Ok(Rc::new(Value::new_bool(!op1.items.is_empty()  && !op2.items.is_empty()))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn greater_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn greater_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_bool(*op1 > op2)),
-                _ => panic!()
+                ValueType::Int(op2) => Ok(Rc::new(Value::new_bool(*op1 > op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_bool(*op1 > op2)),
-                _ => panic!()
+                ValueType::Float(op2) => Ok(Rc::new(Value::new_bool(*op1 > op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::List(op1) => match &params[1].value {
-                ValueType::List(op2) => Rc::new(Value::new_bool(op1.greater_than(op2))),
-                _ => panic!()
+                ValueType::List(op2) => Ok(Rc::new(Value::new_bool(op1.greater_than(op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
 
-    fn less_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn less_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_bool(*op1 < op2)),
-                _ => panic!()
+                ValueType::Int(op2) => Ok(Rc::new(Value::new_bool(*op1 < op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_bool(*op1 < op2)),
-                _ => panic!()
+                ValueType::Float(op2) => Ok(Rc::new(Value::new_bool(*op1 < op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::List(op1) => match &params[1].value {
-                ValueType::List(op2) => Rc::new(Value::new_bool(op1.less_than(op2))),
-                _ => panic!()
+                ValueType::List(op2) => Ok(Rc::new(Value::new_bool(op1.less_than(op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn greater_than_or_equals_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn greater_than_or_equals_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_bool(*op1 >= op2)),
-                _ => panic!()
+                ValueType::Int(op2) => Ok(Rc::new(Value::new_bool(*op1 >= op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_bool(*op1 >= op2)),
-                _ => panic!()
+                ValueType::Float(op2) => Ok(Rc::new(Value::new_bool(*op1 >= op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::List(op1) => match &params[1].value {
-                ValueType::List(op2) => Rc::new(Value::new_bool(op1.greater_than_or_equals(op2))),
-                _ => panic!()
+                ValueType::List(op2) => Ok(Rc::new(Value::new_bool(op1.greater_than_or_equals(op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn less_than_or_equals_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn less_than_or_equals_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_bool(*op1 <= op2)),
-                _ => panic!()
+                ValueType::Int(op2) => Ok(Rc::new(Value::new_bool(*op1 <= op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_bool(*op1 <= op2)),
-                _ => panic!()
+                ValueType::Float(op2) => Ok(Rc::new(Value::new_bool(*op1 <= op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::List(op1) => match &params[1].value {
-                ValueType::List(op2) => Rc::new(Value::new_bool(op1.less_than_or_equals(op2))),
-                _ => panic!()
+                ValueType::List(op2) => Ok(Rc::new(Value::new_bool(op1.less_than_or_equals(op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn subtract_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn subtract_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_int(*op1 - op2)),
-                _ => panic!()
+                ValueType::Int(op2) => Ok(Rc::new(Value::new_int(*op1 - op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_float(*op1 - op2)),
-                _ => panic!()
+                ValueType::Float(op2) => Ok(Rc::new(Value::new_float(*op1 - op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::List(op1) => match &params[1].value {
-                ValueType::List(op2) => Rc::new(Value::new_list(op1.without(op2))),
-                _ => panic!()
+                ValueType::List(op2) => Ok(Rc::new(Value::new_list(op1.without(op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn add_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn add_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_int(op1 + op2)),
-                _ => panic!()
+                ValueType::Int(op2) => Ok(Rc::new(Value::new_int(op1 + op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_float(op1 + op2)),
-                _ => panic!()
+                ValueType::Float(op2) => Ok(Rc::new(Value::new_float(op1 + op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::String(op1) => match &params[1].value {
                 ValueType::String(op2) => {
                     let mut sb = String::new();
                     sb.push_str(&op1.string);
                     sb.push_str(&op2.string);
-                    Rc::new(Value::new_string(&sb))
+                    Ok(Rc::new(Value::new_string(&sb)))
                 },
-                _ => panic!()
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::List(op1) => match &params[1].value {
-                ValueType::List(op2) => Rc::new(Value::new_list(op1.union(op2))),
-                _ => panic!()
+                ValueType::List(op2) => Ok(Rc::new(Value::new_list(op1.union(op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn divide_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn divide_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match params[0].value {
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_int(op1 / op2)),
-                _ => panic!()
+                ValueType::Int(op2) => Ok(Rc::new(Value::new_int(op1 / op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_float(op1 / op2)),
-                _ => panic!()
+                ValueType::Float(op2) => Ok(Rc::new(Value::new_float(op1 / op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn pow_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn pow_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match params[0].value {
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_float((op1 as f32).powf(op2 as f32))),
-                _ => panic!()
+                ValueType::Int(op2) => Ok(Rc::new(Value::new_float((op1 as f32).powf(op2 as f32)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_float(op1.powf(op2))),
-                _ => panic!()
+                ValueType::Float(op2) => Ok(Rc::new(Value::new_float(op1.powf(op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn multiply_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn multiply_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match params[0].value {
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_int(op1 * op2)),
-                _ => panic!()
+                ValueType::Int(op2) => Ok(Rc::new(Value::new_int(op1 * op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_float(op1 * op2)),
-                _ => panic!()
+                ValueType::Float(op2) => Ok(Rc::new(Value::new_float(op1 * op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn or_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn or_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Bool(op1) => match params[1].value {
-                ValueType::Bool(op2) => Rc::new(Value::new_bool(*op1 || op2)),
-                _ => panic!()
+                ValueType::Bool(op2) => Ok(Rc::new(Value::new_bool(*op1 || op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_bool(*op1 != 0 || op2 != 0)),
-                _ => panic!()
+                ValueType::Int(op2) => Ok(Rc::new(Value::new_bool(*op1 != 0 || op2 != 0))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_bool(*op1 != 0.0 || op2 != 0.0)),
-                _ => panic!()
+                ValueType::Float(op2) => Ok(Rc::new(Value::new_bool(*op1 != 0.0 || op2 != 0.0))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::List(op1) => match &params[1].value {
-                ValueType::List(op2) => Rc::new(Value::new_bool(!op1.items.is_empty()  || !op2.items.is_empty())),
-                _ => panic!()
+                ValueType::List(op2) => Ok(Rc::new(Value::new_bool(!op1.items.is_empty()  || !op2.items.is_empty()))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn not_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn not_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
-            ValueType::Int(op1) => Rc::new(Value::new_bool(*op1 == 0)),
-            ValueType::Float(op1) => Rc::new(Value::new_bool(*op1 == 0.0)),
-            ValueType::List(op1) =>  Rc::new(Value::new_int(match op1.items.is_empty() {
+            ValueType::Int(op1) => Ok(Rc::new(Value::new_bool(*op1 == 0))),
+            ValueType::Float(op1) => Ok(Rc::new(Value::new_bool(*op1 == 0.0))),
+            ValueType::List(op1) =>   Ok(Rc::new(Value::new_int(match op1.items.is_empty() {
                 true => 1,
                 false => 0,
-            } )),
-            _ => panic!()
+            } ))),
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn min_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn min_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_int(i32::min(*op1, op2))),
-                _ => panic!()
+                ValueType::Int(op2) => Ok(Rc::new(Value::new_int(i32::min(*op1, op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_float(f32::min(*op1, op2))),
-                _ => panic!()
+                ValueType::Float(op2) => Ok(Rc::new(Value::new_float(f32::min(*op1, op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::List(l) => todo!(),
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn max_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn max_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_int(i32::max(*op1, op2))),
-                _ => panic!()
+                ValueType::Int(op2) => Ok(Rc::new(Value::new_int(i32::max(*op1, op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_float(f32::max(*op1, op2))),
-                _ => panic!()
+                ValueType::Float(op2) => Ok(Rc::new(Value::new_float(f32::max(*op1, op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::List(l) => todo!(),
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn equal_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn equal_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Bool(op1) => match params[1].value {
-                ValueType::Bool(op2) => Rc::new(Value::new_bool(*op1 == op2)),
-                _ => panic!()
+                ValueType::Bool(op2) => Ok(Rc::new(Value::new_bool(*op1 == op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_bool(*op1 == op2)),
-                _ => panic!()
+                ValueType::Int(op2) => Ok(Rc::new(Value::new_bool(*op1 == op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_bool(*op1 == op2)),
-                _ => panic!()
+                ValueType::Float(op2) => Ok(Rc::new(Value::new_bool(*op1 == op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::String(op1) => match &params[1].value {
-                ValueType::String(op2) => Rc::new(Value::new_bool(op1.string.eq(&op2.string))),
-                _ => panic!()
+                ValueType::String(op2) => Ok(Rc::new(Value::new_bool(op1.string.eq(&op2.string)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::List(op1) => match &params[1].value {
-                ValueType::List(op2) => Rc::new(Value::new_bool(op1.eq(op2))),
-                _ => panic!()
+                ValueType::List(op2) => Ok(Rc::new(Value::new_bool(op1.eq(op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::DivertTarget(op1) => match &params[1].value {
-                ValueType::DivertTarget(op2) => Rc::new(Value::new_bool(op1.eq(op2))),
-                _ => panic!()
+                ValueType::DivertTarget(op2) => Ok(Rc::new(Value::new_bool(op1.eq(op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn not_equals_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn not_equals_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Bool(op1) => match params[1].value {
-                ValueType::Bool(op2) => Rc::new(Value::new_bool(*op1 != op2)),
-                _ => panic!()
+                ValueType::Bool(op2) => Ok(Rc::new(Value::new_bool(*op1 != op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_bool(*op1 != op2)),
-                _ => panic!()
+                ValueType::Int(op2) => Ok(Rc::new(Value::new_bool(*op1 != op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_bool(*op1 != op2)),
-                _ => panic!()
+                ValueType::Float(op2) => Ok(Rc::new(Value::new_bool(*op1 != op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::String(op1) => match &params[1].value {
-                ValueType::String(op2) => Rc::new(Value::new_bool(!op1.string.eq(&op2.string))),
-                _ => panic!()
+                ValueType::String(op2) => Ok(Rc::new(Value::new_bool(!op1.string.eq(&op2.string)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::List(op1) => match &params[1].value {
-                ValueType::List(op2) => Rc::new(Value::new_bool(!op1.eq(op2))),
-                _ => panic!()
+                ValueType::List(op2) => Ok(Rc::new(Value::new_bool(!op1.eq(op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::DivertTarget(op1) => match &params[1].value {
-                ValueType::DivertTarget(op2) => Rc::new(Value::new_bool(!op1.eq(op2))),
-                _ => panic!()
+                ValueType::DivertTarget(op2) => Ok(Rc::new(Value::new_bool(!op1.eq(op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn mod_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn mod_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match params[0].value {
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => Rc::new(Value::new_int(op1 % op2)),
-                _ => panic!()
+                ValueType::Int(op2) => Ok(Rc::new(Value::new_int(op1 % op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Rc::new(Value::new_float(op1 % op2)),
-                _ => panic!()
+                ValueType::Float(op2) => Ok(Rc::new(Value::new_float(op1 % op2))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn intersect_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn intersect_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::List(op1) => match &params[1].value {
-                ValueType::List(op2) => Rc::new(Value::new_list(op1.intersect(op2))),
-                _ => panic!()
+                ValueType::List(op2) => Ok(Rc::new(Value::new_list(op1.intersect(op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn has(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
-        match &params[0].value {
-            ValueType::String(op1) => match &params[1].value {
-                ValueType::String(op2) => Rc::new(Value::new_bool(op1.string.contains(&op2.string))),
-                _ => panic!()
-            },
-            ValueType::List(op1) => match &params[1].value {
-                ValueType::List(op2) => Rc::new(Value::new_bool(op1.contains(op2))),
-                _ => panic!()
-            },
-            _ => panic!()
-        }
-    }
-
-    fn hasnt(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn has(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::String(op1) => match &params[1].value {
-                ValueType::String(op2) => Rc::new(Value::new_bool(!op1.string.contains(&op2.string))),
-                _ => panic!()
+                ValueType::String(op2) => Ok(Rc::new(Value::new_bool(op1.string.contains(&op2.string)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
             ValueType::List(op1) => match &params[1].value {
-                ValueType::List(op2) => Rc::new(Value::new_bool(!op1.contains(op2))),
-                _ => panic!()
+                ValueType::List(op2) => Ok(Rc::new(Value::new_bool(op1.contains(op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn value_of_list_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn hasnt(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
+        match &params[0].value {
+            ValueType::String(op1) => match &params[1].value {
+                ValueType::String(op2) => Ok(Rc::new(Value::new_bool(!op1.string.contains(&op2.string)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            },
+            ValueType::List(op1) => match &params[1].value {
+                ValueType::List(op2) => Ok(Rc::new(Value::new_bool(!op1.contains(op2)))),
+                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            },
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+        }
+    }
+
+    fn value_of_list_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::List(op1) => {
                 match op1.get_max_item() {
-                    Some(i) => Rc::new(Value::new_int(i.1)),
-                    None => Rc::new(Value::new_int(0)),
+                    Some(i) => Ok(Rc::new(Value::new_int(i.1))),
+                    None => Ok(Rc::new(Value::new_int(0))),
                 }
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn all_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn all_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::List(op1) => {
-                Rc::new(Value::new_list(op1.get_all()))
+                Ok(Rc::new(Value::new_list(op1.get_all())))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn inverse_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn inverse_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::List(op1) => {
-                Rc::new(Value::new_list(op1.inverse()))
+                Ok(Rc::new(Value::new_list(op1.inverse())))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn count_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn count_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::List(op1) => {
-                Rc::new(Value::new_int(op1.items.len() as i32))
+                Ok(Rc::new(Value::new_int(op1.items.len() as i32)))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn list_max_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn list_max_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::List(op1) => {
-                Rc::new(Value::new_list(op1.max_as_list()))
+                Ok(Rc::new(Value::new_list(op1.max_as_list())))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn list_min_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn list_min_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::List(op1) => {
-                Rc::new(Value::new_list(op1.min_as_list()))
+                Ok(Rc::new(Value::new_list(op1.min_as_list())))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn negate_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn negate_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => {
-                Rc::new(Value::new_int(-op1))
+                Ok(Rc::new(Value::new_int(-op1)))
             },
             ValueType::Float(op1) => {
-                Rc::new(Value::new_float(-op1))
+                Ok(Rc::new(Value::new_float(-op1)))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn floor_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn floor_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => {
-                Rc::new(Value::new_int(*op1))
+                Ok(Rc::new(Value::new_int(*op1)))
             },
             ValueType::Float(op1) => {
-                Rc::new(Value::new_float(op1.floor()))
+                Ok(Rc::new(Value::new_float(op1.floor())))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn ceiling_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn ceiling_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => {
-                Rc::new(Value::new_int(*op1))
+                Ok(Rc::new(Value::new_int(*op1)))
             },
             ValueType::Float(op1) => {
-                Rc::new(Value::new_float(op1.ceil()))
+                Ok(Rc::new(Value::new_float(op1.ceil())))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn int_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn int_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => {
-                Rc::new(Value::new_int(*op1))
+                Ok(Rc::new(Value::new_int(*op1)))
             },
             ValueType::Float(op1) => {
-                Rc::new(Value::new_int(*op1 as i32))
+                Ok(Rc::new(Value::new_int(*op1 as i32)))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 
-    fn float_op(&self, params: &[Rc<Value>]) -> Rc<dyn RTObject> {
+    fn float_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => {
-                Rc::new(Value::new_float(*op1 as f32))
+                Ok(Rc::new(Value::new_float(*op1 as f32)))
             },
             ValueType::Float(op1) => {
-                Rc::new(Value::new_float(*op1))
+                Ok(Rc::new(Value::new_float(*op1)))
             },
-            _ => panic!()
+            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
 }

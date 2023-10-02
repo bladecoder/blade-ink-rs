@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{collections::HashMap, cell::RefCell};
 
-use crate::{ink_list_item::InkListItem, list_definition::ListDefinition, list_definitions_origin::ListDefinitionsOrigin, value_type::ValueType};
+use crate::{ink_list_item::InkListItem, list_definition::ListDefinition, list_definitions_origin::ListDefinitionsOrigin, value_type::ValueType, story_error::StoryError};
 
 
 #[derive(Clone)]
@@ -28,7 +28,7 @@ impl InkList {
         l
     }
 
-    pub fn from_single_origin(single_origin: String, list_definitions: &ListDefinitionsOrigin) -> Self {
+    pub fn from_single_origin(single_origin: String, list_definitions: &ListDefinitionsOrigin) -> Result<Self, StoryError> {
         let l = Self::new();
 
         l.initial_origin_names.borrow_mut().push(single_origin);
@@ -38,13 +38,13 @@ impl InkList {
         if let Some(list_def) = def {
             l.origins.borrow_mut().push(list_def.clone());
         } else {
-            panic!(
+            return Err(StoryError::InvalidStoryState(format!(
                 "InkList origin could not be found in story when constructing new list: {}",
                 &l.initial_origin_names.borrow()[0]
-            );
+            )));
         }
 
-        l
+        Ok(l)
     }
 
     fn from_other_list(other_list: &InkList) -> Self {
