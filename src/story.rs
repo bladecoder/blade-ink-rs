@@ -573,7 +573,7 @@ impl Story {
         if current_content_obj.is_some() {
                 if let Ok(choice_point) =  current_content_obj.clone().unwrap().into_any().downcast::<ChoicePoint>() {
 
-                let choice = self.process_choice(&choice_point);
+                let choice = self.process_choice(&choice_point)?;
                 if choice.is_some() {
                     self.get_state_mut().get_generated_choices_mut().push(choice.unwrap());
                 }
@@ -767,7 +767,7 @@ impl Story {
         if let Ok(current_divert) = content_obj.clone().into_any().downcast::<Divert>() {
             if current_divert.is_conditional {
                 let o = self.get_state_mut().pop_evaluation_stack();
-                if !self.is_truthy(o) {
+                if !self.is_truthy(o)? {
                     return Ok(true);
                 }
             }
@@ -776,7 +776,7 @@ impl Story {
                 let var_name = &current_divert.variable_divert_name;
                 if let Some(var_contents) = self.get_state().get_variables_state().get_variable_with_name(var_name.as_ref().unwrap(), -1) {
                     if let Some(target) = Value::get_divert_target_value(var_contents.as_ref()) {
-                        let p = Self::pointer_at_path(&self.main_content_container, target);
+                        let p = Self::pointer_at_path(&self.main_content_container, target)?;
                         self.get_state_mut().set_diverted_pointer(p);
                     } else {
                         let error_message = format!(
@@ -797,12 +797,7 @@ impl Story {
                     return Err(StoryError::InvalidStoryState(error_message));
                     }
                 } else {
-                    // TODO
-                    // error(format!(
-                    //     "Tried to divert using a target from a variable that could not be found ({})",
-                    //     var_name
-                    // ));
-                    panic!("Tried to divert using a target from a variable that could not be found ({})", var_name.as_ref().unwrap());
+                    return Err(StoryError::InvalidStoryState(format!("Tried to divert using a target from a variable that could not be found ({})", var_name.as_ref().unwrap())));
                 }
             } else if current_divert.is_external {
                 //call_external_function(&current_divert.get_target_path_string(), current_divert.get_external_args());
@@ -899,15 +894,14 @@ impl Story {
                             expected = Some("end of flow (-> END or choice)".to_owned());
                         }
 
-                        panic!("Found {}, when expected {}", names.get(&pop_type).unwrap(), expected.unwrap());
-                        //TODO error(errorMsg);
+                        return Err(StoryError::InvalidStoryState(format!("Found {}, when expected {}", names.get(&pop_type).unwrap(), expected.unwrap())));
                     } else {
                         self.get_state_mut().pop_callstack(None);
 
                         // Does tunnel onwards override by diverting to a new ->->
                         // target?
                         if let Some(override_tunnel_return_target) = override_tunnel_return_target {
-                            let p = Self::pointer_at_path(&self.main_content_container, &override_tunnel_return_target);
+                            let p = Self::pointer_at_path(&self.main_content_container, &override_tunnel_return_target)?;
                             self.get_state_mut().set_diverted_pointer(p);
                         }
                     }                    
@@ -915,9 +909,11 @@ impl Story {
                 CommandType::BeginString => {
                     self.get_state_mut().push_to_output_stream(content_obj.clone());
 
-                    assert!(self.get_state().get_in_expression_evaluation(),
-                            "Expected to be in an expression when evaluating a string");
-                            self.get_state().set_in_expression_evaluation(false);
+                    if !self.get_state().get_in_expression_evaluation() {
+                        return Err(StoryError::InvalidStoryState("Expected to be in an expression when evaluating a string".to_owned()));
+                    }
+                    
+                    self.get_state().set_in_expression_evaluation(false);
                 },
                 CommandType::EndString => {
 
@@ -982,14 +978,14 @@ impl Story {
                 CommandType::TurnsSince |  CommandType::ReadCount => {
                     let target = self.get_state_mut().pop_evaluation_stack();
                     if Value::get_divert_target_value(target.as_ref()).is_none() {
-                        let extra_note = "";
+                        let mut extra_note = "".to_owned();
                         if Value::get_int_value(target.as_ref()).is_some() {
-                        //     extraNote = ". Did you accidentally pass a read count ('knot_name') instead of a target "
-                        //             + "('-> knot_name')?";
+                            extra_note = format!(". Did you accidentally pass a read count ('knot_name') instead of a target {}",
+                                    "('-> knot_name')?").to_owned();
                         }
-                        // error("TURNS_SINCE expected a divert target (knot, stitch, label name), but saw " + target
-                        //         + extra_note);
-                        panic!();
+
+                        return Err(StoryError::InvalidStoryState(format!("TURNS_SINCE expected a divert target (knot, stitch, label name), but saw {} {}", target
+                                , extra_note)));
                     }
 
                     let target = Value::get_divert_target_value(target.as_ref()).unwrap();
@@ -1005,7 +1001,7 @@ impl Story {
                     match container {
                         Some(container) => {
                             if eval_command.command_type == CommandType::TurnsSince {
-                                either_count = self.get_state().turns_since_for_container(container.as_ref());
+                                either_count = self.get_state().turns_since_for_container(container.as_ref())?;
                             } else {either_count = self.get_state_mut().visit_count_for_container(&container) as i32;}
                         },
                         None => {
@@ -1037,11 +1033,11 @@ impl Story {
                     }
 
                     if min_int.is_none() {
-                        panic!("Invalid value for the minimum parameter of RANDOM(min, max)");
+                        return Err(StoryError::InvalidStoryState("Invalid value for the minimum parameter of RANDOM(min, max)".to_owned()));
                     }
 
                     if max_int.is_none() {
-                        panic!("Invalid value for the maximum parameter of RANDOM(min, max)");
+                        return Err(StoryError::InvalidStoryState("Invalid value for the maximum parameter of RANDOM(min, max)".to_owned()));
                     }
 
                     let min_value = min_int.unwrap();
@@ -1050,13 +1046,10 @@ impl Story {
                     let random_range = max_value - min_value + 1;
 
                     if random_range <= 0 {
-                        // TODO
-                        // panic!(format!(
-                        //     "RANDOM was called with minimum as {} and maximum as {}. The maximum must be larger",
-                        //     min_value.to_string(), max_value.to_string()
-                        // ));
-
-                        panic!();
+                        return Err(StoryError::InvalidStoryState(format!(
+                            "RANDOM was called with minimum as {} and maximum as {}. The maximum must be larger",
+                            min_value, max_value
+                        )));
                     }
 
                     let result_seed = self.get_state().story_seed + self.get_state().previous_random;
@@ -1078,7 +1071,7 @@ impl Story {
                     if let Some(v) = Value::get_int_value(o.as_ref()) {seed = Some(v);}
 
                     if seed.is_none() {
-                        panic!("Invalid value passed to SEED_RANDOM");
+                        return Err(StoryError::InvalidStoryState("Invalid value passed to SEED_RANDOM".to_owned()));
                     }
 
                     // Story seed affects both RANDOM and shuffle behaviour
@@ -1096,7 +1089,7 @@ impl Story {
                     self.get_state_mut().push_evaluation_stack(Rc::new(Value::new_int(count as i32)));
                 },
                 CommandType::SequenceShuffleIndex => {
-                    let shuffle_index = self.next_sequence_shuffle_index();
+                    let shuffle_index = self.next_sequence_shuffle_index()?;
                     let v = Rc::new(Value::new_int(shuffle_index));
                     self.get_state_mut().push_evaluation_stack(v);
                 },
@@ -1137,7 +1130,7 @@ impl Story {
                     }
                 
                     if int_val.is_none() {
-                        panic!("Passed non-integer when creating a list element from a numerical value.");
+                        return Err(StoryError::InvalidStoryState("Passed non-integer when creating a list element from a numerical value.".to_owned()));
                     }
                 
                     let mut generated_list_value: Option<Value> = None;
@@ -1148,8 +1141,7 @@ impl Story {
                             generated_list_value = Some(Value::new_list(l));
                         }
                     } else {
-                        //panic!(format!("Failed to find List called {}", list_name_val.as_ref().unwrap()));
-                        panic!();
+                        return Err(StoryError::InvalidStoryState(format!("Failed to find List called {}", list_name_val.as_ref().unwrap())));
                     }
                 
                     if generated_list_value.is_none() {
@@ -1169,8 +1161,9 @@ impl Story {
                     p = self.get_state_mut().pop_evaluation_stack();
                     let target_list = Value::get_list_value(p.as_ref());
 
-                    if target_list.is_none() || min.is_err() || max.is_err()
-                        {panic!("Expected List, minimum and maximum for LIST_RANGE");}
+                    if target_list.is_none() || min.is_err() || max.is_err() {
+                        return Err(StoryError::InvalidStoryState("Expected List, minimum and maximum for LIST_RANGE".to_owned()));
+                    }
 
                     let result = target_list.unwrap().list_with_sub_range(&min.unwrap().value, &max.unwrap().value);
 
@@ -1180,7 +1173,9 @@ impl Story {
                     let o = self.get_state_mut().pop_evaluation_stack();
                     let list = Value::get_list_value(o.as_ref());
 
-                    if list.is_none() {panic!("Expected list for LIST_RANDOM");}
+                    if list.is_none() {
+                        return Err(StoryError::InvalidStoryState("Expected list for LIST_RANDOM".to_owned()));
+                    }
 
                     let list = list.unwrap();
 
@@ -1203,7 +1198,7 @@ impl Story {
                             let random_item = sorted[list_item_index];
 
                             // Origin list is simply the origin of the one element
-                            let mut new_list = InkList::from_single_origin(random_item.0.get_origin_name().unwrap().clone(), self.list_definitions.as_ref());
+                            let mut new_list = InkList::from_single_origin(random_item.0.get_origin_name().unwrap().clone(), self.list_definitions.as_ref())?;
                             new_list.items.insert(random_item.0.clone(), *random_item.1);
                             
                             self.get_state_mut().previous_random = next_random as i32;
@@ -1258,8 +1253,7 @@ impl Story {
                                 if command.command_type == CommandType::BeginTag {
                                     break;
                                 } else {
-                                    panic!("Unexpected ControlCommand while extracting tag from choice");
-                                    //break;
+                                    return Err(StoryError::InvalidStoryState("Unexpected ControlCommand while extracting tag from choice".to_owned()));
                                 }
                             }
 
@@ -1344,7 +1338,7 @@ impl Story {
         if let Some(func) = content_obj.as_ref().as_any().downcast_ref::<NativeFunctionCall>() {
             let func_params = self.get_state_mut().pop_evaluation_stack_multiple(func.get_number_of_parameters());
 
-            let result = func.call(func_params);
+            let result = func.call(func_params)?;
             self.get_state_mut().push_evaluation_stack(result);
 
             return Ok(true);
@@ -1510,7 +1504,7 @@ impl Story {
         self.visit_changed_containers_due_to_divert();
     }
 
-    fn is_truthy(&self, obj: Rc<dyn RTObject>) -> bool {
+    fn is_truthy(&self, obj: Rc<dyn RTObject>) -> Result<bool, StoryError> {
         let truthy = false;
 
         if let Some(val) = obj.as_ref().as_any().downcast_ref::<Value>() {
@@ -1519,22 +1513,22 @@ impl Story {
                 // self.error("Shouldn't use a divert target (to " + divTarget.getTargetPath()
                 //         + ") as a conditional value. Did you intend a function call 'likeThis()' or a read count "
                 //         + "check 'likeThis'? (no arrows)");
-                return false;
+                return Ok(false);
             }
 
             return val.is_truthy();
         }
 
-        return truthy;
+        return Ok(truthy);
     }
 
-    fn process_choice(&mut self, choice_point: &Rc<ChoicePoint>) -> Option<Rc<Choice>> {
+    fn process_choice(&mut self, choice_point: &Rc<ChoicePoint>) -> Result<Option<Rc<Choice>>, StoryError> {
         let mut show_choice = true;
 
         // Don't create choice if choice point doesn't pass conditional
         if choice_point.has_condition() {
             let condition_value = self.get_state_mut().pop_evaluation_stack();
-            if !self.is_truthy(condition_value) {
+            if !self.is_truthy(condition_value)? {
                 show_choice = false;
             }
         }
@@ -1563,14 +1557,14 @@ impl Story {
         // that we consume the content for it, since otherwise it'll
         // be shown on the output stream.
         if !show_choice {
-            return None;
+            return Ok(None);
         }
 
         start_text.push_str(&choice_only_text);
 
         let choice = Rc::new(Choice::new(choice_point.get_path_on_choice(), Object::get_path(choice_point.as_ref()).to_string(), choice_point.is_invisible_default(), tags, self.get_state().get_callstack().borrow_mut().fork_thread(), start_text.trim().to_string(), 0, 0));
 
-        Some(choice)
+        Ok(Some(choice))
     }
 
     fn pop_choice_string_and_tags(&mut self, tags: &mut Vec<String>) -> String {
@@ -1585,9 +1579,9 @@ impl Story {
         return choice_only_str_val.string.to_string();
     }
 
-    pub fn pointer_at_path(main_content_container: &Rc<Container>, path: &Path) -> Pointer {
+    pub fn pointer_at_path(main_content_container: &Rc<Container>, path: &Path) -> Result<Pointer, StoryError> {
         if path.len() == 0 {
-            return pointer::NULL.clone();
+            return Ok(pointer::NULL.clone());
         }
     
         let mut p = Pointer::default();
@@ -1613,11 +1607,10 @@ impl Story {
         let main_container: Rc<dyn RTObject> = main_content_container.clone();
     
         if Rc::ptr_eq(&result.obj, &main_container) && path_length_to_use > 0 {
-            // self.error(format!(
-            //     "Failed to find content at path '{}', and no approximation of it was possible.",
-            //     path
-            // ));
-            panic!()
+            return Err(StoryError::InvalidStoryState(format!(
+                "Failed to find content at path '{}', and no approximation of it was possible.",
+                path
+            )));
         } else if result.approximate {
             // warning(format!(
             //     "Failed to find content at path '{}', so it was approximated to: '{}'.",
@@ -1626,7 +1619,7 @@ impl Story {
             // ));
         }
     
-        p
+        Ok(p)
     }
 
     fn visit_changed_containers_due_to_divert(&mut self) {
@@ -1751,12 +1744,12 @@ impl Story {
         named_container.cloned()
     }
 
-    fn next_sequence_shuffle_index(&mut self) -> i32 {
+    fn next_sequence_shuffle_index(&mut self) -> Result<i32, StoryError> {
         let pop_evaluation_stack = self.get_state_mut().pop_evaluation_stack();
         let num_elements = if let Some(v) = Value::get_int_value(pop_evaluation_stack.as_ref()) {
             v
         } else {
-            panic!("Expected number of elements in sequence for shuffle index");
+            return Err(StoryError::InvalidStoryState("Expected number of elements in sequence for shuffle index".to_owned()));
         };
     
         let seq_container = self.get_state().get_current_pointer().container.unwrap();
@@ -1764,7 +1757,7 @@ impl Story {
         let seq_count = if let Some(v) = Value::get_int_value(pop_evaluation_stack.as_ref()) {
             v
         } else {
-            panic!("Expected sequence count value for shuffle index");
+            return Err(StoryError::InvalidStoryState("Expected sequence count value for shuffle index".to_owned()));
         };
     
         let loop_index = seq_count / num_elements;
@@ -1788,11 +1781,11 @@ impl Story {
             unpicked_indices.retain(|&x| x != chosen_index);
     
             if i == iteration_index {
-                return chosen_index;
+                return Ok(chosen_index);
             }
         }
     
-        panic!("Should never reach here");
+        return Err(StoryError::InvalidStoryState("Should never reach here".to_owned()));
     }
 
     pub fn get_global_tags(&self) -> Result<Vec<String>, StoryError> {
@@ -1894,20 +1887,24 @@ impl Story {
         self.get_state_mut().force_end();
     }
 
-    pub fn switch_flow(&mut self, flow_name: &str) {
+    pub fn switch_flow(&mut self, flow_name: &str) -> Result<(), StoryError> {
         self.if_async_we_cant("switch flow");
 
         if self.async_saving {
-            panic!("Story is already in background saving mode, can't switch flow to {}", flow_name);
+            return Err(StoryError::InvalidStoryState(format!("Story is already in background saving mode, can't switch flow to {}", flow_name)));
         }
 
         self.get_state_mut().switch_flow_internal(flow_name);
+
+        Ok(())
     }
 
-    fn if_async_we_cant(&self, activity_str: &str) {
+    fn if_async_we_cant(&self, activity_str: &str) -> Result<(), StoryError> {
         if self.async_continue_active {
-            panic!("Can't {}. Story is in the middle of a ContinueAsync(). Make more continue_async() calls or a single cont() call beforehand.", activity_str);
+            return Err(StoryError::InvalidStoryState(format!("Can't {}. Story is in the middle of a ContinueAsync(). Make more continue_async() calls or a single cont() call beforehand.", activity_str)));
         }
+
+        Ok(())
     }
 
     pub fn remove_flow(&mut self, flow_name: &str) {

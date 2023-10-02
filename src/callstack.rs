@@ -2,7 +2,7 @@ use std::{collections::HashMap, rc::Rc};
 
 use serde_json::{Map, json};
 
-use crate::{pointer::{Pointer, self}, push_pop::PushPopType, container::{Container, self}, value::Value, object::Object, json_read, json_write_state, path::Path, story::Story, story_error::StoryError};
+use crate::{pointer::{Pointer, self}, push_pop::PushPopType, container::{Container, self}, value::Value, object::Object, json_read, json_write, path::Path, story::Story, story_error::StoryError};
 
 pub struct Element {
     pub current_pointer: Pointer,
@@ -59,7 +59,7 @@ impl Thread {
 
             for j_el_tok in j_thread_callstack.iter() {
                 if let Some(j_element_obj) = j_el_tok.as_object() {
-                    let push_pop_type = PushPopType::from_value(j_element_obj.get("type").and_then(|t| t.as_i64()).ok_or(StoryError::BadJson("Invalid push/pop type".to_owned()))? as usize);
+                    let push_pop_type = PushPopType::from_value(j_element_obj.get("type").and_then(|t| t.as_i64()).ok_or(StoryError::BadJson("Invalid push/pop type".to_owned()))? as usize)?;
 
                     let mut pointer = pointer::NULL.clone();
 
@@ -98,7 +98,7 @@ impl Thread {
 
         if let Some(prev_content_obj_path) = j_obj.get("previousContentObject").and_then(|p| p.as_str()) {
             let prev_path = Path::new_with_components_string(Some(prev_content_obj_path));
-            thread.previous_pointer = Story::pointer_at_path(main_content_container, &prev_path);
+            thread.previous_pointer = Story::pointer_at_path(main_content_container, &prev_path)?;
         }
 
         Ok(thread)
@@ -117,7 +117,7 @@ impl Thread {
         copy
     }
 
-    pub(crate) fn write_json(&self) -> serde_json::Value {
+    pub(crate) fn write_json(&self) -> Result<serde_json::Value, StoryError> {
         let mut thread: Map<String, serde_json::Value> = Map::new();
 
         let mut cs_array: Vec<serde_json::Value> = Vec::new();
@@ -133,7 +133,7 @@ impl Thread {
             el_map.insert("type".to_owned(), json!(el.push_pop_type as u32));
 
             if el.temporary_variables.len() > 0 {
-                el_map.insert("temp".to_owned(), json_write_state::write_dictionary_values(&el.temporary_variables));
+                el_map.insert("temp".to_owned(), json_write::write_dictionary_values(&el.temporary_variables)?);
             }
 
             cs_array.push(serde_json::Value::Object(el_map));
@@ -146,7 +146,7 @@ impl Thread {
             thread.insert("previousContentObject".to_owned(), json!(Object::get_path(self.previous_pointer.resolve().unwrap().as_ref()).to_string()));
         }
 
-        serde_json::Value::Object(thread)
+        Ok(serde_json::Value::Object(thread))
     }
 }
 
@@ -239,14 +239,15 @@ impl CallStack {
         self.get_current_element().push_pop_type == t.unwrap()
     }
 
-    pub fn pop(&mut self, t: Option<PushPopType>) {
+    pub fn pop(&mut self, t: Option<PushPopType>) -> Result<(), StoryError> {
         if self.can_pop_type(t) {
             let l = self.get_callstack().len() - 1;
             self.get_callstack_mut().remove(l);
-            return;
         } else {
-            panic!("Mismatched push/pop in Callstack");
+            return Err(StoryError::InvalidStoryState("Mismatched push/pop in Callstack".to_owned()));
         }
+
+        Ok(())
     }
 
     pub fn element_is_evaluate_from_game(&self) -> bool {
@@ -353,19 +354,19 @@ impl CallStack {
         self.get_callstack_mut().push(element);
     }
 
-    pub(crate) fn write_json(&self) -> serde_json::Value {
+    pub(crate) fn write_json(&self) -> Result<serde_json::Value, StoryError> {
         let mut cs: Map<String, serde_json::Value> = Map::new();
 
         let mut treads_array: Vec<serde_json::Value> = Vec::new();
 
         for thread in &self.threads {
-            treads_array.push(thread.write_json());
+            treads_array.push(thread.write_json()?);
         }
 
         cs.insert("threads".to_owned(), serde_json::Value::Array(treads_array));
         cs.insert("threadCounter".to_owned(), json!(self.thread_counter));
 
-        serde_json::Value::Object(cs)
+        Ok(serde_json::Value::Object(cs))
     }
 
     pub fn get_thread_with_index(&self, index: usize) -> Option<&Thread> {

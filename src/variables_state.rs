@@ -2,7 +2,7 @@ use std::{collections::{HashMap, HashSet}, rc::Rc, cell::RefCell};
 
 use serde_json::Map;
 
-use crate::{callstack::CallStack, state_patch::StatePatch, variable_assigment::VariableAssignment, value::Value, list_definitions_origin::ListDefinitionsOrigin, value_type::{VariablePointerValue, ValueType}, json_write_state, json_read, story_error::StoryError};
+use crate::{callstack::CallStack, state_patch::StatePatch, variable_assigment::VariableAssignment, value::Value, list_definitions_origin::ListDefinitionsOrigin, value_type::{VariablePointerValue, ValueType}, json_write, json_read, story_error::StoryError};
 
 
 #[derive(Clone)]
@@ -295,7 +295,7 @@ impl VariablesState {
         self.callstack = callstack;
     } 
 
-    pub(crate) fn write_json(&self) -> serde_json::Value {
+    pub(crate) fn write_json(&self) -> Result<serde_json::Value, StoryError> {
         let mut jobj: Map<String, serde_json::Value> = Map::new();
 
         for (name, val) in self.global_variables.iter() {
@@ -306,10 +306,10 @@ impl VariablesState {
                 if self.val_equal(val, default_val) {continue;}
             }
 
-            jobj.insert(name.clone(), json_write_state::write_rtobject(val.clone()));
+            jobj.insert(name.clone(), json_write::write_rtobject(val.clone())?);
         }
 
-        serde_json::Value::Object(jobj)
+        Ok(serde_json::Value::Object(jobj))
     }
 
     fn val_equal(&self, val: &Value, default_val: &Value) -> bool {

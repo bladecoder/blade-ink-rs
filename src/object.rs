@@ -98,7 +98,7 @@ impl Object {
                 p = path.get_tail();
             };
 
-            return nearest_container.unwrap().content_at_path(&p, 0, -1);
+            nearest_container.unwrap().content_at_path(&p, 0, -1)
     
         } else {
             Object::get_root_container(rtobject).content_at_path(path, 0, -1)
@@ -114,7 +114,7 @@ impl Object {
         let mut last_shared_path_comp_index:i32 = -1;
 
         for i in 0..min_path_length {
-            let own_comp = &own_path.as_ref().unwrap().get_component(i as usize);
+            let own_comp = &own_path.as_ref().unwrap().get_component(i);
             let other_comp = &global_path.get_component(i);
 
             if own_comp == other_comp {
@@ -172,8 +172,14 @@ impl Object {
 
         match ancestor.into_any().downcast::<Container>() {
             Ok(c) => c.clone(),
-            _ => panic!("Impossible")
+            _ => panic!() // Not possible
         }
+    }
+}
+
+impl Default for Object {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -213,7 +219,7 @@ impl RTObject for Null {
 
 impl fmt::Display for Null {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "**Null**")
+        write!(f, "Null")
     }
 }
 

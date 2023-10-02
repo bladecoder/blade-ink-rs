@@ -2,7 +2,7 @@
 
 use std::{rc::Rc, cell::RefCell, collections::HashMap};
 
-use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::{RTObject, Object}, value::Value, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch, story::{Story, INK_VERSION_CURRENT}, path::Path, void::Void, tag::Tag, list_definitions_origin::ListDefinitionsOrigin, value_type::ValueType, json_write_state, json_read, story_error::StoryError};
+use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::{RTObject, Object}, value::Value, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch, story::{Story, INK_VERSION_CURRENT}, path::Path, void::Void, tag::Tag, list_definitions_origin::ListDefinitionsOrigin, value_type::ValueType, json_write, json_read, story_error::StoryError};
 
 use rand::Rng;
 use serde_json::{json, Map};
@@ -299,10 +299,6 @@ impl StoryState {
     }
 
     pub fn set_current_pointer(&self, pointer: Pointer) {
-        if !pointer.container.is_none() && pointer.index >= pointer.container.as_ref().unwrap().content.len() as i32 {
-            panic!()
-        }
-
         self.get_callstack().as_ref().borrow_mut().get_current_element_mut().current_pointer = pointer;
     }
 
@@ -816,11 +812,11 @@ impl StoryState {
         self.diverted_pointer = p;
     }
 
-    pub fn set_chosen_path(&mut self, path: &Path, incrementing_turn_index: bool) {
+    pub fn set_chosen_path(&mut self, path: &Path, incrementing_turn_index: bool) -> Result<(), StoryError> {
         // Changing direction, assume we need to clear current set of choices
         self.current_flow.current_choices.clear();
 
-        let mut new_pointer = Story::pointer_at_path(&self.main_content_container, &path);
+        let mut new_pointer = Story::pointer_at_path(&self.main_content_container, &path)?;
         if !new_pointer.is_null() && new_pointer.index == -1 {
             new_pointer.index = 0;
         }
@@ -830,6 +826,8 @@ impl StoryState {
         if incrementing_turn_index {
             self.current_turn_index += 1;
         }
+
+        Ok(())
     }
 
     pub(crate) fn force_end(&mut self) {
@@ -966,27 +964,25 @@ impl StoryState {
         Ok(None)    
     }
 
-    pub(crate) fn turns_since_for_container(&self, container: &Container) -> i32 {
+    pub(crate) fn turns_since_for_container(&self, container: &Container) -> Result<i32, StoryError> {
         if !container.turn_index_should_be_counted {
-            // story.error("TURNS_SINCE() for target (" + container.getName() + " - on " + container.getDebugMetadata()
-            //         + ") unknown.");
-            panic!()
+            return Err(StoryError::InvalidStoryState(format!("TURNS_SINCE() for target ({}) unknown.", container.name.as_ref().unwrap())));
         }
 
         let mut index = 0;
 
         if self.patch.is_some() && self.patch.as_ref().unwrap().get_turn_index(container).is_some() {
             index = *self.patch.as_ref().unwrap().get_turn_index(container).unwrap() as i32;
-            return self.current_turn_index - index;
+            return Ok(self.current_turn_index - index);
         }
 
         let container_path_str = Object::get_path(container).to_string();
 
         if self.turn_indices.contains_key(&container_path_str) {
             index = *self.turn_indices.get(&container_path_str).unwrap() as i32;
-            self.current_turn_index - index
+            Ok(self.current_turn_index - index)
         } else {
-            -1
+            Ok(-1)
         }    
     }
 
@@ -1022,25 +1018,25 @@ impl StoryState {
         self.output_stream_dirty();
     }
 
-    pub fn visit_count_at_path_string(&self, path_string: &str) -> i32 {
+    pub fn visit_count_at_path_string(&self, path_string: &str) -> Result<i32, StoryError> {
         let mut visit_count_out = None;
 
         if self.patch.is_some() {
             let container = self.main_content_container.content_at_path(&Path::new_with_components_string(Some(path_string)), 0, -1).container();
-            if container.is_none() { panic!("Content at path not found: {}", path_string);}
+            if container.is_none() { return Err(StoryError::InvalidStoryState(format!("Content at path not found: {}", path_string)));}
 
             visit_count_out = self.patch.as_ref().unwrap().get_visit_count(container.as_ref().unwrap());
-            if let Some(visit_count_out) = visit_count_out {return visit_count_out;}
+            if let Some(visit_count_out) = visit_count_out {return Ok(visit_count_out);}
         }
 
         visit_count_out = self.visit_counts.get(path_string).copied();
-        if let Some(visit_count_out) = visit_count_out {return visit_count_out;}
+        if let Some(visit_count_out) = visit_count_out {return Ok(visit_count_out);}
 
-        0
+        Ok(0)
     }
 
-    pub fn to_json(&self) -> String {
-        self.write_json().to_string()
+    pub fn to_json(&self) -> Result<String, StoryError> {
+        Ok(self.write_json()?.to_string())
     }
 
     pub fn load_json(&mut self, save_string: &str) -> Result<(), StoryError> {
@@ -1050,19 +1046,19 @@ impl StoryState {
         }
     }
 
-    fn write_json(&self) -> serde_json::Value {
+    fn write_json(&self) -> Result<serde_json::Value, StoryError> {
         let mut obj: Map<String, serde_json::Value> = Map::new();
 
         // Flows
         let mut flows: Map<String, serde_json::Value> = Map::new();
 
         // current flow
-        flows.insert(self.current_flow.name.clone(), self.current_flow.write_json());
+        flows.insert(self.current_flow.name.clone(), self.current_flow.write_json()?);
 
         // named flows
         if let Some(named_flows) = &self.named_flows {
             for (k,v) in named_flows {
-                flows.insert(k.clone(), v.write_json());
+                flows.insert(k.clone(), v.write_json()?);
             }
         }
 
@@ -1070,15 +1066,15 @@ impl StoryState {
 
 
         obj.insert("currentFlowName".to_owned(), json!(self.current_flow.name));
-        obj.insert("variablesState".to_owned(), self.variables_state.write_json());
-        obj.insert("evalStack".to_owned(), json_write_state::write_list_rt_objs(&self.evaluation_stack));
+        obj.insert("variablesState".to_owned(), self.variables_state.write_json()?);
+        obj.insert("evalStack".to_owned(), json_write::write_list_rt_objs(&self.evaluation_stack)?);
 
         if !self.diverted_pointer.is_null() {
             obj.insert("currentDivertTarget".to_owned(), json!(self.diverted_pointer.get_path().unwrap().get_components_string()));
         }
         
-        obj.insert("visitCounts".to_owned(), json_write_state::write_int_dictionary(&self.visit_counts));
-        obj.insert("turnIndices".to_owned(), json_write_state::write_int_dictionary(&self.turn_indices));
+        obj.insert("visitCounts".to_owned(), json_write::write_int_dictionary(&self.visit_counts));
+        obj.insert("turnIndices".to_owned(), json_write::write_int_dictionary(&self.turn_indices));
 
         obj.insert("turnIdx".to_owned(), json!(self.current_turn_index));
         obj.insert("storySeed".to_owned(), json!(self.story_seed));
@@ -1089,7 +1085,7 @@ impl StoryState {
         // Not using this right now, but could do in future.
         obj.insert("inkFormatVersion".to_owned(), json!(INK_VERSION_CURRENT));
 
-        serde_json::Value::Object(obj)
+        Ok(serde_json::Value::Object(obj))
     }
 
     fn load_json_obj(&mut self, j_object: serde_json::Value) -> Result<(), StoryError> {
@@ -1192,7 +1188,7 @@ impl StoryState {
 
         if let Some(current_divert_target_path) = j_object.get("currentDivertTarget") {
             let divert_path = Path::new_with_components_string(current_divert_target_path.as_str());
-            self.diverted_pointer = Story::pointer_at_path(&self.main_content_container, &divert_path).clone();
+            self.diverted_pointer = Story::pointer_at_path(&self.main_content_container, &divert_path)?.clone();
         }
 
         if let Some(visit_counts_obj) = j_object.get("visitCounts") {

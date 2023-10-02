@@ -125,8 +125,8 @@ fn read_visit_counts_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
-    assert_eq!(4, story.get_state().visit_count_at_path_string("two.s2"));
-    assert_eq!(5, story.get_state().visit_count_at_path_string("two"));
+    assert_eq!(4, story.get_state().visit_count_at_path_string("two.s2")?);
+    assert_eq!(5, story.get_state().visit_count_at_path_string("two")?);
 
     Ok(())
 }
@@ -143,7 +143,7 @@ fn load_save_test() -> Result<(), StoryError>  {
     assert_eq!("We arrived into London at 9.45pm exactly.", text.get(0).unwrap());
 
     // save the game state
-    let save_string = story.get_state().to_json();
+    let save_string = story.get_state().to_json()?;
 
     println!("{}", save_string);
 

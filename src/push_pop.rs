@@ -1,3 +1,5 @@
+use crate::story_error::StoryError;
+
 #[derive(PartialEq, Clone, Copy, Eq, Hash, Debug)]
 pub enum PushPopType {
     Tunnel,
@@ -6,12 +8,12 @@ pub enum PushPopType {
 }
 
 impl PushPopType {
-    pub(crate) fn from_value(value: usize) -> PushPopType {
+    pub(crate) fn from_value(value: usize) -> Result<PushPopType, StoryError> {
         match value {
-            0 => PushPopType::Tunnel,
-            1 => PushPopType::Function,
-            2 => PushPopType::FunctionEvaluationFromGame,
-            _ => panic!("Unexpected PushPopType value")
+            0 => Ok(PushPopType::Tunnel),
+            1 => Ok(PushPopType::Function),
+            2 => Ok(PushPopType::FunctionEvaluationFromGame),
+            _ => Err(StoryError::BadJson("Unexpected PushPopType value".to_owned()))
         }
     }
 }
