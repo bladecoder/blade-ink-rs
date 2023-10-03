@@ -24,13 +24,14 @@ Currently under development. This is the implementation status:
 
 ## TODO
 
-- [ ] Error handling
-- [ ] story.state -> quitar el Option y que guardar/salvar sea pub(crate).
-- [ ] Variable observers.
-- [ ] Optimize control command getname. Use static string array and address it by order.
+- [ ] VariablesState.default_global_variables shouldn't be optionals.
+- [ ] Optimize control command and Ops getname. Use static string array and address it by order.
 - [ ] Cache components string in Path
+- [ ] Variable observers.
+- [ ] Doc
+
+- [ ] story.state -> quitar el pub de get_state()/mut y que guardar/salvar sea pub(crate). Crear fichero con pub methods??
 - [ ] Use OnceCell to lazy init the cache fields of RTObjects
 - [ ] Split large files. ex. Get the error handling out of the Story class. The performLogic 
-- [ ] Story.state y VariablesState.default_global_variables shouldn't be optionals.
-- [ ] Review all the .unwrap() and change it by .ok_or("xxx"). We need to avoid panics!
+- [ ] Review all the use bink) and change it by .ok_or("xxx"). We need to avoid panics!
 

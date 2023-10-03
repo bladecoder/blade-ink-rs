@@ -1,11 +1,11 @@
-use bladeink::{story::Story, value_type::ValueType, story_error::StoryError};
+use bink::{story::Story, value_type::ValueType, story_error::StoryError};
 
 mod common;
 
 #[test]
 fn operations_test() -> Result<(), StoryError>  {
     let json_string =
-        common::get_json_string("examples/inkfiles/misc/operations.ink.json").unwrap();
+        common::get_json_string("tests/data/misc/operations.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
 
     assert_eq!("neg:-3\nmod:1\npow:27\nfloor:3\nceiling:4\nint:3\nfloat:1\n", &story.continue_maximally()?);
@@ -16,7 +16,7 @@ fn operations_test() -> Result<(), StoryError>  {
 #[test]
 fn read_counts_test() -> Result<(), StoryError>  {
     let json_string =
-        common::get_json_string("examples/inkfiles/misc/read-counts.ink.json").unwrap();
+        common::get_json_string("tests/data/misc/read-counts.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
 
     assert_eq!("Count start: 0 0 0\n1\n2\n3\nCount end: 3 3 3\n", &story.continue_maximally()?);
@@ -27,7 +27,7 @@ fn read_counts_test() -> Result<(), StoryError>  {
 #[test]
 fn turns_since_test() -> Result<(), StoryError>  {
     let json_string =
-        common::get_json_string("examples/inkfiles/misc/turns-since.ink.json").unwrap();
+        common::get_json_string("tests/data/misc/turns-since.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
 
     assert_eq!("0\n0\n", &story.continue_maximally()?);
@@ -43,7 +43,7 @@ fn turns_since_test() -> Result<(), StoryError>  {
 #[test]
 fn issue15_test() -> Result<(), StoryError>  {
     let json_string =
-    common::get_json_string("examples/inkfiles/misc/issue15.ink.json").unwrap();
+    common::get_json_string("tests/data/misc/issue15.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
 
     assert_eq!("This is a test\n", story.cont()?);

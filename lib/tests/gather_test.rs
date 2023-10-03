@@ -1,11 +1,11 @@
-use bladeink::{story::Story, story_error::StoryError};
+use bink::{story::Story, story_error::StoryError};
 
 mod common;
 
 #[test]
 fn gather_basic_test() -> Result<(), StoryError>  {
     let json_string =
-        common::get_json_string("examples/inkfiles/gather/gather-basic.ink.json").unwrap();
+        common::get_json_string("tests/data/gather/gather-basic.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
     let mut text: Vec<String> = Vec::new();
 
@@ -26,7 +26,7 @@ fn gather_basic_test() -> Result<(), StoryError>  {
 #[test]
 fn gather_chain_test() -> Result<(), StoryError>  {
     let json_string =
-        common::get_json_string("examples/inkfiles/gather/gather-chain.ink.json").unwrap();
+        common::get_json_string("tests/data/gather/gather-chain.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
     let mut text: Vec<String> = Vec::new();
 
@@ -54,7 +54,7 @@ fn gather_chain_test() -> Result<(), StoryError>  {
 #[test]
 fn nested_flow_test() -> Result<(), StoryError>  {
     let json_string =
-        common::get_json_string("examples/inkfiles/gather/nested-flow.ink.json").unwrap();
+        common::get_json_string("tests/data/gather/nested-flow.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
     let mut text: Vec<String> = Vec::new();
 
@@ -77,7 +77,7 @@ fn nested_flow_test() -> Result<(), StoryError>  {
 #[test]
 fn deep_nesting_test() -> Result<(), StoryError>  {
     let json_string =
-        common::get_json_string("examples/inkfiles/gather/deep-nesting.ink.json").unwrap();
+        common::get_json_string("tests/data/gather/deep-nesting.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
     let mut text: Vec<String> = Vec::new();
 
@@ -113,7 +113,7 @@ fn deep_nesting_test() -> Result<(), StoryError>  {
 #[test]
 fn complex_flow1_test() -> Result<(), StoryError>  {
     let json_string =
-        common::get_json_string("examples/inkfiles/gather/complex-flow.ink.json").unwrap();
+        common::get_json_string("tests/data/gather/complex-flow.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
     let mut text: Vec<String> = Vec::new();
 
@@ -131,7 +131,7 @@ fn complex_flow1_test() -> Result<(), StoryError>  {
 #[test]
 fn complex_flow2_test() -> Result<(), StoryError>  {
     let json_string =
-        common::get_json_string("examples/inkfiles/gather/complex-flow.ink.json").unwrap();
+        common::get_json_string("tests/data/gather/complex-flow.ink.json").unwrap();
     let mut story = Story::new(&json_string).unwrap();
     let mut text: Vec<String> = Vec::new();
 

@@ -1,0 +1,13 @@
+[package]
+name = "binkplayer"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "binkplayer"
+path = "src/cli_player.rs"
+
+[dependencies]
+bink = { "version" = "0.1.0", path = "../lib" }
+
+
