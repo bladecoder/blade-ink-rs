@@ -1,0 +1,12 @@
+[package]
+name = "binkc"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "binkc"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+bink = { "version" = "0.1.0", path = "../lib" }

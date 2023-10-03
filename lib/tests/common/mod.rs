@@ -1,6 +1,6 @@
 use std::{error::Error, path::Path, fs};
 
-use bladeink::{story::Story, story_error::StoryError};
+use bink::{story::Story, story_error::StoryError};
 use rand::Rng;
 
 pub fn next_all(story: &mut Story, text: &mut Vec<String>) -> Result<(), StoryError> {
