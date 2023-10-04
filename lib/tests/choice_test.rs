@@ -191,7 +191,7 @@ fn fallback_choice2_test() -> Result<(), StoryError>  {
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
-    assert_eq!(true, common::is_ended(&story));
+    assert!(common::is_ended(&story));
 
     Ok(())
 }

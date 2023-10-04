@@ -325,7 +325,6 @@ impl StoryState {
             }
         }
     
-        println!("PUSH: {}", obj.as_ref());
         self.evaluation_stack.push(obj);
     }
 
