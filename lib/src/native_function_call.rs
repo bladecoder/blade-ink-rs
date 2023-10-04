@@ -43,6 +43,38 @@ pub enum Op {
     Invert,
 }
 
+const ADD_NAME: &str = "+";
+const SUBTRACT_NAME: &str = "-";
+const DIVIDE_NAME: &str = "/";
+const MULTIPLY_NAME: &str = "*";
+const MOD_NAME: &str = "%";
+const NEGATE_NAME: &str = "_";
+const EQUAL_NAME: &str = "==";
+const GREATER_NAME: &str = ">";
+const LESS_NAME: &str = "<";
+const GREATER_THAN_OR_EQUALS_NAME: &str = ">=";
+const LESS_THAN_OR_EQUALS_NAME: &str = "<=";
+const NOT_EQUALS_NAME: &str = "!=";
+const NOT_NAME: &str = "!";
+const AND_NAME: &str = "&&";
+const OR_NAME: &str = "||";
+const MIN_NAME: &str = "MIN";
+const MAX_NAME: &str = "MAX";
+const POW_NAME: &str = "POW";
+const FLOOR_NAME: &str = "FLOOR";
+const CEILING_NAME: &str = "CEILING";
+const INT_NAME: &str = "INT";
+const FLOAT_NAME: &str = "FLOAT";
+const HAS_NAME: &str = "?";
+const HASNT_NAME: &str = "!?";
+const INTERSECT_NAME: &str = "^";
+const LIST_MIN_NAME: &str = "LIST_MIN";
+const LIST_MAX_NAME: &str = "LIST_MAX";
+const LIST_ALL_NAME: &str = "LIST_ALL";
+const LIST_COUNT_NAME: &str = "LIST_COUNT";
+const LIST_VALUE_NAME: &str = "LIST_VALUE";
+const LIST_INVERT_NAME: &str = "LIST_INVERT";
+
 pub struct NativeFunctionCall {
     obj: Object,
     pub op: Op,
@@ -58,74 +90,74 @@ impl NativeFunctionCall {
 
     pub fn new_from_name(name: &str) -> Option<Self> {
         match name {
-            "+" => Some(Self::new(Op::Add)),
-            "-" => Some(Self::new(Op::Subtract)),
-            "/" => Some(Self::new(Op::Divide)),
-            "*" => Some(Self::new(Op::Multiply)),
-            "%" => Some(Self::new(Op::Mod)),
-            "_" => Some(Self::new(Op::Negate)),
-            "==" => Some(Self::new(Op::Equal)),
-            ">" => Some(Self::new(Op::Greater)),
-            "<" => Some(Self::new(Op::Less)),
-            ">=" => Some(Self::new(Op::GreaterThanOrEquals)),
-            "<=" => Some(Self::new(Op::LessThanOrEquals)),
-            "!=" => Some(Self::new(Op::NotEquals)),
-            "!" => Some(Self::new(Op::Not)),
-            "&&" => Some(Self::new(Op::And)),
-            "||" => Some(Self::new(Op::Or)),
-            "MIN" => Some(Self::new(Op::Min)),
-            "MAX" => Some(Self::new(Op::Max)),
-            "POW" => Some(Self::new(Op::Pow)),
-            "FLOOR" => Some(Self::new(Op::Floor)),
-            "CEILING" => Some(Self::new(Op::Ceiling)),
-            "INT" => Some(Self::new(Op::Int)),
-            "FLOAT" => Some(Self::new(Op::Float)),
-            "?" => Some(Self::new(Op::Has)),
-            "!?" => Some(Self::new(Op::Hasnt,)),
-            "^" => Some(Self::new(Op::Intersect)),
-            "LIST_MIN" => Some(Self::new(Op::ListMin)),
-            "LIST_MAX" => Some(Self::new(Op::ListMax)),
-            "LIST_ALL" => Some(Self::new(Op::All)),
-            "LIST_COUNT" => Some(Self::new(Op::Count)),
-            "LIST_VALUE" => Some(Self::new(Op::ValueOfList)),
-            "LIST_INVERT" => Some(Self::new(Op::Invert)),
+            ADD_NAME => Some(Self::new(Op::Add)),
+            SUBTRACT_NAME => Some(Self::new(Op::Subtract)),
+            DIVIDE_NAME => Some(Self::new(Op::Divide)),
+            MULTIPLY_NAME => Some(Self::new(Op::Multiply)),
+            MOD_NAME => Some(Self::new(Op::Mod)),
+            NEGATE_NAME => Some(Self::new(Op::Negate)),
+            EQUAL_NAME => Some(Self::new(Op::Equal)),
+            GREATER_NAME => Some(Self::new(Op::Greater)),
+            LESS_NAME => Some(Self::new(Op::Less)),
+            GREATER_THAN_OR_EQUALS_NAME => Some(Self::new(Op::GreaterThanOrEquals)),
+            LESS_THAN_OR_EQUALS_NAME => Some(Self::new(Op::LessThanOrEquals)),
+            NOT_EQUALS_NAME => Some(Self::new(Op::NotEquals)),
+            NOT_NAME => Some(Self::new(Op::Not)),
+            AND_NAME => Some(Self::new(Op::And)),
+            OR_NAME => Some(Self::new(Op::Or)),
+            MIN_NAME => Some(Self::new(Op::Min)),
+            MAX_NAME => Some(Self::new(Op::Max)),
+            POW_NAME => Some(Self::new(Op::Pow)),
+            FLOOR_NAME => Some(Self::new(Op::Floor)),
+            CEILING_NAME => Some(Self::new(Op::Ceiling)),
+            INT_NAME => Some(Self::new(Op::Int)),
+            FLOAT_NAME => Some(Self::new(Op::Float)),
+            HAS_NAME => Some(Self::new(Op::Has)),
+            HASNT_NAME => Some(Self::new(Op::Hasnt)),
+            INTERSECT_NAME => Some(Self::new(Op::Intersect)),
+            LIST_MIN_NAME => Some(Self::new(Op::ListMin)),
+            LIST_MAX_NAME => Some(Self::new(Op::ListMax)),
+            LIST_ALL_NAME => Some(Self::new(Op::All)),
+            LIST_COUNT_NAME => Some(Self::new(Op::Count)),
+            LIST_VALUE_NAME => Some(Self::new(Op::ValueOfList)),
+            LIST_INVERT_NAME => Some(Self::new(Op::Invert)),
             _ => None,
         }
     }
 
     pub fn get_name(op: Op) -> String {
         match op {
-            Op::Add => "+".to_owned(),
-            Op::Subtract => "-".to_owned(),
-            Op::Divide =>  "/".to_owned(),
-            Op::Multiply => "*".to_owned(),
-            Op::Mod => "%".to_owned(),
-            Op::Negate => "_".to_owned(),
-            Op::Equal => "==".to_owned(),
-            Op::Greater => ">".to_owned(),
-            Op::Less => "<".to_owned(),
-            Op::GreaterThanOrEquals =>  ">=".to_owned(),
-            Op::LessThanOrEquals => "<=".to_owned(),
-            Op::NotEquals => "!=".to_owned(),
-            Op::Not => "!".to_owned(),
-            Op::And => "&&".to_owned(),
-            Op::Or => "||".to_owned(),
-            Op::Min => "MIN".to_owned(),
-            Op::Max => "MAX".to_owned(),
-            Op::Pow => "POW".to_owned(),
-            Op::Floor => "FLOOR".to_owned(),
-            Op::Ceiling => "CEILING".to_owned(),
-            Op::Int => "INT".to_owned(),
-            Op::Float => "FLOAT".to_owned(),
-            Op::Has => "?".to_owned(),
-            Op::Hasnt => "!?".to_owned(),
-            Op::Intersect => "^".to_owned(),
-            Op::ListMin => "LIST_MIN".to_owned(),
-            Op::ListMax => "LIST_MAX".to_owned(),
-            Op::All => "LIST_ALL".to_owned(),
-            Op::Count => "LIST_COUNT".to_owned(),
-            Op::ValueOfList => "LIST_VALUE".to_owned(),
-            Op::Invert => "LIST_INVERT".to_owned(),
+            Op::Add => ADD_NAME.to_owned(),
+            Op::Subtract => SUBTRACT_NAME.to_owned(),
+            Op::Divide => DIVIDE_NAME.to_owned(),
+            Op::Multiply => MULTIPLY_NAME.to_owned(),
+            Op::Mod => MOD_NAME.to_owned(),
+            Op::Negate => NEGATE_NAME.to_owned(),
+            Op::Equal => EQUAL_NAME.to_owned(),
+            Op::Greater => GREATER_NAME.to_owned(),
+            Op::Less => LESS_NAME.to_owned(),
+            Op::GreaterThanOrEquals => GREATER_THAN_OR_EQUALS_NAME.to_owned(),
+            Op::LessThanOrEquals => LESS_THAN_OR_EQUALS_NAME.to_owned(),
+            Op::NotEquals => NOT_EQUALS_NAME.to_owned(),
+            Op::Not => NOT_NAME.to_owned(),
+            Op::And => AND_NAME.to_owned(),
+            Op::Or => OR_NAME.to_owned(),
+            Op::Min => MIN_NAME.to_owned(),
+            Op::Max => MAX_NAME.to_owned(),
+            Op::Pow => POW_NAME.to_owned(),
+            Op::Floor => FLOOR_NAME.to_owned(),
+            Op::Ceiling => CEILING_NAME.to_owned(),
+            Op::Int => INT_NAME.to_owned(),
+            Op::Float => FLOAT_NAME.to_owned(),
+            Op::Has => HAS_NAME.to_owned(),
+            Op::Hasnt => HASNT_NAME.to_owned(),
+            Op::Intersect => INTERSECT_NAME.to_owned(),
+            Op::ListMin => LIST_MIN_NAME.to_owned(),
+            Op::ListMax => LIST_MAX_NAME.to_owned(),
+            Op::All => LIST_ALL_NAME.to_owned(),
+            Op::Count => LIST_COUNT_NAME.to_owned(),
+            Op::ValueOfList => LIST_VALUE_NAME.to_owned(),
+            Op::Invert => LIST_INVERT_NAME.to_owned(),
         }
     }
 
