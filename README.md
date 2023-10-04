@@ -24,7 +24,6 @@ Currently under development. This is the implementation status:
 
 ## TODO
 
-- [ ] VariablesState.default_global_variables shouldn't be optionals.
 - [ ] Optimize control command and Ops getname. Use static string array and address it by order.
 - [ ] Cache components string in Path
 - [ ] Variable observers.

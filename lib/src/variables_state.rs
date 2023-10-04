@@ -8,7 +8,7 @@ use crate::{callstack::CallStack, state_patch::StatePatch, variable_assigment::V
 #[derive(Clone)]
 pub struct VariablesState {
     pub global_variables: HashMap<String, Rc<Value>>,
-    pub default_global_variables: Option<HashMap<String, Rc<Value>>>,
+    pub default_global_variables: HashMap<String, Rc<Value>>,
     pub batch_observing_variable_changes: bool,
     pub callstack: Rc<RefCell<CallStack>>,
     pub changed_variables_for_batch_obs: Option<HashSet<String>>,
@@ -21,7 +21,7 @@ impl VariablesState {
     pub fn new(callstack: Rc<RefCell<CallStack>>, list_defs_origin: Rc<ListDefinitionsOrigin>) -> VariablesState {
         VariablesState {
             global_variables: HashMap::new(),
-            default_global_variables: None,
+            default_global_variables: HashMap::new(),
             batch_observing_variable_changes: false,
             callstack,
             changed_variables_for_batch_obs: None,
@@ -52,7 +52,9 @@ impl VariablesState {
     }
 
     pub fn snapshot_default_globals(&mut self) {
-        self.default_global_variables = Some(self.global_variables.clone());
+        for (k,v) in self.global_variables.iter() {
+            self.default_global_variables.insert(k.clone(), v.clone());
+        }
     }
 
     pub fn apply_patch(&mut self) {
@@ -123,10 +125,7 @@ impl VariablesState {
     fn global_variable_exists_with_name(&self, name: &str) -> bool {
         self.global_variables.contains_key(name)
             || self
-                .default_global_variables
-                .as_ref()
-                .map(|variables| variables.contains_key(name))
-                .unwrap_or(false)
+                .default_global_variables.contains_key(name)
     }
 
     // Given a variable pointer with just the name of the target known, resolve
@@ -157,7 +156,7 @@ impl VariablesState {
 
     pub fn set(&mut self, variable_name: &str, value_type: ValueType) -> Result<(), StoryError> {
 
-        if !self.default_global_variables.as_ref().unwrap().contains_key(variable_name) {
+        if !self.default_global_variables.contains_key(variable_name) {
             return Err(StoryError::BadArgument(format!("Cannot assign to a variable {} that hasn't been declared in the story", variable_name)));
         }
 
@@ -182,7 +181,7 @@ impl VariablesState {
         // Should really warn somehow, but it's difficult to see how...!
         if let Some(var_contents) = self.global_variables.get(variable_name) {
             return Some(var_contents.value.clone());
-        } else if let Some(var_contents) = self.default_global_variables.as_ref().unwrap().get(variable_name) {
+        } else if let Some(var_contents) = self.default_global_variables.get(variable_name) {
             return Some(var_contents.value.clone());
         }
 
@@ -222,10 +221,9 @@ impl VariablesState {
             // We need to do this check though in case a new global is added, so we need to
             // revert to the default globals dictionary since an initial value hasn't yet
             // been set.
-            if let Some(default_globals) = &self.default_global_variables {
-                if let Some(default_global) = default_globals.get(name) {
-                    return Some(default_global.clone());
-                }
+
+            if let Some(default_global) = self.default_global_variables.get(name) {
+                return Some(default_global.clone());
             }
 
             if let Some(list_item_value) = self.list_defs_origin.find_single_item_list_with_name(name) {
@@ -301,7 +299,7 @@ impl VariablesState {
         for (name, val) in self.global_variables.iter() {
 
             // Don't write out values that are the same as the default global values
-            let default_val = self.default_global_variables.as_ref().unwrap().get(name);
+            let default_val = self.default_global_variables.get(name);
             if let Some(default_val) = default_val {
                 if self.val_equal(val, default_val) {continue;}
             }
@@ -348,7 +346,7 @@ impl VariablesState {
     pub(crate) fn load_json(&mut self, jobj: &Map<String, serde_json::Value>) ->  Result<(), StoryError> {
         self.global_variables.clear();
 
-        for (k, v) in self.default_global_variables.as_ref().unwrap().iter() {
+        for (k, v) in self.default_global_variables.iter() {
             let loaded_token = jobj.get(k);
 
             if let Some(loaded_token) = loaded_token {
