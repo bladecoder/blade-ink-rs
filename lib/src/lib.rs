@@ -1,6 +1,7 @@
 pub mod story;
 pub mod value_type;
 pub mod story_error;
+pub mod choice;
 mod json_read;
 mod json_write;
 mod object;
@@ -15,7 +16,6 @@ mod callstack;
 mod flow;
 mod push_pop;
 mod variables_state;
-mod choice;
 mod error;
 mod glue;
 mod void;
