@@ -6,15 +6,14 @@ use crate::{callstack::CallStack, state_patch::StatePatch, variable_assigment::V
 
 
 #[derive(Clone)]
-pub struct VariablesState {
+pub(crate) struct VariablesState {
     pub global_variables: HashMap<String, Rc<Value>>,
     pub default_global_variables: HashMap<String, Rc<Value>>,
     pub batch_observing_variable_changes: bool,
     pub callstack: Rc<RefCell<CallStack>>,
     pub changed_variables_for_batch_obs: Option<HashSet<String>>,
-    pub variable_changed_event: Option<fn(variable_name: &str, newValue: &Value)>,
-    list_defs_origin: Rc<ListDefinitionsOrigin>,
     pub patch: Option<StatePatch>,
+    list_defs_origin: Rc<ListDefinitionsOrigin>,
 }
 
 impl VariablesState {
@@ -25,30 +24,32 @@ impl VariablesState {
             batch_observing_variable_changes: false,
             callstack,
             changed_variables_for_batch_obs: None,
-            variable_changed_event: None,
             patch: None,
             list_defs_origin,
         }
     }
 
-    pub fn set_batch_observing_variable_changes(&mut self, value: bool) {
-        self.batch_observing_variable_changes = value;
+    pub fn start_batch_observing_variable_changes(&mut self) {
+        self.batch_observing_variable_changes = true;
+        self.changed_variables_for_batch_obs = Some(HashSet::new());  
+    }
 
-        if value {
-            self.changed_variables_for_batch_obs = Some(HashSet::new());
-        } else {
-            // Finished observing variables in a batch - now send
-            // notifications for changed variables all in one go.
-            if self.changed_variables_for_batch_obs.is_some() {
-                for variable_name in self.changed_variables_for_batch_obs.as_ref().unwrap() {
-                    let current_value = self.global_variables.get(variable_name).unwrap();
+    pub fn stop_batch_observing_variable_changes(&mut self) -> Vec<(String, ValueType)>{
+        self.batch_observing_variable_changes = false;
 
-                    (self.variable_changed_event.as_ref().unwrap())(variable_name, current_value.as_ref());
-                }
+        let mut changed: Vec<(String, ValueType)> = Vec::with_capacity(0);
+
+        // Finished observing variables in a batch - now send
+        // notifications for changed variables all in one go.
+        if let Some(changed_variables_for_batch_obs) = self.changed_variables_for_batch_obs.take() {
+            for variable_name in changed_variables_for_batch_obs {
+                let current_value = self.global_variables.get(&variable_name).unwrap();
+
+                changed.push((variable_name, current_value.value.clone()));
             }
+        }
 
-            self.changed_variables_for_batch_obs = None;
-        }    
+        changed
     }
 
     pub fn snapshot_default_globals(&mut self) {
@@ -122,7 +123,7 @@ impl VariablesState {
         }
     }
 
-    fn global_variable_exists_with_name(&self, name: &str) -> bool {
+    pub fn global_variable_exists_with_name(&self, name: &str) -> bool {
         self.global_variables.contains_key(name)
             || self
                 .default_global_variables.contains_key(name)
@@ -154,7 +155,8 @@ impl VariablesState {
         Rc::new(Value::new_variable_pointer(&var_pointer.variable_name, context_index))
     }
 
-    pub fn set(&mut self, variable_name: &str, value_type: ValueType) -> Result<(), StoryError> {
+    // returns true if the value changed and we should notify variable observers
+    pub fn set(&mut self, variable_name: &str, value_type: ValueType) -> Result<bool, StoryError> {
 
         if !self.default_global_variables.contains_key(variable_name) {
             return Err(StoryError::BadArgument(format!("Cannot assign to a variable {} that hasn't been declared in the story", variable_name)));
@@ -162,9 +164,9 @@ impl VariablesState {
 
         let val = Value::from_value_type(value_type);
 
-        self.set_global(variable_name, Rc::new(val));
+        let notify = self.set_global(variable_name, Rc::new(val));
 
-        Ok(())
+        Ok(notify)
     }
 
     pub fn get(&self, variable_name: &str) -> Option<ValueType> {
@@ -237,7 +239,8 @@ impl VariablesState {
         var_value
     }
 
-    fn set_global(&mut self, name: &str, value: Rc<Value>) {
+    // Returns true if global var has changed and we need to notify observers
+    fn set_global(&mut self, name: &str, value: Rc<Value>) -> bool {
         let mut old_value: Option<Rc<Value>> = None;
 
         if let Some(patch) = &self.patch {
@@ -258,19 +261,19 @@ impl VariablesState {
             self.global_variables.insert(name.to_string(), value.clone());
         }
 
-        if let Some(variable_changed_event) = &self.variable_changed_event {
-            if !Rc::ptr_eq(old_value.as_ref().unwrap(), &value) {
-                if self.batch_observing_variable_changes {
-                    if let Some(patch) = &mut self.patch {
-                        patch.add_changed_variable(name);
-                    } else if let Some(changed_variables) = &mut self.changed_variables_for_batch_obs {
-                        changed_variables.insert(name.to_string());
-                    }
-                } else {
-                    variable_changed_event(name, value.as_ref());
+        if old_value.is_none() || !Rc::ptr_eq(old_value.as_ref().unwrap(), &value) {
+            if self.batch_observing_variable_changes {
+                if let Some(patch) = &mut self.patch {
+                    patch.add_changed_variable(name);
+                } else if let Some(changed_variables) = &mut self.changed_variables_for_batch_obs {
+                    changed_variables.insert(name.to_string());
                 }
+            } else {
+                return true;
             }
         }
+
+        false
     }
 
     pub fn get_variable_with_name(&self, name: &str, context_index: i32) -> Option<Rc<Value>> {

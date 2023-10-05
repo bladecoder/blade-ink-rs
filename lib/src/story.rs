@@ -1,6 +1,6 @@
 #![allow(unused_variables, dead_code)]
 
-use std::{rc::Rc, time::Instant, collections::{VecDeque, HashMap}};
+use std::{rc::Rc, time::Instant, collections::{VecDeque, HashMap}, cell::RefCell};
 
 use rand::{Rng, rngs::StdRng, SeedableRng};
 
@@ -9,7 +9,7 @@ use crate::{
     error::ErrorType,
     json_read,
     push_pop::PushPopType,
-    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::NativeFunctionCall, variable_reference::VariableReference, list_definitions_origin::ListDefinitionsOrigin, ink_list::InkList, ink_list_item::InkListItem, variables_state::VariablesState, story_error::StoryError, value_type::ValueType,
+    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::NativeFunctionCall, variable_reference::VariableReference, list_definitions_origin::ListDefinitionsOrigin, ink_list::InkList, ink_list_item::InkListItem, story_error::StoryError, value_type::ValueType, story_callbacks::VariableObserver,
 };
 
 pub const INK_VERSION_CURRENT: i32 = 21;
@@ -34,6 +34,7 @@ pub struct Story {
     on_error: Option<fn(message: &str, error_type: ErrorType)>,
     prev_containers: Vec<Rc<Container>>,
     list_definitions: Rc<ListDefinitionsOrigin>,
+    pub(crate) variable_observers: HashMap<String, Vec<Rc<RefCell<dyn VariableObserver>>>>,
 }
 
 impl Story {
@@ -104,6 +105,7 @@ impl Story {
             on_error: None,
             prev_containers: Vec::new(),
             list_definitions,
+            variable_observers: HashMap::with_capacity(0),
         };
         // TODO self.get_state_mut().get_variables_state().setVariableChangedEvent(this);
 
@@ -113,12 +115,12 @@ impl Story {
     }
 
     #[inline]
-    pub fn get_state(&self) -> &StoryState {
+    pub(crate) fn get_state(&self) -> &StoryState {
         &self.state
     }
 
     #[inline]
-    pub fn get_state_mut(&mut self) -> &mut StoryState {
+    pub(crate) fn get_state_mut(&mut self) -> &mut StoryState {
         &mut self.state
     }
 
@@ -135,7 +137,7 @@ impl Story {
             self.get_state().set_current_pointer(original_pointer);
         }
 
-        self.get_state_mut().get_variables_state_mut().snapshot_default_globals();
+        self.get_state_mut().variables_state.snapshot_default_globals();
 
         Ok(())
     }
@@ -210,8 +212,8 @@ impl Story {
             // for the outermost call.
             if self.recursive_continue_count == 1 {
                 self.state
-                    .get_variables_state_mut()
-                    .set_batch_observing_variable_changes(true);
+                    .variables_state
+                    .start_batch_observing_variable_changes();
             }
         }
 
@@ -304,9 +306,13 @@ impl Story {
             self.saw_lookahead_unsafe_function_after_new_line = false;
 
             if self.recursive_continue_count == 1 {
-                self.state
-                    .get_variables_state_mut()
-                    .set_batch_observing_variable_changes(false);
+                let changed = self.state
+                    .variables_state
+                    .stop_batch_observing_variable_changes();
+
+                for (variable_name, value) in changed {
+                    self.notify_variable_changed(&variable_name, &value);
+                }
             }
 
             self.async_continue_active = false;
@@ -745,14 +751,6 @@ impl Story {
         }
     }
 
-    pub fn get_variables_state(&self) -> &VariablesState {
-        self.get_state().get_variables_state()
-    }
-
-    pub fn get_variables_state_mut(&mut self) -> &mut VariablesState {
-        self.get_state_mut().get_variables_state_mut()
-    }
-
     fn perform_logic_and_flow_control(&mut self, content_obj: &Option<Rc<dyn RTObject>>) -> Result<bool, StoryError> {
         let content_obj = match content_obj {
             Some(content_obj) => {
@@ -772,7 +770,7 @@ impl Story {
 
             if current_divert.has_variable_target() {
                 let var_name = &current_divert.variable_divert_name;
-                if let Some(var_contents) = self.get_state().get_variables_state().get_variable_with_name(var_name.as_ref().unwrap(), -1) {
+                if let Some(var_contents) = self.get_state().variables_state.get_variable_with_name(var_name.as_ref().unwrap(), -1) {
                     if let Some(target) = Value::get_divert_target_value(var_contents.as_ref()) {
                         let p = Self::pointer_at_path(&self.main_content_container, target)?;
                         self.get_state_mut().set_diverted_pointer(p);
@@ -1293,7 +1291,7 @@ impl Story {
             // var prioritiseHigherInCallStack = _temporaryEvaluationContainer
             // != null;
             let assigned_val = assigned_val.into_any().downcast::<Value>().unwrap();
-            self.get_state_mut().get_variables_state_mut().assign( var_ass, assigned_val);
+            self.get_state_mut().variables_state.assign( var_ass, assigned_val);
 
             return Ok(true);
         }
@@ -1312,7 +1310,7 @@ impl Story {
             // Normal variable reference
             else {
 
-                found_value = self.get_state().get_variables_state().get_variable_with_name(&var_ref.name, -1);
+                found_value = self.get_state().variables_state.get_variable_with_name(&var_ref.name, -1);
 
                 if found_value.is_none() {
                     self.add_error(&format!("Variable not found: '{}'. Using default value of 0 (false). This can happen with temporary variables if the declaration hasn't yet been hit. Globals are always given a default value on load if a value doesn't exist in the save state.", var_ref.name), true);
@@ -1891,7 +1889,11 @@ impl Story {
         Ok(())
     }
 
-    fn if_async_we_cant(&self, activity_str: &str) -> Result<(), StoryError> {
+    pub fn remove_flow(&mut self, flow_name: &str) -> Result<(), StoryError> {
+        self.get_state_mut().remove_flow_internal(flow_name)
+    }
+
+    pub(crate) fn if_async_we_cant(&self, activity_str: &str) -> Result<(), StoryError> {
         if self.async_continue_active {
             return Err(StoryError::InvalidStoryState(format!("Can't {}. Story is in the middle of a ContinueAsync(). Make more continue_async() calls or a single cont() call beforehand.", activity_str)));
         }
@@ -1899,8 +1901,30 @@ impl Story {
         Ok(())
     }
 
-    pub fn remove_flow(&mut self, flow_name: &str) {
-        self.get_state_mut().remove_flow_internal(flow_name);
+    pub fn set_variable(&mut self, variable_name: &str, value_type: &ValueType) -> Result<(), StoryError>  {
+        let notify_observers = self.get_state_mut().variables_state.set(variable_name, value_type.clone())?;
+
+        if notify_observers {
+            self.notify_variable_changed(variable_name, value_type);
+        }
+
+        Ok(())
+    }
+
+    pub fn get_variable(&self, variable_name: &str) -> Option<ValueType> {
+        self.get_state().variables_state.get(variable_name)
+    }
+
+    pub fn save_state(&self) -> Result<String, StoryError> {
+        self.get_state().to_json()
+    }
+
+    pub fn load_state(&mut self, json_state: &str) -> Result<(), StoryError> {
+        self.get_state_mut().load_json(json_state)
+    }
+
+    pub fn get_visit_count_at_path_string(&self, path_string: &str)  -> Result<i32, StoryError> {
+        self.get_state().visit_count_at_path_string(path_string)
     }
 }
 

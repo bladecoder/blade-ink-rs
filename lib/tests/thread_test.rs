@@ -39,10 +39,10 @@ fn thread_test_bug() -> Result<(), StoryError>  {
     assert_eq!("No", story.get_current_choices()[0].text);
     assert_eq!("Yes", story.get_current_choices()[1].text);
 
-    let save_string = story.get_state().to_json()?;
+    let save_string = story.save_state()?;
     println!("{}", save_string);
     let mut story = Story::new(&json_string).unwrap();
-    story.get_state_mut().load_json(&save_string)?;
+    story.load_state(&save_string)?;
 
     story.choose_choice_index(0);
     

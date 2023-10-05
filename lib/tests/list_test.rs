@@ -54,11 +54,11 @@ fn list_save_load_test() -> Result<(), StoryError>  {
 
     assert_eq!("a, x, c\n", &story.continue_maximally()?);
 
-    let saved_state = story.get_state().to_json()?;
+    let saved_state = story.save_state()?;
 
     let mut story = Story::new(&json_string).unwrap();
 
-    story.get_state_mut().load_json(&saved_state)?;
+    story.load_state(&saved_state)?;
 
     story.choose_path_string("elsewhere", true, None)?;
     

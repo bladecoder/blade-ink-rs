@@ -1,8 +1,48 @@
-use bink::{story::Story, value_type::{ValueType, StringValue}, story_error::StoryError};
+use core::panic;
+use std::{cell::RefCell, rc::Rc};
+
+use bink::{story::Story, value_type::{ValueType, StringValue}, story_error::StoryError, story_callbacks::VariableObserver};
 
 mod common;
 
-// TODO external functions + variable observers
+// TODO external functions
+
+struct VObserver {
+    expected_value: i32,
+}
+
+impl VariableObserver for VObserver {
+    fn changed(&mut self, variable_name: &str, new_value: &ValueType) {
+        if !"x".eq(variable_name) {
+            panic!();
+        }
+
+        if let ValueType::Int(v) = new_value {
+            assert_eq!(self.expected_value, *v);
+        } else {
+            panic!();
+        }
+
+        self.expected_value = 10;
+    }
+}
+
+#[test]
+fn variable_observers_test() -> Result<(), StoryError>  {
+    let json_string =
+        common::get_json_string("tests/data/runtime/variable-observers.ink.json").unwrap();
+    let mut story = Story::new(&json_string).unwrap();
+    let mut text: Vec<String> = Vec::new();
+
+    story.observe_variable("x", Rc::new(RefCell::new(VObserver { expected_value: 5})));
+
+    common::next_all(&mut story, &mut text)?;
+    story.choose_choice_index(0);
+    common::next_all(&mut story, &mut text)?;
+
+    Ok(())
+}
+
 
 #[test]
 fn set_and_get_variable_test() -> Result<(), StoryError>  {
@@ -12,11 +52,11 @@ fn set_and_get_variable_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
-    assert_eq!(10, story.get_variables_state().get("x").unwrap().get_int().unwrap());
+    assert_eq!(10, story.get_variable("x").unwrap().get_int().unwrap());
 
-    story.get_variables_state_mut().set("x", ValueType::Int(15))?;
+    story.set_variable("x", &ValueType::Int(15))?;
 
-    assert_eq!(15, story.get_variables_state().get("x").unwrap().get_int().unwrap());
+    assert_eq!(15, story.get_variable("x").unwrap().get_int().unwrap());
 
     story.choose_choice_index(0);
 
@@ -39,14 +79,14 @@ fn set_non_existant_variable_test() -> Result<(), StoryError>  {
 
     common::next_all(&mut story, &mut text)?;
 
-    let result = story.get_variables_state_mut().set("y", ValueType::new_string("earth"));
+    let result = story.set_variable("y", &ValueType::new_string("earth"));
     assert!(result.is_err());
 
-    assert_eq!(10, story.get_variables_state().get("x").unwrap().get_int().unwrap());
+    assert_eq!(10, story.get_variable("x").unwrap().get_int().unwrap());
 
-    story.get_variables_state_mut().set("x", ValueType::Int(15))?;
+    story.set_variable("x", &ValueType::Int(15))?;
 
-    assert_eq!(15, story.get_variables_state().get("x").unwrap().get_int().unwrap());
+    assert_eq!(15, story.get_variable("x").unwrap().get_int().unwrap());
 
     story.choose_choice_index(0);
 
@@ -125,8 +165,8 @@ fn read_visit_counts_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
-    assert_eq!(4, story.get_state().visit_count_at_path_string("two.s2")?);
-    assert_eq!(5, story.get_state().visit_count_at_path_string("two")?);
+    assert_eq!(4, story.get_visit_count_at_path_string("two.s2")?);
+    assert_eq!(5, story.get_visit_count_at_path_string("two")?);
 
     Ok(())
 }
@@ -143,13 +183,13 @@ fn load_save_test() -> Result<(), StoryError>  {
     assert_eq!("We arrived into London at 9.45pm exactly.", text.get(0).unwrap());
 
     // save the game state
-    let save_string = story.get_state().to_json()?;
+    let save_string = story.save_state()?;
 
     println!("{}", save_string);
 
     // recreate game and load state
     Story::new(&json_string).unwrap();
-    story.get_state_mut().load_json(&save_string)?;
+    story.load_state(&save_string)?;
     
     story.choose_choice_index(0);
 
