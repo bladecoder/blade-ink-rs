@@ -53,7 +53,7 @@ fn issue15_test() -> Result<(), StoryError>  {
         let line = &story.cont()?;
 
         if line.starts_with("SET_X:") {
-            story.get_variables_state_mut().set("x", ValueType::Int(100));
+            story.set_variable("x", &ValueType::Int(100));
         } else {
             assert_eq!("X is set\n", line);
         }

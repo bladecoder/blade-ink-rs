@@ -1,4 +1,5 @@
 pub mod story;
+pub mod story_callbacks;
 pub mod value_type;
 pub mod story_error;
 pub mod choice;

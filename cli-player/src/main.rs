@@ -57,11 +57,11 @@ fn process_command(command: Command, story: &mut Story) -> Result<bool, Box<dyn 
         Command::Exit() => return Ok(true),
         Command::Load(filename) => {
             let saved_string = get_json_string(&filename)?;
-            story.get_state_mut().load_json(&saved_string)?;
+            story.load_state(&saved_string)?;
             println!("Ok.")
         },
         Command::Save(filename) => {
-            let json_string = story.get_state().to_json()?;
+            let json_string = story.save_state()?;
             save_json(&filename, &json_string)?;
         },
         Command::Help() => println!("Commands:\n\tload <filename>\n\tsave <filename>\n\tquit\n\t"),

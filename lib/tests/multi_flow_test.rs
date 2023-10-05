@@ -53,7 +53,7 @@ fn multiflow_save_load_threads() -> Result<(), StoryError>  {
     assert_eq!("Thread 1 red choice", story.get_current_choices()[0].text);
 
     // Save/load test
-    let saved = story.get_state().to_json()?;
+    let saved = story.save_state()?;
 
     // Test choice before reloading state before resetting
     story.choose_choice_index(0);
@@ -61,19 +61,19 @@ fn multiflow_save_load_threads() -> Result<(), StoryError>  {
     let mut story = Story::new(&json_string).unwrap();
 
     // Load to pre-choice: still red, choose second choice
-    story.get_state_mut().load_json(&saved)?;
+    story.load_state(&saved)?;
 
     story.choose_choice_index(1);
     assert_eq!("Thread 2 red choice\nAfter thread 2 choice (red)\n", story.continue_maximally()?);
 
     // Load: switch to blue, choose 1
-    story.get_state_mut().load_json(&saved)?;
+    story.load_state(&saved)?;
     story.switch_flow("Blue Flow")?;
     story.choose_choice_index(0);
     assert_eq!("Thread 1 blue choice\nAfter thread 1 choice (blue)\n", story.continue_maximally()?);
 
     // Load: switch to blue, choose 2
-    story.get_state_mut().load_json(&saved)?;
+    story.load_state(&saved)?;
     story.switch_flow("Blue Flow")?;
     story.choose_choice_index(1);
     assert_eq!("Thread 2 blue choice\nAfter thread 2 choice (blue)\n", story.continue_maximally()?);

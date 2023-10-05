@@ -12,12 +12,12 @@ pub const MIN_COMPATIBLE_LOAD_VERSION: u32 = 8;
 
 static DEFAULT_FLOW_NAME: &str = "DEFAULT_FLOW";
 
-pub struct StoryState {
+pub(crate) struct StoryState {
     pub current_flow: Flow,
     pub did_safe_exit: bool,
     output_stream_text_dirty: bool,
     output_stream_tags_dirty: bool,
-    variables_state: VariablesState,
+    pub variables_state: VariablesState,
     alive_flow_names_dirty: bool,
     pub evaluation_stack: Vec<Rc<dyn RTObject>>,
     main_content_container: Rc<Container>,
@@ -101,14 +101,6 @@ impl StoryState {
             }
         }
         self.output_stream_dirty();
-    }
-
-    pub fn get_variables_state(&self) -> &VariablesState {
-        &self.variables_state
-    }
-
-    pub fn get_variables_state_mut(&mut self) -> &mut VariablesState {
-        &mut self.variables_state
     }
 
     pub fn get_generated_choices_mut(&mut self) -> &mut Vec<Rc<Choice>> {
