@@ -7,7 +7,7 @@ use crate::{object::{Object, RTObject}, push_pop::PushPopType, pointer::{Pointer
 
 pub struct Divert {
     obj: Object,
-    pub external_args: i32,
+    pub external_args: usize,
     pub is_conditional: bool,
     pub is_external: bool,
     pub pushes_to_stack: bool,
@@ -18,7 +18,7 @@ pub struct Divert {
 }
 
 impl Divert {
-    pub fn new(pushes_to_stack: bool, stack_push_type: PushPopType, is_external: bool, external_args: i32, is_conditional: bool, var_divert_name: Option<String>, target_path: Option<&str>) -> Self {
+    pub fn new(pushes_to_stack: bool, stack_push_type: PushPopType, is_external: bool, external_args: usize, is_conditional: bool, var_divert_name: Option<String>, target_path: Option<&str>) -> Self {
         Divert {
             obj: Object::new(),
             is_conditional,
@@ -33,18 +33,11 @@ impl Divert {
     }
 
     fn target_path_string(value: Option<&str>) -> Option<Path>{
-        if let Some(value) = value {
-            Some(Path::new_with_components_string(Some(value)))
-        } else {
-            None
-        }
+        value.map(|value| Path::new_with_components_string(Some(value)))
     }
 
-    pub fn get_target_path_string(&self) -> Option<String> {
-        match self.target_path.borrow().as_ref() {
-            Some(p) => Some(self.compact_path_string(p)),
-            None => None,
-        }
+    pub fn get_target_path_string(self: &Rc<Self>) -> Option<String> {
+        self.get_target_path().as_ref().map(|p| self.compact_path_string(p))
     }
 
     pub fn has_variable_target(&self) -> bool {
@@ -174,8 +167,8 @@ impl fmt::Display for Divert {
                 }
             }
 
-            //result.push_str(&format!(" -> {} ({})", self.get_target_path_string().unwrap_or_default(), target_str));
-            result.push_str(&format!(" -> {}", self.get_target_path_string().unwrap_or_default()));
+            // TODO result.push_str(&format!(" -> {} ({})", self.get_target_path_string().unwrap_or_default(), target_str));
+            result.push_str(&format!(" -> {} ({})", self.target_path.borrow().as_ref().unwrap(), target_str));
         }
 
         write!(f, "{result}")

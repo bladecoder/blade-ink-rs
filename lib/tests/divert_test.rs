@@ -6,7 +6,7 @@ mod common;
 fn simple_divert_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/divert/simple-divert.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
 
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
@@ -21,7 +21,7 @@ fn simple_divert_test() -> Result<(), StoryError>  {
 fn invisible_divert_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/divert/invisible-divert.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
 
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
@@ -35,7 +35,7 @@ fn invisible_divert_test() -> Result<(), StoryError>  {
 fn divert_on_choice_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/divert/divert-on-choice.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
 
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
@@ -54,7 +54,7 @@ fn divert_on_choice_test() -> Result<(), StoryError>  {
 fn complex_branching1_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/divert/complex-branching.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
     
     common::next_all(&mut story, &mut text)?;
@@ -74,7 +74,7 @@ fn complex_branching1_test() -> Result<(), StoryError>  {
 fn complex_branching2_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/divert/complex-branching.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
     
     common::next_all(&mut story, &mut text)?;

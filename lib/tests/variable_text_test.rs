@@ -6,7 +6,7 @@ mod common;
 fn sequence_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/variabletext/sequence.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
@@ -49,7 +49,7 @@ fn sequence_test() -> Result<(), StoryError>  {
 fn cycle_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/variabletext/cycle.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
@@ -92,7 +92,7 @@ fn cycle_test() -> Result<(), StoryError>  {
 fn once_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/variabletext/once.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
@@ -135,7 +135,7 @@ fn once_test() -> Result<(), StoryError>  {
 fn empty_elements_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/variabletext/empty-elements.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
@@ -164,7 +164,7 @@ fn empty_elements_test() -> Result<(), StoryError>  {
 fn list_in_choice_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/variabletext/list-in-choice.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;

@@ -11,11 +11,11 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=console-player",
-                    "--package=blade-ink"
+                    "--bin=binkplayer",
+                    "--package=binkplayer"
                 ],
                 "filter": {
-                    "name": "console-player",
+                    "name": "binkplayer",
                     "kind": "bin"
                 }
             },
@@ -30,11 +30,11 @@
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=console-player",
-                    "--package=blade-ink"
+                    "--bin=binkplayer",
+                    "--package=binkplayer"
                 ],
                 "filter": {
-                    "name": "console-player",
+                    "name": "binkplayer",
                     "kind": "bin"
                 }
             },

@@ -134,7 +134,7 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
                 if external {
                     prop_value = obj.get("exArgs");
                     if let Some(prop_value) = prop_value {
-                        external_args = prop_value.as_i64().unwrap() as i32;
+                        external_args = prop_value.as_i64().unwrap() as usize;
                     }
                 }
 

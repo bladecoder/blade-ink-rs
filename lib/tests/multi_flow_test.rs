@@ -6,7 +6,7 @@ mod common;
 fn basics_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/runtime/multiflow-basics.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
 
     story.switch_flow("First")?;
     story.choose_path_string("knot1", true, None)?;
@@ -29,7 +29,7 @@ fn basics_test() -> Result<(), StoryError>  {
 fn multiflow_save_load_threads() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/runtime/multiflow-saveloadthreads.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
 
     // Default flow
     assert_eq!("Default line 1\n", story.cont()?);
@@ -58,7 +58,7 @@ fn multiflow_save_load_threads() -> Result<(), StoryError>  {
     // Test choice before reloading state before resetting
     story.choose_choice_index(0);
     assert_eq!("Thread 1 red choice\nAfter thread 1 choice (red)\n", story.continue_maximally()?);
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
 
     // Load to pre-choice: still red, choose second choice
     story.load_state(&saved)?;

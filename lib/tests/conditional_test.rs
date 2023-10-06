@@ -6,7 +6,7 @@ mod common;
 fn iftrue_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/iftrue.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 
     let mut text: Vec<String> = Vec::new();
@@ -22,7 +22,7 @@ fn iftrue_test() -> Result<(), StoryError>  {
 fn iffalse_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/iffalse.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 
     let mut text: Vec<String> = Vec::new();
@@ -38,7 +38,7 @@ fn iffalse_test() -> Result<(), StoryError>  {
 fn ifelse_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/ifelse.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 
     let mut text: Vec<String> = Vec::new();
@@ -54,7 +54,7 @@ fn ifelse_test() -> Result<(), StoryError>  {
 fn ifelse_ext_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/ifelse-ext.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 
     let mut text: Vec<String> = Vec::new();
@@ -70,7 +70,7 @@ fn ifelse_ext_test() -> Result<(), StoryError>  {
 fn ifelse_ext_text1_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/ifelse-ext-text1.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 
     let mut text: Vec<String> = Vec::new();
@@ -92,7 +92,7 @@ fn ifelse_ext_text1_test() -> Result<(), StoryError>  {
 fn ifelse_ext_text2_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/ifelse-ext-text2.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 
     let mut text: Vec<String> = Vec::new();
@@ -114,7 +114,7 @@ fn ifelse_ext_text2_test() -> Result<(), StoryError>  {
 fn ifelse_ext_text3_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/ifelse-ext-text3.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 
     let mut text: Vec<String> = Vec::new();
@@ -136,7 +136,7 @@ fn ifelse_ext_text3_test() -> Result<(), StoryError>  {
 fn cond_text1_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/condtext.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
     let mut text: Vec<String> = Vec::new();
     
@@ -155,7 +155,7 @@ fn cond_text1_test() -> Result<(), StoryError>  {
 fn cond_text2_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/condtext.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
     let mut text: Vec<String> = Vec::new();
     
@@ -174,7 +174,7 @@ fn cond_text2_test() -> Result<(), StoryError>  {
 fn cond_opt1_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/condopt.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
     let mut text: Vec<String> = Vec::new();
     
@@ -192,7 +192,7 @@ fn cond_opt1_test() -> Result<(), StoryError>  {
 fn cond_opt2_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/condopt.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
     let mut text: Vec<String> = Vec::new();
     
@@ -210,7 +210,7 @@ fn cond_opt2_test() -> Result<(), StoryError>  {
 fn stopping_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/stopping.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
     let mut text: Vec<String> = Vec::new();
     
@@ -244,7 +244,7 @@ fn stopping_test() -> Result<(), StoryError>  {
 fn cycle_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/cycle.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
     let mut text: Vec<String> = Vec::new();
     
@@ -278,7 +278,7 @@ fn cycle_test() -> Result<(), StoryError>  {
 fn once_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/once.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
     let mut text: Vec<String> = Vec::new();
     
@@ -309,7 +309,7 @@ fn once_test() -> Result<(), StoryError>  {
 fn shuffle_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/shuffle.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
     let mut text: Vec<String> = Vec::new();
     
@@ -340,7 +340,7 @@ fn shuffle_test() -> Result<(), StoryError>  {
 fn shuffle_stopping() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/shuffle_stopping.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
     let mut text: Vec<String> = Vec::new();
     
@@ -373,7 +373,7 @@ fn shuffle_stopping() -> Result<(), StoryError>  {
 fn shuffle_once() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/shuffle_once.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
     let mut text: Vec<String> = Vec::new();
     
@@ -404,7 +404,7 @@ fn shuffle_once() -> Result<(), StoryError>  {
 fn multiline_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/multiline.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
     let mut text: Vec<String> = Vec::new();
     
@@ -433,7 +433,7 @@ fn multiline_test() -> Result<(), StoryError>  {
 fn multiline_divert_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/multiline-divert.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
     let mut text: Vec<String> = Vec::new();
     
@@ -462,7 +462,7 @@ fn multiline_divert_test() -> Result<(), StoryError>  {
 fn multiline_choice_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/conditional/multiline-choice.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
     let mut text: Vec<String> = Vec::new();
     

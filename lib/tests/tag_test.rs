@@ -6,7 +6,7 @@ mod common;
 fn tags_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/tags/tags.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
 
     let global_tags = story.get_global_tags()?;
     assert_eq!(2, global_tags.len());
@@ -45,7 +45,7 @@ fn tags_test() -> Result<(), StoryError>  {
 fn tags_in_seq_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/tags/tagsInSeq.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
 
     assert_eq!("A red sequence.\n", story.cont()?);
     let current_tags = story.get_current_tags();
@@ -64,7 +64,7 @@ fn tags_in_seq_test() -> Result<(), StoryError>  {
 fn tags_in_choice_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/tags/tagsInChoice.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
 
     story.cont()?;
     let current_tags = story.get_current_tags();
@@ -90,7 +90,7 @@ fn tags_in_choice_test() -> Result<(), StoryError>  {
 fn tags_dynamic_content_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/tags/tagsDynamicContent.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
 
     assert_eq!("tag\n", story.cont()?);
     let current_tags = story.get_current_tags();

@@ -36,6 +36,10 @@ impl fmt::Display for Value {
 }
 
 impl Value {
+    pub fn new(value:ValueType) -> Self {
+        Self { obj: Object::new(), value }
+    }
+
     pub fn new_bool(v:bool) -> Self {
         Self { obj: Object::new(), value: ValueType::Bool(v) }
     }
