@@ -7,13 +7,13 @@ use crate::{object::{Object, RTObject}, push_pop::PushPopType, pointer::{Pointer
 
 pub struct Divert {
     obj: Object,
+    target_pointer: RefCell<Pointer>,
+    target_path: RefCell<Option<Path>>,
     pub external_args: usize,
     pub is_conditional: bool,
     pub is_external: bool,
     pub pushes_to_stack: bool,
     pub stack_push_type: PushPopType,
-    target_pointer: RefCell<Pointer>,
-    target_path: RefCell<Option<Path>>,
     pub variable_divert_name: Option<String>,    
 }
 

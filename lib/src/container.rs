@@ -301,6 +301,6 @@ impl RTObject for Container {
 
 impl fmt::Display for Container {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "**Container**")
+        write!(f, "Container ({})", self.name.as_ref().unwrap_or(&"<no name>".to_owned()))
     }
 }

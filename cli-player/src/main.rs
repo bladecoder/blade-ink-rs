@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 // Returns true if the program has to stop
 fn process_command(command: Command, story: &mut Story) -> Result<bool, Box<dyn Error>> {
     match command {
-        Command::Choose(c) => story.choose_choice_index(c),
+        Command::Choose(c) => story.choose_choice_index(c)?,
         Command::Exit() => return Ok(true),
         Command::Load(filename) => {
             let saved_string = get_json_string(&filename)?;

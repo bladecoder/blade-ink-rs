@@ -17,7 +17,6 @@ mod callstack;
 mod flow;
 mod push_pop;
 mod variables_state;
-mod error;
 mod glue;
 mod void;
 mod state_patch;

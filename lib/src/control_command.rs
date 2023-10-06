@@ -145,7 +145,7 @@ impl RTObject for ControlCommand {
 
 impl fmt::Display for ControlCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.command_type.to_string())
+        write!(f, "{}", self.command_type)
     }
 }
 

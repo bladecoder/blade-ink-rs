@@ -2,7 +2,7 @@ use std::{collections::HashMap, rc::Rc};
 
 use serde_json::{Map, json};
 
-use crate::{pointer::{Pointer, self}, push_pop::PushPopType, container::{Container, self}, value::Value, object::Object, json_read, json_write, path::Path, story::Story, story_error::StoryError};
+use crate::{pointer::{Pointer, self}, push_pop::PushPopType, container::Container, value::Value, object::Object, json_read, json_write, path::Path, story::Story, story_error::StoryError};
 
 pub struct Element {
     pub current_pointer: Pointer,
@@ -128,7 +128,7 @@ impl Thread {
             el_map.insert("exp".to_owned(), json!(el.in_expression_evaluation));
             el_map.insert("type".to_owned(), json!(el.push_pop_type as u32));
 
-            if el.temporary_variables.len() > 0 {
+            if !el.temporary_variables.is_empty() {
                 el_map.insert("temp".to_owned(), json_write::write_dictionary_values(&el.temporary_variables)?);
             }
 
@@ -202,7 +202,7 @@ impl CallStack {
     }
 
     pub fn can_pop_thread(&self) -> bool {
-        return self.threads.len() > 1 && !self.element_is_evaluate_from_game();
+        self.threads.len() > 1 && !self.element_is_evaluate_from_game()
     }
 
     pub fn pop_thread(&mut self) -> Result<(), StoryError> {
@@ -248,10 +248,6 @@ impl CallStack {
 
     pub fn element_is_evaluate_from_game(&self) -> bool {
         self.get_current_element().push_pop_type == PushPopType::FunctionEvaluationFromGame
-    }
-
-    pub fn get_elements(&self) -> &Vec<Element> {
-        self.get_callstack()
     }
 
     pub fn get_elements_mut(&mut self) -> &mut Vec<Element> {
@@ -366,15 +362,7 @@ impl CallStack {
     }
 
     pub fn get_thread_with_index(&self, index: usize) -> Option<&Thread> {
-        // return threads.Find (t => t.threadIndex == index);
-
-        for t in self.threads.iter() {
-            if t.thread_index == index {
-                return Some(t);
-            }
-        }
-
-        return None;
+        self.threads.iter().find(|&t| t.thread_index == index)
     }
 
     pub fn load_json(&mut self, main_content_container: &Rc<Container>, j_obj: &Map<String, serde_json::Value>) -> Result<(), StoryError> {
@@ -383,8 +371,8 @@ impl CallStack {
 
         let j_threads = j_obj.get("threads").unwrap();
 
-        for  jThreadTok in j_threads.as_array().unwrap().iter() {
-            let j_thread_obj = jThreadTok.as_object().unwrap();
+        for  j_thread_tok in j_threads.as_array().unwrap().iter() {
+            let j_thread_obj = j_thread_tok.as_object().unwrap();
             let thread = Thread::from_json(main_content_container, j_thread_obj)?;
             self.threads.push(thread);
         }
