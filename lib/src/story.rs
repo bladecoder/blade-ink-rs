@@ -9,7 +9,7 @@ use crate::{
     error::ErrorType,
     json_read,
     push_pop::PushPopType,
-    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::NativeFunctionCall, variable_reference::VariableReference, list_definitions_origin::ListDefinitionsOrigin, ink_list::InkList, ink_list_item::InkListItem, story_error::StoryError, value_type::ValueType, story_callbacks::VariableObserver,
+    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::NativeFunctionCall, variable_reference::VariableReference, list_definitions_origin::ListDefinitionsOrigin, ink_list::InkList, ink_list_item::InkListItem, story_error::StoryError, value_type::ValueType, story_callbacks::{VariableObserver, ExternalFunctionDef},
 };
 
 pub const INK_VERSION_CURRENT: i32 = 21;
@@ -29,12 +29,15 @@ pub struct Story {
     recursive_continue_count: usize,
     async_continue_active: bool,
     async_saving: bool,
-    saw_lookahead_unsafe_function_after_new_line: bool,
-    state_snapshot_at_last_new_line: Option<StoryState>,
-    on_error: Option<fn(message: &str, error_type: ErrorType)>,
     prev_containers: Vec<Rc<Container>>,
     list_definitions: Rc<ListDefinitionsOrigin>,
+    on_error: Option<fn(message: &str, error_type: ErrorType)>,
+    pub(crate) state_snapshot_at_last_new_line: Option<StoryState>,
     pub(crate) variable_observers: HashMap<String, Vec<Rc<RefCell<dyn VariableObserver>>>>,
+    pub(crate) has_validated_externals: bool,
+    pub(crate) allow_external_function_fallbacks: bool,
+    pub(crate) saw_lookahead_unsafe_function_after_new_line: bool,
+    pub(crate) externals: HashMap<String, ExternalFunctionDef>,
 }
 
 impl Story {
@@ -106,8 +109,10 @@ impl Story {
             prev_containers: Vec::new(),
             list_definitions,
             variable_observers: HashMap::with_capacity(0),
+            has_validated_externals: false,
+            allow_external_function_fallbacks: false,
+            externals: HashMap::with_capacity(0),
         };
-        // TODO self.get_state_mut().get_variables_state().setVariableChangedEvent(this);
 
         story.reset_globals()?;
 
@@ -180,7 +185,9 @@ impl Story {
     }
 
     pub fn continue_async(&mut self, millisecs_limit_async: f32) -> Result<(), StoryError> {
-        // TODO: if (!hasValidatedExternals) validateExternalBindings();
+        if !self.has_validated_externals {
+            self.validate_external_bindings()?;
+        }
 
         self.continue_internal(millisecs_limit_async)?;
 
@@ -796,7 +803,7 @@ impl Story {
                     return Err(StoryError::InvalidStoryState(format!("Tried to divert using a target from a variable that could not be found ({})", var_name.as_ref().unwrap())));
                 }
             } else if current_divert.is_external {
-                //call_external_function(&current_divert.get_target_path_string(), current_divert.get_external_args());
+                self.call_external_function(&current_divert.get_target_path_string().unwrap(), current_divert.external_args);
                 return Ok(true);
             } else {
                 self.get_state_mut().set_diverted_pointer(current_divert.get_target_pointer());
@@ -1728,7 +1735,7 @@ impl Story {
         self.get_state_mut().complete_function_evaluation_from_game()
     }
 
-    fn knot_container_with_name(&self, name: &str) -> Option<Rc<Container>> {
+    pub(crate) fn knot_container_with_name(&self, name: &str) -> Option<Rc<Container>> {
         let named_container = self.main_content_container.named_content.get(name);
 
         named_container.cloned()
@@ -1925,6 +1932,10 @@ impl Story {
 
     pub fn get_visit_count_at_path_string(&self, path_string: &str)  -> Result<i32, StoryError> {
         self.get_state().visit_count_at_path_string(path_string)
+    }
+
+    pub fn set_allow_external_function_fallbacks(&mut self, v: bool) {
+        self.allow_external_function_fallbacks = v;
     }
 }
 

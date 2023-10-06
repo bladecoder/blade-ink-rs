@@ -6,7 +6,7 @@ mod common;
 fn thread_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/threads/thread-bug.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
     
     assert_eq!("Here is some gold. Do you want it?\n", story.continue_maximally()?);
@@ -31,7 +31,7 @@ fn thread_test() -> Result<(), StoryError>  {
 fn thread_test_bug() -> Result<(), StoryError>  {    
     let json_string =
         common::get_json_string("tests/data/threads/thread-bug.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
     
     assert_eq!("Here is some gold. Do you want it?\n", story.continue_maximally()?);
@@ -41,7 +41,7 @@ fn thread_test_bug() -> Result<(), StoryError>  {
 
     let save_string = story.save_state()?;
     println!("{}", save_string);
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     story.load_state(&save_string)?;
 
     story.choose_choice_index(0);

@@ -22,7 +22,7 @@ pub fn write_rtobject(o: Rc<dyn RTObject>) -> Result<serde_json::Value, StoryErr
         return Ok(write_rt_container(c, false)?);
     }
 
-    if let Some(divert) = o.as_any().downcast_ref::<Divert>() {
+    if let Some(divert) = o.clone().into_any().downcast::<Divert>().ok() {
         let mut div_type_key = "->";
 
         if divert.is_external { div_type_key = "x()"; }

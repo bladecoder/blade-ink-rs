@@ -6,7 +6,7 @@ mod common;
 fn operations_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/misc/operations.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
 
     assert_eq!("neg:-3\nmod:1\npow:27\nfloor:3\nceiling:4\nint:3\nfloat:1\n", &story.continue_maximally()?);
 
@@ -17,7 +17,7 @@ fn operations_test() -> Result<(), StoryError>  {
 fn read_counts_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/misc/read-counts.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
 
     assert_eq!("Count start: 0 0 0\n1\n2\n3\nCount end: 3 3 3\n", &story.continue_maximally()?);
 
@@ -28,7 +28,7 @@ fn read_counts_test() -> Result<(), StoryError>  {
 fn turns_since_test() -> Result<(), StoryError>  {
     let json_string =
         common::get_json_string("tests/data/misc/turns-since.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
 
     assert_eq!("0\n0\n", &story.continue_maximally()?);
     story.choose_choice_index(0);
@@ -44,7 +44,7 @@ fn turns_since_test() -> Result<(), StoryError>  {
 fn issue15_test() -> Result<(), StoryError>  {
     let json_string =
     common::get_json_string("tests/data/misc/issue15.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
 
     assert_eq!("This is a test\n", story.cont()?);
 

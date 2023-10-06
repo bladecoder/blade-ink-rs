@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{object::{RTObject, Object}, path::Path, ink_list::InkList};
+use crate::{object::{RTObject, Object}, path::Path, ink_list::InkList, story_error::StoryError};
 
 #[repr(u8)]
 #[derive(Clone)]
@@ -56,6 +56,42 @@ impl ValueType {
         match self {
             ValueType::String(v) => Some(&v.string),
             _ => None,
+        }
+    }
+
+    pub fn coerce_to_int(&self) -> Result<i32, StoryError> {
+        match self {
+            ValueType::Bool(v) => if *v {Ok(1)} else {Ok(0)},
+            ValueType::Int(v) => Ok(*v),
+            ValueType::Float(v) => Ok(*v as i32),
+            _ => Err(StoryError::BadArgument("Failed to cast to int".to_owned())),
+        }
+    }
+
+    pub fn coerce_to_float(&self) -> Result<f32, StoryError> {
+        match self {
+            ValueType::Bool(v) => if *v {Ok(1.0)} else {Ok(0.0)},
+            ValueType::Int(v) => Ok(*v as f32),
+            ValueType::Float(v) => Ok(*v),
+            _ => Err(StoryError::BadArgument("Failed to cast to float".to_owned())),
+        }
+    }
+
+    pub fn coerce_to_bool(&self) -> Result<bool, StoryError> {
+        match self {
+            ValueType::Bool(v) => Ok(*v),
+            ValueType::Int(v) => if *v == 1 {Ok(true)} else {Ok(false)},
+            _ => Err(StoryError::BadArgument("Failed to cast to boolean".to_owned())),
+        }
+    }
+
+    pub fn coerce_to_string(&self) -> Result<String, StoryError> {
+        match self {
+            ValueType::Bool(v) => Ok(v.to_string()),
+            ValueType::Int(v) => Ok(v.to_string()),
+            ValueType::Float(v) => Ok(v.to_string()),
+            ValueType::String(v) => Ok(v.string.clone()),
+            _ => Err(StoryError::BadArgument("Failed to cast to float".to_owned())),
         }
     }
 }

@@ -7,7 +7,7 @@ mod common;
 fn oneline_test() -> Result<(), StoryError>  {
     let json_string =
         fs::read_to_string("tests/data/basictext/oneline.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 
     assert!(story.can_continue());
@@ -23,7 +23,7 @@ fn oneline_test() -> Result<(), StoryError>  {
 fn twolines_test() -> Result<(), StoryError> {
     let json_string =
         fs::read_to_string("tests/data/basictext/twolines.ink.json").unwrap();
-    let mut story = Story::new(&json_string).unwrap();
+    let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 
     let mut text: Vec<String> = Vec::new();
