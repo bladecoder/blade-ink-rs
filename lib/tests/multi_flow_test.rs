@@ -56,26 +56,26 @@ fn multiflow_save_load_threads() -> Result<(), StoryError>  {
     let saved = story.save_state()?;
 
     // Test choice before reloading state before resetting
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     assert_eq!("Thread 1 red choice\nAfter thread 1 choice (red)\n", story.continue_maximally()?);
     let mut story = Story::new(&json_string)?;
 
     // Load to pre-choice: still red, choose second choice
     story.load_state(&saved)?;
 
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
     assert_eq!("Thread 2 red choice\nAfter thread 2 choice (red)\n", story.continue_maximally()?);
 
     // Load: switch to blue, choose 1
     story.load_state(&saved)?;
     story.switch_flow("Blue Flow")?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     assert_eq!("Thread 1 blue choice\nAfter thread 1 choice (blue)\n", story.continue_maximally()?);
 
     // Load: switch to blue, choose 2
     story.load_state(&saved)?;
     story.switch_flow("Blue Flow")?;
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
     assert_eq!("Thread 2 blue choice\nAfter thread 2 choice (blue)\n", story.continue_maximally()?);
 
     // Remove active blue flow, should revert back to global flow

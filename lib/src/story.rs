@@ -132,7 +132,7 @@ impl Story {
         if self.main_content_container.named_content.contains_key("global decl") {
             let original_pointer = self.get_state().get_current_pointer().clone();
 
-            self.choose_path(&Path::new_with_components_string(Some("global decl")), false);
+            self.choose_path(&Path::new_with_components_string(Some("global decl")), false)?;
 
             // Continue, but without validating external bindings,
             // since we may be doing this reset at initialisation time.
@@ -642,10 +642,10 @@ impl Story {
 
     }
 
-    fn try_follow_default_invisible_choice(&mut self) {
+    fn try_follow_default_invisible_choice(&mut self) -> Result<(), StoryError> {
         let all_choices = match self.get_state().get_current_choices() {
             Some(c) => c,
-            None => return,
+            None => return Ok(()),
         };
 
         // Is a default invisible choice the ONLY choice?
@@ -659,7 +659,7 @@ impl Story {
         }
 
         if invisible_choices.is_empty() || all_choices.len() > invisible_choices.len() {
-            return;
+            return Ok(());
         }
 
         let choice = &invisible_choices[0];
@@ -676,7 +676,7 @@ impl Story {
             self.get_state().get_callstack().as_ref().borrow_mut().set_current_thread(fork_thread);
         }
 
-        self.choose_path(&choice.target_path, false);
+        self.choose_path(&choice.target_path, false)
     }
 
     fn calculate_newline_output_state_change(
@@ -1294,7 +1294,7 @@ impl Story {
             // var prioritiseHigherInCallStack = _temporaryEvaluationContainer
             // != null;
             let assigned_val = assigned_val.into_any().downcast::<Value>().unwrap();
-            self.get_state_mut().variables_state.assign( var_ass, assigned_val);
+            self.get_state_mut().variables_state.assign( var_ass, assigned_val)?;
 
             return Ok(true);
         }
@@ -1855,7 +1855,7 @@ impl Story {
         self.if_async_we_cant("call ChoosePathString right now")?;
 
         if reset_call_stack {
-            self.reset_callstack();
+            self.reset_callstack()?;
         } else {
             // ChoosePathString is potentially dangerous since you can call it when the
             // stack is
@@ -1864,30 +1864,29 @@ impl Story {
                 let mut func_detail = "".to_owned();
                 let container = self.get_state().get_callstack().borrow().get_current_element().current_pointer.container.clone();
                 if let Some(container) = container {
-                    func_detail = format!("({})", Object::get_path(container.as_ref()).to_string());
+                    func_detail = format!("({})", Object::get_path(container.as_ref()));
                 }
                 
-                // Err("Story was running a function " + funcDetail + "when you called ChoosePathString("
-                //         + path + ") - this is almost certainly not not what you want! Full stack trace: \n"
-                //         + state.getCallStack().getCallStackTrace());
-                return Err(StoryError::InvalidStoryState("Story was running a function".to_owned()));
+                return Err(StoryError::InvalidStoryState(format!("Story was running a function {func_detail} when you called ChoosePathString({}) - this is almost certainly not what you want! Full stack trace: \n{}", path, self.get_state().get_callstack().borrow().get_callstack_trace())));
             }
         }
 
         self.get_state_mut().pass_arguments_to_evaluation_stack(args)?;
-        self.choose_path(&Path::new_with_components_string(Some(path)), true);
+        self.choose_path(&Path::new_with_components_string(Some(path)), true)?;
 
         Ok(())
     }
 
-    fn reset_callstack(&mut self) {
-        self.if_async_we_cant("ResetCallstack");
+    fn reset_callstack(&mut self) -> Result<(), StoryError> {
+        self.if_async_we_cant("ResetCallstack")?;
 
         self.get_state_mut().force_end();
+
+        Ok(())
     }
 
     pub fn switch_flow(&mut self, flow_name: &str) -> Result<(), StoryError> {
-        self.if_async_we_cant("switch flow");
+        self.if_async_we_cant("switch flow")?;
 
         if self.async_saving {
             return Err(StoryError::InvalidStoryState(format!("Story is already in background saving mode, can't switch flow to {}", flow_name)));

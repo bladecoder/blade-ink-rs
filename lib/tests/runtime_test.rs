@@ -149,7 +149,7 @@ fn variable_observers_test() -> Result<(), Box<dyn Error>>  {
     story.observe_variable("x", Rc::new(RefCell::new(VObserver { expected_value: 5})))?;
 
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     common::next_all(&mut story, &mut text)?;
 
     Ok(())
@@ -170,7 +170,7 @@ fn set_and_get_variable_test() -> Result<(), Box<dyn Error>>  {
 
     assert_eq!(15, story.get_variable("x").unwrap().get_int().unwrap());
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -200,7 +200,7 @@ fn set_non_existant_variable_test() -> Result<(), Box<dyn Error>>  {
 
     assert_eq!(15, story.get_variable("x").unwrap().get_int().unwrap());
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -303,7 +303,7 @@ fn load_save_test() -> Result<(), Box<dyn Error>>  {
     Story::new(&json_string).unwrap();
     story.load_state(&save_string)?;
     
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!("\"There is not a moment to lose!\" I declared.", text.get(1).unwrap());

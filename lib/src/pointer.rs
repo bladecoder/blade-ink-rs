@@ -5,7 +5,7 @@ use crate::{container::Container, object::RTObject, path::{Path, Component}};
 pub const NULL: Pointer = Pointer::new(None, -1);
 
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Pointer {
     pub container: Option<Rc<Container>>,
     pub index: i32,
@@ -54,24 +54,15 @@ impl Pointer {
     }
 
     pub fn start_of(container:Rc<Container>) -> Pointer {
-        return Pointer{container: Some(container), index:0};
+        Pointer{container: Some(container), index:0}
     }
 }
 
 impl fmt::Display for Pointer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.container {
-            Some(container) => write!(f, "Ink Pointer -> {} -- index {}", container.get_path().to_string(), self.index),
+            Some(container) => write!(f, "Ink Pointer -> {} -- index {}", container.get_path(), self.index),
             None => write!(f, "Ink Pointer (null)"),
-        }
-    }
-}
-
-impl Default for Pointer {
-    fn default() -> Self {
-        Self {
-            container: Default::default(),
-            index: Default::default(),
         }
     }
 }

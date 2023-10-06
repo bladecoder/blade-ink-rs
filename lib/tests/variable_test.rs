@@ -38,7 +38,7 @@ fn var_string_ink_bug_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
     
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
@@ -56,7 +56,7 @@ fn var_divert_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
     
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;

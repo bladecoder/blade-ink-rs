@@ -13,13 +13,13 @@ fn thread_test() -> Result<(), StoryError>  {
     assert_eq!(2, story.get_current_choices().len());
     assert_eq!("No", story.get_current_choices()[0].text);
     assert_eq!("Yes", story.get_current_choices()[1].text);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     assert_eq!("No\nTry again!\n", story.continue_maximally()?);
     assert_eq!(2, story.get_current_choices().len());
     assert_eq!("No", story.get_current_choices()[0].text);
     assert_eq!("Yes", story.get_current_choices()[1].text);
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
 
     assert_eq!("Yes\nYou win!\n", story.continue_maximally()?);
 
@@ -44,13 +44,13 @@ fn thread_test_bug() -> Result<(), StoryError>  {
     let mut story = Story::new(&json_string)?;
     story.load_state(&save_string)?;
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     assert_eq!("No\nTry again!\n", story.continue_maximally()?);
     assert_eq!(2, story.get_current_choices().len());
     assert_eq!("No", story.get_current_choices()[0].text);
     assert_eq!("Yes", story.get_current_choices()[1].text);
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
 
     assert_eq!("Yes\nYou win!\n", story.continue_maximally()?);
 

@@ -31,7 +31,7 @@ fn turns_since_test() -> Result<(), StoryError>  {
     let mut story = Story::new(&json_string)?;
 
     assert_eq!("0\n0\n", &story.continue_maximally()?);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     assert_eq!("1\n", &story.continue_maximally()?);
 
     Ok(())

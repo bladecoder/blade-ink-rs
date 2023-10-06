@@ -382,4 +382,38 @@ impl CallStack {
 
         Ok(())
     }
+
+    pub fn get_callstack_trace(&self) -> String {
+        let mut sb = String::new();
+    
+        for (t, thread) in self.threads.iter().enumerate() {
+            let is_current = t == self.threads.len() - 1;
+
+            sb.push_str(&format!(
+                "=== THREAD {}/{} {}===",
+                t + 1,
+                self.threads.len(),
+                if is_current { &"(current) "} else { &""}
+            ));
+    
+            for element in &thread.callstack {
+                if element.push_pop_type == PushPopType::Function {
+                    sb.push_str( "  [FUNCTION] ");
+                } else {
+                    sb.push_str("  [TUNNEL] ");
+                }
+    
+                let pointer = &element.current_pointer;
+                
+                if !pointer.is_null() {
+                    sb.push_str(&format!(
+                        "<SOMEWHERE IN {}>\n",
+                        pointer.container.as_ref().unwrap().get_path())
+                    )
+                }
+            }
+        }
+    
+        sb
+    }
 }

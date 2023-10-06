@@ -99,10 +99,10 @@ fn list_bug_adding_element_test() -> Result<(), Box<dyn Error>> {
 
     assert_eq!("", &story.continue_maximally()?);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     assert_eq!("a\n", &story.continue_maximally()?);
 
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
     assert_eq!("OK\n", &story.continue_maximally()?);
 
     Ok(())

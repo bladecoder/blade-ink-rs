@@ -59,7 +59,7 @@ fn param_strings_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(2);
+    story.choose_choice_index(2)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -78,7 +78,7 @@ fn param_ints_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -97,7 +97,7 @@ fn param_floats_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -116,7 +116,7 @@ fn param_vars_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -135,7 +135,7 @@ fn param_multi_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;

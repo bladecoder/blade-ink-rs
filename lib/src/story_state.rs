@@ -519,7 +519,7 @@ impl StoryState {
                 }
             }
     
-            let mut trim_index = -1;
+            let trim_index;
             if glue_trim_index != -1 && function_trim_index != -1 {
                 trim_index = function_trim_index.min(glue_trim_index);
             } else if glue_trim_index != -1 {
@@ -1004,7 +1004,7 @@ impl StoryState {
     }
 
     pub fn visit_count_at_path_string(&self, path_string: &str) -> Result<i32, StoryError> {
-        let mut visit_count_out = None;
+        let mut visit_count_out;
 
         if self.patch.is_some() {
             let container = self.main_content_container.content_at_path(&Path::new_with_components_string(Some(path_string)), 0, -1).container();

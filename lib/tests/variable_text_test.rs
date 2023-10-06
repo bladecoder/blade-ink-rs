@@ -14,28 +14,28 @@ fn sequence_test() -> Result<(), StoryError>  {
     assert_eq!(1, text.len());
     assert_eq!("The radio hissed into life. \"Three!\"", text[0]);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
     assert_eq!(1, text.len());
     assert_eq!("The radio hissed into life. \"Two!\"", text[0]);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
     assert_eq!(1, text.len());
     assert_eq!("The radio hissed into life. \"One!\"", text[0]);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
     assert_eq!(1, text.len());
     assert_eq!("The radio hissed into life. There was the white noise racket of an explosion.", text[0]);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
@@ -57,28 +57,28 @@ fn cycle_test() -> Result<(), StoryError>  {
     assert_eq!(1, text.len());
     assert_eq!("The radio hissed into life. \"Three!\"", text[0]);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
     assert_eq!(1, text.len());
     assert_eq!("The radio hissed into life. \"Two!\"", text[0]);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
     assert_eq!(1, text.len());
     assert_eq!("The radio hissed into life. \"One!\"", text[0]);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
     assert_eq!(1, text.len());
     assert_eq!("The radio hissed into life. \"Three!\"", text[0]);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
@@ -100,28 +100,28 @@ fn once_test() -> Result<(), StoryError>  {
     assert_eq!(1, text.len());
     assert_eq!("The radio hissed into life. \"Three!\"", text[0]);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
     assert_eq!(1, text.len());
     assert_eq!("The radio hissed into life. \"Two!\"", text[0]);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
     assert_eq!(1, text.len());
     assert_eq!("The radio hissed into life. \"One!\"", text[0]);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
     assert_eq!(1, text.len());
     assert_eq!("The radio hissed into life.", text[0]);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
@@ -143,14 +143,14 @@ fn empty_elements_test() -> Result<(), StoryError>  {
     assert_eq!(1, text.len());
     assert_eq!("The radio hissed into life.", text[0]);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
     assert_eq!(1, text.len());
     assert_eq!("The radio hissed into life.", text[0]);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
@@ -171,14 +171,14 @@ fn list_in_choice_test() -> Result<(), StoryError>  {
     assert_eq!(1, text.len());
     assert_eq!("\"Hello, Master!\"", story.get_current_choices()[0].text);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
     assert_eq!(1, text.len());
     assert_eq!("\"Hello, Monsieur!\"", story.get_current_choices()[0].text);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 

@@ -10,7 +10,7 @@ fn gather_basic_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -32,7 +32,7 @@ fn gather_chain_test() -> Result<(), StoryError>  {
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!(3, story.get_current_choices().len());
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -40,7 +40,7 @@ fn gather_chain_test() -> Result<(), StoryError>  {
     assert_eq!(                "I did not pause for breath but kept on running. The road could not be much further! Mackie would have the engine running, and then I'd be safe.",
     text[0]);
     assert_eq!(2, story.get_current_choices().len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -59,11 +59,11 @@ fn nested_flow_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(2);
+    story.choose_choice_index(2)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -82,23 +82,23 @@ fn deep_nesting_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -118,7 +118,7 @@ fn complex_flow1_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -136,22 +136,22 @@ fn complex_flow2_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(3, text.len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, text.len());
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, text.len());
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;

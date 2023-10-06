@@ -19,10 +19,10 @@ pub fn write_dictionary_values(objs: &HashMap<String, Rc<Value>>) -> Result<serd
 
 pub fn write_rtobject(o: Rc<dyn RTObject>) -> Result<serde_json::Value, StoryError> {
     if let Some(c) = o.as_any().downcast_ref::<Container>() {
-        return Ok(write_rt_container(c, false)?);
+        return write_rt_container(c, false);
     }
 
-    if let Some(divert) = o.clone().into_any().downcast::<Divert>().ok() {
+    if let Ok(divert) = o.clone().into_any().downcast::<Divert>() {
         let mut div_type_key = "->";
 
         if divert.is_external { div_type_key = "x()"; }
@@ -156,7 +156,7 @@ pub fn write_rtobject(o: Rc<dyn RTObject>) -> Result<serde_json::Value, StoryErr
         return Ok(write_choice(choice));
     }
 
-    return Err(StoryError::BadJson(format!("Failed to write runtime object to JSON: {}", o.to_string())));
+    Err(StoryError::BadJson(format!("Failed to write runtime object to JSON: {}", o)))
 }
 
 pub fn write_rt_container(container: &Container, without_name: bool) -> Result<serde_json::Value, StoryError> {

@@ -132,9 +132,9 @@ impl InkList {
     pub fn without(&self, other_list: &InkList) -> InkList {
         let mut result = InkList::from_other_list(self);
        
-        for (key, value) in &other_list.items {
+        other_list.items.iter().for_each(|(key, _)| {
             result.items.remove(key);
-        }
+        });
 
         result
     }
@@ -215,7 +215,7 @@ impl InkList {
             }
         }
 
-        return sub_list;
+        sub_list
     }
 
     pub fn inverse(&self) -> InkList {
@@ -306,6 +306,12 @@ impl InkList {
         
         self.get_max_item().unwrap().1 <= other_list.get_max_item().unwrap().1
             && self.get_min_item().unwrap().1 <= other_list.get_min_item().unwrap().1
+    }
+}
+
+impl Default for InkList {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
