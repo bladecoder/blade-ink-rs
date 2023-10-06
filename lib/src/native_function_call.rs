@@ -226,7 +226,7 @@ impl NativeFunctionCall {
         self.call_type(coerced_params)
     }
 
-    fn call_binary_list_operation(&self, params: &Vec<Rc<dyn RTObject>>) -> Result<Rc<dyn RTObject>, StoryError> {
+    fn call_binary_list_operation(&self, params: &[Rc<dyn RTObject>]) -> Result<Rc<dyn RTObject>, StoryError> {
         // List-Int addition/subtraction returns a List (e.g., "alpha" + 1 = "beta")
         if (self.op == Op::Add || self.op == Op::Subtract) && 
                 Value::get_list_value(params[0].as_ref()).is_some() &&
@@ -256,7 +256,7 @@ impl NativeFunctionCall {
         // Normal (list • list) operation
         if Value::get_list_value(params[0].as_ref()).is_some() &&
                 Value::get_list_value(params[1].as_ref()).is_some() {
-            let mut p = vec![v1.clone(), v2.clone()];
+            let p = vec![v1.clone(), v2.clone()];
             
             return self.call_type(p);
         }
@@ -269,7 +269,7 @@ impl NativeFunctionCall {
         )))
     }
 
-    fn call_list_increment_operation(&self, list_int_params: &Vec<Rc<dyn RTObject>>) -> Rc<Value> {
+    fn call_list_increment_operation(&self, list_int_params: &[Rc<dyn RTObject>]) -> Rc<Value> {
         let list_val = Value::get_list_value(list_int_params[0].as_ref()).unwrap();
         let int_val = Value::get_int_value(list_int_params[1].as_ref()).unwrap();
     
@@ -364,7 +364,7 @@ impl NativeFunctionCall {
                     },
                 }
             } else {
-                return Err(StoryError::InvalidStoryState(format!("RTObject of type Value expected: {}", obj.to_string())));
+                return Err(StoryError::InvalidStoryState(format!("RTObject of type Value expected: {}", obj)));
             }
         }
 
@@ -597,7 +597,6 @@ impl NativeFunctionCall {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_float(f32::min(*op1, op2)))),
                 _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            ValueType::List(l) => todo!(),
             _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }
@@ -612,7 +611,6 @@ impl NativeFunctionCall {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_float(f32::max(*op1, op2)))),
                 _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
             },
-            ValueType::List(l) => todo!(),
             _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
         }
     }

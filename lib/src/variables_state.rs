@@ -76,10 +76,10 @@ impl VariablesState {
         &mut self,
         var_ass: &VariableAssignment,
         value: Rc<Value>,
-    ) {
+    )  -> Result<(), StoryError>{
         let mut name = var_ass.variable_name.to_string();
         let mut context_index = -1;
-        let mut set_global = false;
+        let mut set_global;
     
         // Are we assigning to a global variable?
         if var_ass.is_new_declaration {
@@ -119,8 +119,10 @@ impl VariablesState {
         if set_global {
             self.set_global(&name, value);
         } else {
-            self.callstack.borrow_mut().set_temporary_variable(name, value, var_ass.is_new_declaration, context_index);
+            self.callstack.borrow_mut().set_temporary_variable(name, value, var_ass.is_new_declaration, context_index)?;
         }
+
+        Ok(())
     }
 
     pub fn global_variable_exists_with_name(&self, name: &str) -> bool {
@@ -147,7 +149,7 @@ impl VariablesState {
         // create
         // a chain of indirection by just returning the final target.
         if let Some(value_of_variable_pointed_to) = value_of_variable_pointed_to {
-            if let Some(double_redirection_pointer) = Value::get_variable_pointer_value(value_of_variable_pointed_to.as_ref()) {
+            if Value::get_variable_pointer_value(value_of_variable_pointed_to.as_ref()).is_some() {
                 return value_of_variable_pointed_to;
             }
         }

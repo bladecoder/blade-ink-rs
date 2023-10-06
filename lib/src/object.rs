@@ -46,7 +46,7 @@ impl Object {
                 
                 let mut container = rtobject.get_object().get_parent();
                 let mut child = rtobject.clone();
-                let mut child_rc = None;
+                let mut child_rc;
 
                 while let Some(c) = container {
                     let mut child_valid_name = false;

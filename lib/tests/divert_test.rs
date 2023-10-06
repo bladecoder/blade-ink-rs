@@ -39,7 +39,7 @@ fn divert_on_choice_test() -> Result<(), StoryError>  {
 
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -58,7 +58,7 @@ fn complex_branching1_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
     
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -78,7 +78,7 @@ fn complex_branching2_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
     
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;

@@ -25,7 +25,7 @@ fn auto_stitch2_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
@@ -47,7 +47,7 @@ fn manual_stitch_test() -> Result<(), StoryError>  {
     assert_eq!(1, text.len());
     assert_eq!("How shall we travel?", text[0]);
 
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
@@ -69,7 +69,7 @@ fn manual_stitch2_test() -> Result<(), StoryError>  {
     assert_eq!(1, text.len());
     assert_eq!("How shall we travel?", text[0]);
 
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 

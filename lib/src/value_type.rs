@@ -1,6 +1,5 @@
-use std::fmt;
 
-use crate::{object::{RTObject, Object}, path::Path, ink_list::InkList, story_error::StoryError};
+use crate::{path::Path, ink_list::InkList, story_error::StoryError};
 
 #[repr(u8)]
 #[derive(Clone)]

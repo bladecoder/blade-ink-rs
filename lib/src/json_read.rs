@@ -279,8 +279,7 @@ pub fn jarray_to_runtime_obj_list(jarray: &Vec<serde_json::Value>, skip_last: bo
 
     let mut list: Vec<Rc<dyn RTObject>> = Vec::with_capacity(jarray.len());
 
-    for i in 0..count {
-        let jtok = &jarray[i];
+    for jtok in jarray.iter().take(count) {
         let runtime_obj = jtoken_to_runtime_object(jtok, None);
         list.push(runtime_obj?);
     }
@@ -322,17 +321,6 @@ pub(crate) fn jobject_to_hashmap_values(jobj: &Map<String, serde_json::Value>) -
 
     for (k, v) in jobj.iter() {
         dict.insert(k.clone(), jtoken_to_runtime_object(v, None)?.into_any().downcast::<Value>().unwrap());
-    }
-
-    Ok(dict)
-}
-
-pub(crate) fn jobject_to_hashmap_rtobjects(jobj: &Map<String, serde_json::Value>) -> Result<HashMap<String, Rc<dyn RTObject>>, StoryError>  {
-
-    let mut dict: HashMap<String, Rc<dyn RTObject>> = HashMap::new();
-
-    for (k, v) in jobj.iter() {
-        dict.insert(k.clone(), jtoken_to_runtime_object(v, None)?);
     }
 
     Ok(dict)

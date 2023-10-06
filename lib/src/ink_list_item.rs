@@ -42,7 +42,7 @@ impl InkListItem {
     }
 
     pub fn get_full_name(&self) -> String {
-        let origin = self.origin_name.as_ref().map(|s| s.as_str()).unwrap_or("?");
+        let origin = self.origin_name.as_deref().unwrap_or("?");
         format!("{}.{}", origin, self.item_name)
     }
 

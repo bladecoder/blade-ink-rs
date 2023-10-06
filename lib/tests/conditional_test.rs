@@ -79,7 +79,7 @@ fn ifelse_ext_text1_test() -> Result<(), StoryError>  {
     assert_eq!(1, text.len());
     assert_eq!("This is text 1.", text[0]);
     assert_eq!(1, story.get_current_choices().len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, text.len());
@@ -101,7 +101,7 @@ fn ifelse_ext_text2_test() -> Result<(), StoryError>  {
     assert_eq!(1, text.len());
     assert_eq!("This is text 2.", text[0]);
     assert_eq!(1, story.get_current_choices().len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, text.len());
@@ -123,7 +123,7 @@ fn ifelse_ext_text3_test() -> Result<(), StoryError>  {
     assert_eq!(1, text.len());
     assert_eq!("This is text 3.", text[0]);
     assert_eq!(1, story.get_current_choices().len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, text.len());
@@ -141,7 +141,7 @@ fn cond_text1_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
     
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
     
@@ -160,7 +160,7 @@ fn cond_text2_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
     
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
     
@@ -179,7 +179,7 @@ fn cond_opt1_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
     
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
     
@@ -197,7 +197,7 @@ fn cond_opt2_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
     
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
     
@@ -217,25 +217,25 @@ fn stopping_test() -> Result<(), StoryError>  {
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
     assert_eq!("I entered the casino.", text[0]);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
     assert_eq!("I entered the casino again.", text[0]);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
     assert_eq!("Once more, I went inside.", text[0]);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
     assert_eq!("Once more, I went inside.", text[0]);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     Ok(())
 }
@@ -251,25 +251,25 @@ fn cycle_test() -> Result<(), StoryError>  {
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
     assert_eq!("I held my breath.", text[0]);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
     assert_eq!("I waited impatiently.", text[0]);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
     assert_eq!("I paused.", text[0]);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
     assert_eq!("I held my breath.", text[0]);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     Ok(())
 }
@@ -285,18 +285,18 @@ fn once_test() -> Result<(), StoryError>  {
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
     assert_eq!("Would my luck hold?", text[0]);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
     assert_eq!("Could I win the hand?", text[0]);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(0, text.len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -315,17 +315,17 @@ fn shuffle_test() -> Result<(), StoryError>  {
     
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -346,18 +346,18 @@ fn shuffle_stopping() -> Result<(), StoryError>  {
     
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
     assert_eq!("final", text[0]);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -379,17 +379,17 @@ fn shuffle_once() -> Result<(), StoryError>  {
     
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(0, text.len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -411,14 +411,14 @@ fn multiline_test() -> Result<(), StoryError>  {
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
     assert_eq!("At the table, I drew a card. Ace of Hearts.", text[0]);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, text.len());
     assert_eq!("I drew a card. 2 of Diamonds.", text[0]);
     assert_eq!("\"Should I hit you again,\" the croupier asks.", text[1]);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -440,14 +440,14 @@ fn multiline_divert_test() -> Result<(), StoryError>  {
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
     assert_eq!("At the table, I drew a card. Ace of Hearts.", text[0]);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, text.len());
     assert_eq!("I drew a card. 2 of Diamonds.", text[0]);
     assert_eq!("\"Should I hit you again,\" the croupier asks.", text[1]);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -469,12 +469,12 @@ fn multiline_choice_test() -> Result<(), StoryError>  {
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
     assert_eq!("At the table, I drew a card. Ace of Hearts.", text[0]);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, story.get_current_choices().len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     
     text.clear();
     common::next_all(&mut story, &mut text)?;

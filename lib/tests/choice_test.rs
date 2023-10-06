@@ -66,7 +66,7 @@ fn single_choic2_test() -> Result<(), StoryError>  {
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
@@ -86,7 +86,7 @@ fn suppress_choice_test() -> Result<(), StoryError>  {
     
     common::next_all(&mut story, &mut text)?;
     assert_eq!("Hello back!", story.get_current_choices().get(0).unwrap().text);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -107,7 +107,7 @@ fn mixed_choice_test() -> Result<(), StoryError>  {
     
     common::next_all(&mut story, &mut text)?;
     assert_eq!("Hello back!", story.get_current_choices().get(0).unwrap().text);
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -129,7 +129,7 @@ fn varying_choice_test() -> Result<(), StoryError>  {
     
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, story.get_current_choices().len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -150,7 +150,7 @@ fn sticky_choice_test() -> Result<(), StoryError>  {
     
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, story.get_current_choices().len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -182,11 +182,11 @@ fn fallback_choice2_test() -> Result<(), StoryError>  {
     
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, story.get_current_choices().len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -218,7 +218,7 @@ fn label_flow_test() -> Result<(), StoryError>  {
     
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, story.get_current_choices().len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -238,7 +238,7 @@ fn label_flow2_test() -> Result<(), StoryError>  {
     
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, story.get_current_choices().len());
-    story.choose_choice_index(1);
+    story.choose_choice_index(1)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -257,7 +257,7 @@ fn label_scope_test() -> Result<(), StoryError>  {
     let mut text: Vec<String> = Vec::new();
     
     common::next_all(&mut story, &mut text)?;
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;
@@ -277,7 +277,7 @@ fn divert_choice_test() -> Result<(), StoryError>  {
     
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, story.get_current_choices().len());
-    story.choose_choice_index(0);
+    story.choose_choice_index(0)?;
 
     text.clear();
     common::next_all(&mut story, &mut text)?;

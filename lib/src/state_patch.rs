@@ -2,7 +2,7 @@ use std::{
     rc::Rc, collections::{HashMap, HashSet},
 };
 
-use crate::{object::{RTObject, Object}, container::Container, value::Value};
+use crate::{object::Object, container::Container, value::Value};
 
 #[derive(Clone)]
 pub struct StatePatch {

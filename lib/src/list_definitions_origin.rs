@@ -40,10 +40,6 @@ impl ListDefinitionsOrigin {
         self.lists.get(name)
     }
 
-    fn get_lists(&self) -> Vec<&ListDefinition> {
-        self.lists.values().collect()
-    }
-
     pub fn find_single_item_list_with_name(&self, name: &str) -> Option<&Rc<Value>> {
         self.all_unambiguous_list_value_cache.get(name)
     }
