@@ -15,6 +15,17 @@ pub(crate) struct ExternalFunctionDef {
     lookahead_safe: bool,
 }
 
+pub trait ErrorHandler {
+    fn error(&mut self, message: &str, error_type: ErrorType);
+}
+
+pub enum ErrorType {
+        // You should probably fix this, but it's not critical
+        Warning,
+        // Critical error that can't be recovered from
+        Error
+}
+
 impl Story {
 
     pub fn observe_variable(&mut self, variable_name: &str, observer: Rc<RefCell<dyn VariableObserver>>) -> Result<(), StoryError> {

@@ -24,7 +24,6 @@ Currently under development. This is the implementation status:
 
 ## TODO
 
-- [ ] Cache components string in Path
 - [ ] Assert, revisar y lanzar error.
 - [ ] Doc.
 - [ ] Publicar crate.

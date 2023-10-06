@@ -6,10 +6,9 @@ use rand::{Rng, rngs::StdRng, SeedableRng};
 
 use crate::{
     container::Container,
-    error::ErrorType,
     json_read,
     push_pop::PushPopType,
-    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::NativeFunctionCall, variable_reference::VariableReference, list_definitions_origin::ListDefinitionsOrigin, ink_list::InkList, ink_list_item::InkListItem, story_error::StoryError, value_type::ValueType, story_callbacks::{VariableObserver, ExternalFunctionDef},
+    story_state::StoryState, pointer::{Pointer, self}, object::{RTObject, Object}, void::Void, path::Path, control_command::{ControlCommand, CommandType}, choice::Choice, value::Value, tag::Tag, divert::Divert, choice_point::ChoicePoint, search_result::SearchResult, variable_assigment::VariableAssignment, native_function_call::NativeFunctionCall, variable_reference::VariableReference, list_definitions_origin::ListDefinitionsOrigin, ink_list::InkList, ink_list_item::InkListItem, story_error::StoryError, value_type::ValueType, story_callbacks::{VariableObserver, ExternalFunctionDef, ErrorType, ErrorHandler},
 };
 
 pub const INK_VERSION_CURRENT: i32 = 21;
@@ -31,7 +30,7 @@ pub struct Story {
     async_saving: bool,
     prev_containers: Vec<Rc<Container>>,
     list_definitions: Rc<ListDefinitionsOrigin>,
-    on_error: Option<fn(message: &str, error_type: ErrorType)>,
+    on_error: Option<Rc<RefCell<dyn ErrorHandler>>>,
     pub(crate) state_snapshot_at_last_new_line: Option<StoryState>,
     pub(crate) variable_observers: HashMap<String, Vec<Rc<RefCell<dyn VariableObserver>>>>,
     pub(crate) has_validated_externals: bool,
@@ -152,10 +151,7 @@ impl Story {
 
         let cp = self.get_state().get_current_pointer().resolve();
 
-        let cp = match cp {
-            Some(_) => Some(cp.as_ref().unwrap().as_ref()),
-            None => None,
-        };
+        let cp = cp.as_ref().map(|cp| cp.as_ref());
 
         self.main_content_container
             .build_string_of_hierarchy(&mut sb, 0, cp);
@@ -189,9 +185,7 @@ impl Story {
             self.validate_external_bindings()?;
         }
 
-        self.continue_internal(millisecs_limit_async)?;
-
-        Ok(())
+        self.continue_internal(millisecs_limit_async)
     }
 
     fn continue_internal(&mut self, millisecs_limit_async: f32) -> Result<(), StoryError> {
@@ -331,17 +325,17 @@ impl Story {
         // This may either have been StoryExceptions that were thrown
         // and caught during evaluation, or directly added with AddError.
         if self.get_state().has_error() || self.get_state().has_warning() {
-            match self.on_error {
+            match &self.on_error {
                 Some(on_err) => {
                     if self.get_state().has_error() {
                         for err in self.get_state().get_current_errors() {
-                            (on_err)(err, ErrorType::Error);
+                            on_err.borrow_mut().error(err, ErrorType::Error);
                         }
                     }
 
                     if self.get_state().has_warning() {
                         for err in self.get_state().get_current_warnings() {
-                            (on_err)(err, ErrorType::Warning);
+                            on_err.borrow_mut().error(err, ErrorType::Warning);
                         }
                     }
 
@@ -580,7 +574,13 @@ impl Story {
 
         // Choice with condition?
         if let Some(cco) = &current_content_obj {
-                if let Ok(choice_point) =  cco.clone().into_any().downcast::<ChoicePoint>() {
+            // If the container has no content, then it will be
+            // the "content" itself, but we skip over it.
+            if cco.as_any().is::<Container>() {
+                should_add_to_stream = false;
+            }
+
+            if let Ok(choice_point) =  cco.clone().into_any().downcast::<ChoicePoint>() {
 
                 let choice = self.process_choice(&choice_point)?;
                 if let Some(choice) = choice {
@@ -590,12 +590,6 @@ impl Story {
                 current_content_obj = None;
                 should_add_to_stream = false;
             }
-        }
-
-        // If the container has no content, then it will be
-        // the "content" itself, but we skip over it.
-        if current_content_obj.is_some() && current_content_obj.as_ref().unwrap().as_any().is::<Container>() {
-            should_add_to_stream = false;
         }
 
         // Content to add to evaluation stack or the output stream
@@ -609,12 +603,14 @@ impl Story {
             let var_pointer =
                 Value::get_variable_pointer_value(current_content_obj.as_ref().unwrap().as_ref());
 
-            if var_pointer.is_some() && var_pointer.unwrap().context_index == -1 {
+            if let Some(var_pointer) = var_pointer {  
+                if var_pointer.context_index == -1 {
 
-                // Create new Object so we're not overwriting the story's own
-                // data
-                let context_idx = self.get_state().get_callstack().borrow().context_for_variable_named(&var_pointer.unwrap().variable_name);
-                current_content_obj = Some(Rc::new(Value::new_variable_pointer(&var_pointer.unwrap().variable_name, context_idx as i32)));
+                    // Create new Object so we're not overwriting the story's own
+                    // data
+                    let context_idx = self.get_state().get_callstack().borrow().context_for_variable_named(&var_pointer.variable_name);
+                    current_content_obj = Some(Rc::new(Value::new_variable_pointer(&var_pointer.variable_name, context_idx as i32)));
+                }
             }
 
             // Expression evaluation content
@@ -803,7 +799,7 @@ impl Story {
                     return Err(StoryError::InvalidStoryState(format!("Tried to divert using a target from a variable that could not be found ({})", var_name.as_ref().unwrap())));
                 }
             } else if current_divert.is_external {
-                self.call_external_function(&current_divert.get_target_path_string().unwrap(), current_divert.external_args);
+                self.call_external_function(&current_divert.get_target_path_string().unwrap(), current_divert.external_args)?;
                 return Ok(true);
             } else {
                 self.get_state_mut().set_diverted_pointer(current_divert.get_target_pointer());
@@ -999,7 +995,7 @@ impl Story {
                         None => None,
                     };
 
-                    let mut either_count = 0;
+                    let either_count:i32;
 
                     match container {
                         Some(container) => {
@@ -1305,28 +1301,28 @@ impl Story {
 
         // Variable reference
         if let Ok(var_ref) = content_obj.clone().into_any().downcast::<VariableReference>() {
-            let mut found_value: Option<Rc<Value>> = None;
+            let found_value: Rc<Value>;
 
             // Explicit read count value
             if let Some(p) = &var_ref.path_for_count {
                 let container = var_ref.get_container_for_count();
                 let count = self.get_state_mut().visit_count_for_container(container.as_ref().unwrap());
-                found_value = Some(Rc::new(Value::new_int(count)));
+                found_value = Rc::new(Value::new_int(count));
             }
 
             // Normal variable reference
             else {
-
-                found_value = self.get_state().variables_state.get_variable_with_name(&var_ref.name, -1);
-
-                if found_value.is_none() {
-                    self.add_error(&format!("Variable not found: '{}'. Using default value of 0 (false). This can happen with temporary variables if the declaration hasn't yet been hit. Globals are always given a default value on load if a value doesn't exist in the save state.", var_ref.name), true);
-                    
-                    found_value = Some(Rc::new(Value::new_int(0)));
+                match self.get_state().variables_state.get_variable_with_name(&var_ref.name, -1) {
+                    Some(v) => found_value = v,
+                    None => {
+                        self.add_error(&format!("Variable not found: '{}'. Using default value of 0 (false). This can happen with temporary variables if the declaration hasn't yet been hit. Globals are always given a default value on load if a value doesn't exist in the save state.", var_ref.name), true);
+                        
+                        found_value = Rc::new(Value::new_int(0));
+                    },
                 }
             }
 
-            self.get_state_mut().push_evaluation_stack(found_value.unwrap());
+            self.get_state_mut().push_evaluation_stack(found_value);
 
             return Ok(true);
         }
@@ -1481,9 +1477,11 @@ impl Story {
         self.get_state().get_current_errors()
     }
 
-    pub fn choose_choice_index(&mut self, choice_index: usize) {
+    pub fn choose_choice_index(&mut self, choice_index: usize) -> Result<(), StoryError> {
         let choices = self.get_current_choices();
-        //assert!(choice_index < choices.len(), "choice out of range");
+        if choice_index >= choices.len() {
+            return Err(StoryError::BadArgument("choice out of range".to_owned()));
+        }
 
         // Replace callstack with the one from the thread at the choosing point,
         // so that we can jump into the right place in the flow.
@@ -1493,14 +1491,18 @@ impl Story {
         let choice_to_choose = choices.get(choice_index).unwrap();
         self.get_state().get_callstack().borrow_mut().set_current_thread(choice_to_choose.get_thread_at_generation().unwrap());
 
-        self.choose_path(&choice_to_choose.target_path, true);
+        self.choose_path(&choice_to_choose.target_path, true)?;
+
+        Ok(())
     }
 
-    fn choose_path(&mut self, p: &Path, incrementing_turn_index: bool) {
-        self.get_state_mut().set_chosen_path( &p,  incrementing_turn_index);
+    fn choose_path(&mut self, p: &Path, incrementing_turn_index: bool)  -> Result<(), StoryError> {
+        self.get_state_mut().set_chosen_path( p,  incrementing_turn_index)?;
 
         // Take a note of newly visited containers for read counts etc
         self.visit_changed_containers_due_to_divert();
+
+        Ok(())
     }
 
     fn is_truthy(&self, obj: Rc<dyn RTObject>) -> Result<bool, StoryError> {
@@ -1515,7 +1517,7 @@ impl Story {
             return val.is_truthy();
         }
 
-        return Ok(truthy);
+        Ok(truthy)
     }
 
     fn process_choice(&mut self, choice_point: &Rc<ChoicePoint>) -> Result<Option<Rc<Choice>>, StoryError> {
@@ -1558,7 +1560,7 @@ impl Story {
 
         start_text.push_str(&choice_only_text);
 
-        let choice = Rc::new(Choice::new(choice_point.get_path_on_choice(), Object::get_path(choice_point.as_ref()).to_string(), choice_point.is_invisible_default(), tags, self.get_state().get_callstack().borrow_mut().fork_thread(), start_text.trim().to_string(), 0, 0));
+        let choice = Rc::new(Choice::new(choice_point.get_path_on_choice(), Object::get_path(choice_point.as_ref()).to_string(), choice_point.is_invisible_default(), tags, self.get_state().get_callstack().borrow_mut().fork_thread(), start_text.trim().to_string()));
 
         Ok(Some(choice))
     }
@@ -1567,12 +1569,12 @@ impl Story {
         let obj = self.get_state_mut().pop_evaluation_stack();
         let choice_only_str_val = Value::get_string_value(obj.as_ref()).unwrap();
 
-        while self.get_state().evaluation_stack.len() > 0 && self.get_state().peek_evaluation_stack().unwrap().as_any().is::<Tag>() {
+        while !self.get_state().evaluation_stack.is_empty() && self.get_state().peek_evaluation_stack().unwrap().as_any().is::<Tag>() {
             let tag = self.get_state_mut().pop_evaluation_stack().into_any().downcast::<Tag>().unwrap();
             tags.insert(0, tag.get_text().clone()); // popped in reverse order
         }
 
-        return choice_only_str_val.string.to_string();
+        choice_only_str_val.string.to_string()
     }
 
     pub fn pointer_at_path(main_content_container: &Rc<Container>, path: &Path) -> Result<Pointer, StoryError> {
@@ -1697,7 +1699,7 @@ impl Story {
 
     // TODO: The result and the args should be an object not a String
     pub fn evaluate_function(&mut self, func_name: &str, args: Option<&Vec<String>>, text_output: &mut String) -> Result<Option<String>, StoryError> {
-        self.if_async_we_cant("evaluate a function");
+        self.if_async_we_cant("evaluate a function")?;
 
         if func_name.trim().is_empty() {
             return Err(StoryError::InvalidStoryState("Function is empty or white space.".to_owned()));
@@ -1718,7 +1720,7 @@ impl Story {
         self.get_state_mut().reset_output(None);
 
         // State will temporarily replace the callstack in order to evaluate
-        self.get_state_mut().start_function_evaluation_from_game(func_container.unwrap(), args);
+        self.get_state_mut().start_function_evaluation_from_game(func_container.unwrap(), args)?;
 
         // Evaluate the function, and collect the string output
         while self.can_continue() {
@@ -1782,7 +1784,7 @@ impl Story {
             }
         }
     
-        return Err(StoryError::InvalidStoryState("Should never reach here".to_owned()));
+        Err(StoryError::InvalidStoryState("Should never reach here".to_owned()))
     }
 
     pub fn get_global_tags(&self) -> Result<Vec<String>, StoryError> {
@@ -1844,13 +1846,13 @@ impl Story {
         self.main_content_container.content_at_path(path, 0, -1)
     }
 
-    pub fn get_current_tags(&mut self) -> Vec<String> {
-        self.if_async_we_cant("call currentTags since it's a work in progress");
-        return self.get_state_mut().get_current_tags();
+    pub fn get_current_tags(&mut self) -> Result<Vec<String>, StoryError> {
+        self.if_async_we_cant("call currentTags since it's a work in progress")?;
+        Ok(self.get_state_mut().get_current_tags())
     }
 
     pub fn choose_path_string(&mut self, path: &str, reset_call_stack: bool, args: Option<&Vec<String>>) -> Result<(), StoryError> {
-        self.if_async_we_cant("call ChoosePathString right now");
+        self.if_async_we_cant("call ChoosePathString right now")?;
 
         if reset_call_stack {
             self.reset_callstack();

@@ -1,17 +1,17 @@
 use std::{
     fmt,
-    hash::{Hash, Hasher},
+    hash::{Hash, Hasher}, cell::{RefCell, OnceCell},
 };
 
 const PARENT_ID: &str = "^";
 
 
 /// The componentsString field from the C# impl. has been removed and it is always generated dinamically from the components field.
-#[derive(Eq, Clone)]
+#[derive(Eq, Clone, Default)]
 pub struct Path {
     components: Vec<Component>,
     is_relative: bool,
-    // components_string: RefCell<String>, // TODO
+    components_string: OnceCell<String>,
 }
 
 impl Path {
@@ -33,7 +33,7 @@ impl Path {
 
     pub fn new_with_components_string(components_string: Option<&str>) -> Path {
         let cs = components_string;
-        let mut is_relative = false;
+        let is_relative:bool;
 
         // Empty path, empty components
         // (path is to root, like "/" in file system)
@@ -50,7 +50,7 @@ impl Path {
         // is equivalent to file system style path:
         // ../../hello/5
 
-        if cs.chars().next().unwrap() == '.' {
+        if cs.starts_with('.') {
             is_relative = true;
             cs = cs[1..].to_string();
         } else {
@@ -69,9 +69,13 @@ impl Path {
             }
         }
 
+        let cs_cell = OnceCell::new();
+        let _ = cs_cell.set(cs);
+
         Path {
             components,
             is_relative,
+            components_string: cs_cell
         }
     }
 
@@ -87,9 +91,9 @@ impl Path {
         if self.components.len() >= 2 {
             let tail_comps = &self.components[1..];
 
-            return Path::new(tail_comps, false);
+            Path::new(tail_comps, false)
         } else {
-            return Path::get_self();
+            Path::get_self()
         }
     }
 
@@ -105,8 +109,8 @@ impl Path {
     }
 
     pub fn get_last_component(&self) -> Option<&Component> {
-        if self.components.len() > 0 {
-            return self.components.get(self.components.len() - 1);
+        if !self.components.is_empty() {
+            return self.components.last();
         }
 
         None
@@ -141,22 +145,24 @@ impl Path {
     }
 
     pub fn get_components_string(&self) -> String {
-        let mut sb = String::new();
+        return self.components_string.get_or_init( || {
+            let mut sb = String::new();
 
-        if self.components.len() > 0 {
-            sb.push_str(&self.components.get(0).unwrap().to_string());
+            if !self.components.is_empty() {
+                sb.push_str(&self.components.get(0).unwrap().to_string());
 
-            for i in 1..self.components.len() {
-                sb.push('.');
-                sb.push_str(&self.components.get(i).unwrap().to_string());
+                for i in 1..self.components.len() {
+                    sb.push('.');
+                    sb.push_str(&self.components.get(i).unwrap().to_string());
+                }
             }
-        }
 
-        if self.is_relative {
-            return ".".to_owned() + &sb;
-        }
+            if self.is_relative {
+                return ".".to_owned() + &sb;
+            }
 
-        sb
+            sb
+        }).to_string();
     }
 
     pub fn path_by_appending_component( &self, c: Component) -> Path {
@@ -170,15 +176,6 @@ impl Path {
 impl fmt::Display for Path {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.get_components_string())
-    }
-}
-
-impl Default for Path {
-    fn default() -> Self {
-        Self {
-            components: Default::default(),
-            is_relative: Default::default(),
-        }
     }
 }
 
@@ -209,7 +206,7 @@ impl PartialEq for Path {
             }
         }
 
-        return true;
+        true
     }
 }
 
@@ -277,7 +274,7 @@ impl PartialEq for Component {
 impl Hash for Component {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self.index {
-            Some(index) => return index.hash(state),
+            Some(index) => index.hash(state),
             None => return self.name.as_ref().unwrap().hash(state),
         }
     }

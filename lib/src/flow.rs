@@ -5,7 +5,7 @@ use serde_json::Map;
 use crate::{callstack::{CallStack, Thread}, choice::Choice, object::RTObject, container::Container, json_write, json_read, story_error::StoryError};
 
 #[derive(Clone)]
-pub struct Flow {
+pub(crate) struct Flow {
     pub name: String,
     pub callstack: Rc<RefCell<CallStack>>,
     pub output_stream: Vec<Rc<dyn RTObject>>,

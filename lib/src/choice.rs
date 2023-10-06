@@ -5,25 +5,25 @@ use crate::{path::Path, callstack::Thread, object::{Object, RTObject}};
 
 pub struct Choice {
     obj: Object,
-    pub target_path: Path,
+    thread_at_generation: RefCell<Option<Thread>>,
+    pub(crate) original_thread_index: RefCell<usize>,
+    pub(crate) source_path: String,
+    pub(crate) target_path: Path,
     pub is_invisible_default: bool,
     pub tags: Vec<String>,
     pub index: RefCell<usize>,
-    pub original_thread_index: RefCell<usize>,
     pub text: String,
-    thread_at_generation: RefCell<Option<Thread>>,
-    pub source_path: String
 }
 
 impl Choice {
-    pub fn new(target_path: Path, source_path: String, is_invisible_default: bool, tags: Vec<String>, thread_at_generation: Thread, text: String, index: usize, original_thread_index: usize) -> Choice {
+    pub fn new(target_path: Path, source_path: String, is_invisible_default: bool, tags: Vec<String>, thread_at_generation: Thread, text: String) -> Choice {
         Self {
             obj: Object::new(),
             target_path,
             is_invisible_default,
             tags,
-            index: RefCell::new(index),
-            original_thread_index: RefCell::new(original_thread_index),
+            index: RefCell::new(0),
+            original_thread_index: RefCell::new(0),
             text,
             thread_at_generation: RefCell::new(Some(thread_at_generation)),
             source_path,
@@ -50,10 +50,7 @@ impl Choice {
     }
 
     pub fn get_thread_at_generation(&self) -> Option<Thread> {
-        match self.thread_at_generation.borrow().as_ref() {
-            Some(t) => Some(t.copy()),
-            None => None,
-        }
+        self.thread_at_generation.borrow().as_ref().map(|t| t.copy())
     }
 }
 
