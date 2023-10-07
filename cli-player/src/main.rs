@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let json_string = get_json_string(&args.json_filename)?;
 
     // REMOVE BOM if exits
-    let json_string_without_bom = json_string.strip_prefix("\u{feff}").unwrap_or(&json_string);
+    let json_string_without_bom = json_string.strip_prefix('\u{feff}').unwrap_or(&json_string);
 
     let mut story = Story::new(json_string_without_bom)?;
     let mut end = false;

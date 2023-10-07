@@ -391,7 +391,7 @@ impl Story {
 
         // Run out of content and we have a default invisible choice that we can follow?
         if !self.can_continue() && !self.get_state().get_callstack().borrow().element_is_evaluate_from_game() {
-            self.try_follow_default_invisible_choice();
+            self.try_follow_default_invisible_choice()?;
         }
 
         // Don't save/rewind during string evaluation, which is e.g. used for choices
@@ -821,7 +821,10 @@ impl Story {
         if let Some(eval_command) = content_obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
             match eval_command.command_type {
                 CommandType::EvalStart => {
-                    assert!(!self.get_state().get_in_expression_evaluation(), "Already in expression evaluation?");
+                    if self.get_state().get_in_expression_evaluation() {
+                        return Err(StoryError::InvalidStoryState("Already in expression evaluation?".to_owned()));
+                    }
+
                     self.get_state().set_in_expression_evaluation(true);
                 },
                 CommandType::EvalOutput => {
@@ -847,7 +850,9 @@ impl Story {
                     }
                 },
                 CommandType::EvalEnd => {
-                    assert!(self.get_state().get_in_expression_evaluation(), "Not in expression evaluation mode");
+                    if !self.get_state().get_in_expression_evaluation() {
+                        return Err(StoryError::InvalidStoryState("Not in expression evaluation mode".to_owned()));
+                    }
                     self.get_state().set_in_expression_evaluation(false);
                 },
                 CommandType::Duplicate => {
@@ -874,8 +879,8 @@ impl Story {
                             override_tunnel_return_target = Some(v.clone());
                         }
 
-                        if override_tunnel_return_target.is_none() {
-                            assert!(popped.as_ref().as_any().downcast_ref::<Void>().is_some(), "Expected void if ->-> doesn't override target");
+                        if override_tunnel_return_target.is_none() && !popped.as_ref().as_any().is::<Void>() {
+                            return Err(StoryError::InvalidStoryState("Expected void if ->-> doesn't override target".to_owned()));
                         }
                     }
 
@@ -1636,10 +1641,9 @@ impl Story {
     
         if !previous_pointer.is_null() {
             let mut prev_ancestor = None;
-    
-            let resolved = previous_pointer.resolve();
-            if resolved.is_some() && resolved.as_ref().unwrap().as_any().is::<Container>() {
-                prev_ancestor = resolved.unwrap().into_any().downcast::<Container>().ok();
+
+            if let Some(container) = previous_pointer.resolve().and_then(|res| res.into_any().downcast::<Container>().ok()) {
+                prev_ancestor = Some(container);
             } else if previous_pointer.container.is_some() {
                 prev_ancestor = previous_pointer.container.clone();
             }

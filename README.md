@@ -24,11 +24,9 @@ Currently under development. This is the implementation status:
 
 ## TODO
 
-- [ ] Assert, revisar y lanzar error.
 - [ ] Doc.
 - [ ] Publicar crate.
 
-- [ ] Use OnceCell to lazy init the cache fields of RTObjects
 - [ ] Split large files. ex. Get the error handling out of the Story class. The performLogic 
 - [ ] Review all the .unwrap()s and change them by .ok_or("xxx"). We need to avoid panics!
 

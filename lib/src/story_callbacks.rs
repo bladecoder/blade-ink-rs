@@ -110,6 +110,19 @@ impl Story {
         Ok(())
     }
 
+     /// Remove a binding for a named EXTERNAL ink function.
+    pub fn unbind_external_function(&mut self, func_name: &str) -> Result<(), StoryError> {
+        self.if_async_we_cant("unbind an external a function")?;
+        
+        if !self.externals.contains_key(func_name) {
+            return Err(StoryError::BadArgument(format!("Function '{func_name}' has not been bound.")));
+        }
+        
+        self.externals.remove(func_name);
+
+        Ok(())
+    }
+
     pub(crate) fn call_external_function(
         &mut self,
         func_name: &str,
