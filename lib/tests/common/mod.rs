@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::{error::Error, path::Path, fs};
 
 use bink::{story::Story, story_error::StoryError};
@@ -14,7 +16,7 @@ pub fn next_all(story: &mut Story, text: &mut Vec<String>) -> Result<(), StoryEr
     }
 
     if story.has_error() {
-        panic!("{}", join_text(&story.get_current_errors()));
+        panic!("{}", join_text(story.get_current_errors()));
     }
 
     Ok(())
@@ -77,15 +79,15 @@ pub fn run_story(
 
             if let Some(choice_list) = &choice_list {
                 if choice_list_index < choice_list.len() {
-                    story.choose_choice_index(choice_list[choice_list_index]);
+                    story.choose_choice_index(choice_list[choice_list_index])?;
                     choice_list_index += 1;
                 } else {
                     let random_choice_index = rng.gen_range(0..len);
-                    story.choose_choice_index(random_choice_index);
+                    story.choose_choice_index(random_choice_index)?;
                 }
             } else {
                 let random_choice_index = rng.gen_range(0..len);
-                story.choose_choice_index(random_choice_index);
+                story.choose_choice_index(random_choice_index)?;
             }
         }
     }
@@ -100,5 +102,5 @@ pub fn get_json_string(filename: &str) -> Result<String, Box<dyn Error>> {
 }
 
 pub fn is_ended(story: &Story) -> bool {
-    return !story.can_continue() && story.get_current_choices().is_empty();
+    !story.can_continue() && story.get_current_choices().is_empty()
 }

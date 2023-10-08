@@ -4,12 +4,12 @@ use serde_json::Map;
 
 use crate::{
     container::Container,
-    object::{self, RTObject}, control_command::ControlCommand, value::Value, glue::Glue, path::Path, choice_point::ChoicePoint, choice::Choice, push_pop::PushPopType, divert::Divert, variable_assigment::VariableAssignment, void::Void, variable_reference::VariableReference, native_function_call::NativeFunctionCall, tag::Tag, ink_list::InkList, ink_list_item::InkListItem, list_definitions_origin::ListDefinitionsOrigin, list_definition::ListDefinition, story_error::StoryError,
+    object::RTObject, control_command::ControlCommand, value::Value, glue::Glue, path::Path, choice_point::ChoicePoint, choice::Choice, push_pop::PushPopType, divert::Divert, variable_assigment::VariableAssignment, void::Void, variable_reference::VariableReference, native_function_call::NativeFunctionCall, tag::Tag, ink_list::InkList, ink_list_item::InkListItem, list_definitions_origin::ListDefinitionsOrigin, list_definition::ListDefinition, story_error::StoryError,
 };
 
 pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>) -> Result<Rc<dyn RTObject>, StoryError> {
     match token {
-        serde_json::Value::Null =>  Ok(Rc::new(object::Null::new())),
+        serde_json::Value::Null => Err(StoryError::BadJson(format!("Failed to convert token to runtime RTObject: {}", token))),
         serde_json::Value::Bool(value) => Ok(Rc::new(Value::new_bool(value.to_owned()))),
         serde_json::Value::Number(_) => {
             if token.is_i64() {
@@ -52,7 +52,7 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
             if "void".eq(str) {return Ok(Rc::new(Void::new()));}
 
 
-            Err(StoryError::BadJson(format!("Failed to convert token to runtime RTObject: {}", &token.to_string())))
+            Err(StoryError::BadJson(format!("Failed to convert token to runtime RTObject: {}", token)))
         },
         serde_json::Value::Array(value) => Ok(jarray_to_container(value, name)?),
         serde_json::Value::Object(obj) => {
@@ -230,7 +230,7 @@ pub fn jtoken_to_runtime_object(token: &serde_json::Value, name: Option<String>)
                 return jobject_to_choice(obj);
             }
 
-            Err(StoryError::BadJson(format!("Failed to convert token to runtime RTObject: {}", &token.to_string())))
+            Err(StoryError::BadJson(format!("Failed to convert token to runtime RTObject: {}", token)))
         },
     }
 
@@ -262,8 +262,6 @@ fn jarray_to_container(jarray: &Vec<serde_json::Value>, name: Option<String>) ->
                 }
             }
         }
-
-        // TODO container.namedOnlyContent = namedOnlyContent;
     }
 
     let container = Container::new(name, flags, jarray_to_runtime_obj_list(jarray, true)?, named_only_content);

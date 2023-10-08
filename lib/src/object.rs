@@ -1,4 +1,3 @@
-use core::fmt;
 use std::{fmt::Display, rc::{Weak, Rc}, cell::RefCell, any::Any};
 
 use as_any::{AsAny, Downcast};
@@ -196,31 +195,6 @@ impl<T: Any> IntoAny for T {
 
 pub trait RTObject: Display + IntoAny {
     fn get_object(&self) -> &Object;
-}
-
-// TODO Temporal RTObject. Maybe we sould return Optional::None in null json.
-pub struct Null {
-    obj: Object,
-}
-
-impl Null {
-    pub fn new() -> Null {
-        Null {
-            obj: Object::new(),
-        }
-    }
-}
-
-impl RTObject for Null {
-    fn get_object(&self) -> &Object {
-        &self.obj
-    }
-}
-
-impl fmt::Display for Null {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Null")
-    }
 }
 
 #[cfg(test)]

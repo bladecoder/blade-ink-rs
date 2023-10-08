@@ -62,7 +62,7 @@ impl Story {
         } else if version < INK_VERSION_MINIMUM_COMPATIBLE {
             return Err(StoryError::BadJson("Version of ink used to build story is too old to be loaded by this version of the engine".to_owned()));
         } else if version != INK_VERSION_CURRENT {
-            log::debug!("WARNING: Version of ink used to build story doesn't match current version of engine. Non-critical, but recommend synchronising.");
+            // TODO println!("WARNING: Version of ink used to build story doesn't match current version of engine. Non-critical, but recommend synchronising.");
         }
 
         let root_token = match json.get("root") {

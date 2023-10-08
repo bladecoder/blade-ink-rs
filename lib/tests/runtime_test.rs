@@ -22,7 +22,7 @@ impl ExternalFunction for ExtFunc1 {
 }
 
 impl ExternalFunction for ExtFunc2 {
-    fn call(&mut self, _: &str, args: Vec<ValueType>) -> Option<ValueType> {
+    fn call(&mut self, _: &str, _: Vec<ValueType>) -> Option<ValueType> {
         Some(ValueType::new_string("Hello world"))
     }
 }

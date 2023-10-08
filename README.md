@@ -1,26 +1,7 @@
-# blade-ink-rs
-Inkle Ink runtime implementation in Rust
+# blade-ink (bink)
+This is a Rust port of inkle's [ink](https://github.com/inkle/ink), a scripting language for writing interactive narrative.
 
-Currently under development. This is the implementation status:
-
-- [x] Loading .json file
-- [x] Show plain lines (no logic nor choices)
-- [x] Choices
-- [x] Knots and Stitches
-- [x] Diverts
-- [x] Variable Text
-- [x] Conditional Text
-- [x] Game Queries and Functions
-- [x] Nested flows
-- [x] Variables and Logic
-- [x] Conditional blocks (if/else)
-- [x] Temporary Variables
-- [x] Functions
-- [x] Tunnels
-- [x] Threads
-- [x] Tags
-- [x] Lists
-- [x] Load/Save state
+`bink` is fully compatible with the original version.
 
 ## TODO
 
