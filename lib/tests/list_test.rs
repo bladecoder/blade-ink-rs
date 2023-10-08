@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use bink::{story::Story, story_error::StoryError};
+use bink::story::Story;
 
 mod common;
 

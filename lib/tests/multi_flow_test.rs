@@ -79,7 +79,7 @@ fn multiflow_save_load_threads() -> Result<(), StoryError>  {
     assert_eq!("Thread 2 blue choice\nAfter thread 2 choice (blue)\n", story.continue_maximally()?);
 
     // Remove active blue flow, should revert back to global flow
-    story.remove_flow("Blue Flow");
+    story.remove_flow("Blue Flow")?;
     assert_eq!("Default line 2\n", story.cont()?);
 
 
