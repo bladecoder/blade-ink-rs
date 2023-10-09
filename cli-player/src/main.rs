@@ -1,7 +1,10 @@
+use std::cell::RefCell;
+
 use std::{path::Path, fs, error::Error, rc::Rc, io};
 use std::io::Write; 
 
 use anyhow::Context;
+use bink::story_callbacks::{ErrorHandler, ErrorType};
 use bink::{story::Story, choice::Choice};
 use clap::Parser;
 
@@ -19,6 +22,26 @@ enum Command {
     Save(String),
 }
 
+struct EHandler {
+    pub should_terminate: bool,
+}
+
+impl EHandler {
+    pub fn new() -> Rc<RefCell<EHandler>> {
+        Rc::new(RefCell::new(EHandler {should_terminate: false}))
+     } 
+}
+
+impl ErrorHandler for EHandler {
+    fn error(&mut self, message: &str, error_type: ErrorType) {
+        println!("{}", message);
+
+        if error_type == ErrorType::Error {
+            self.should_terminate = true;
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let json_string = get_json_string(&args.json_filename)?;
@@ -27,11 +50,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let json_string_without_bom = json_string.strip_prefix('\u{feff}').unwrap_or(&json_string);
 
     let mut story = Story::new(json_string_without_bom)?;
+    let err_handler = EHandler::new();
+    story.set_error_handler(err_handler.clone());
+
+
     let mut end = false;
     
-    while !end {
+    while !end && !err_handler.borrow().should_terminate {
         while story.can_continue() {
             let line = story.cont()?;
+
             let trimmed = line.trim();
 
             println!("{}", trimmed);
