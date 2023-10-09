@@ -1,8 +1,9 @@
 use std::{
-    rc::Rc, collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet},
+    rc::Rc,
 };
 
-use crate::{object::Object, container::Container, value::Value};
+use crate::{container::Container, object::Object, value::Value};
 
 #[derive(Clone)]
 pub struct StatePatch {
@@ -24,8 +25,8 @@ impl StatePatch {
             None => StatePatch {
                 globals: HashMap::new(),
                 changed_variables: HashSet::new(),
-                visit_counts:  HashMap::new(),
-                turn_indices:  HashMap::new(),
+                visit_counts: HashMap::new(),
+                turn_indices: HashMap::new(),
             },
         }
     }
@@ -40,7 +41,7 @@ impl StatePatch {
         self.visit_counts.insert(key, count);
     }
 
-    pub fn  get_global(&self, name: &str) -> Option<Rc<Value>>{
+    pub fn get_global(&self, name: &str) -> Option<Rc<Value>> {
         self.globals.get(name).cloned()
     }
 

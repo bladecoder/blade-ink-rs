@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::{list_definition::ListDefinition, value::Value, ink_list::InkList};
+use crate::{ink_list::InkList, list_definition::ListDefinition, value::Value};
 
 #[derive(Clone)]
 pub struct ListDefinitionsOrigin {
@@ -16,7 +16,9 @@ impl ListDefinitionsOrigin {
         };
 
         for list in lists {
-            list_definitions_origin.lists.insert(list.get_name().to_string(), list.clone());
+            list_definitions_origin
+                .lists
+                .insert(list.get_name().to_string(), list.clone());
 
             for (key, val) in list.get_items() {
                 let mut l = InkList::new();

@@ -1,7 +1,11 @@
 use core::fmt;
-use std::{rc::Rc, cell::RefCell};
+use std::{cell::RefCell, rc::Rc};
 
-use crate::{path::Path, object::{Object, RTObject}, container::Container};
+use crate::{
+    container::Container,
+    object::{Object, RTObject},
+    path::Path,
+};
 
 pub struct ChoicePoint {
     obj: Object,
@@ -22,7 +26,9 @@ impl ChoicePoint {
             is_invisible_default: (flags & 8) > 0,
             once_only: (flags & 16) > 0,
             has_condition: (flags & 1) > 0,
-            path_on_choice: RefCell::new(Path::new_with_components_string(Some(path_string_on_choice))),
+            path_on_choice: RefCell::new(Path::new_with_components_string(Some(
+                path_string_on_choice,
+            ))),
         }
     }
 
@@ -72,7 +78,7 @@ impl ChoicePoint {
 
     pub fn get_path_on_choice(self: &Rc<Self>) -> Path {
         // Resolve any relative paths to global ones as we come across them
-        if self.path_on_choice.borrow().is_relative(){
+        if self.path_on_choice.borrow().is_relative() {
             if let Some(choice_target_obj) = self.get_choice_target() {
                 self.path_on_choice.replace(choice_target_obj.get_path());
             }
@@ -104,7 +110,6 @@ impl fmt::Display for ChoicePoint {
         //     target_string = format!(" line {}({})", line_num, target_string);
         // }
 
-
-        write!(f,"Choice: -> {}", target_string)
+        write!(f, "Choice: -> {}", target_string)
     }
 }

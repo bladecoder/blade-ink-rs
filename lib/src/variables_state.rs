@@ -1,9 +1,21 @@
-use std::{collections::{HashMap, HashSet}, rc::Rc, cell::RefCell};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
 
 use serde_json::Map;
 
-use crate::{callstack::CallStack, state_patch::StatePatch, variable_assigment::VariableAssignment, value::Value, list_definitions_origin::ListDefinitionsOrigin, value_type::{VariablePointerValue, ValueType}, json_write, json_read, story_error::StoryError};
-
+use crate::{
+    callstack::CallStack,
+    json_read, json_write,
+    list_definitions_origin::ListDefinitionsOrigin,
+    state_patch::StatePatch,
+    story_error::StoryError,
+    value::Value,
+    value_type::{ValueType, VariablePointerValue},
+    variable_assigment::VariableAssignment,
+};
 
 #[derive(Clone)]
 pub(crate) struct VariablesState {
@@ -17,7 +29,10 @@ pub(crate) struct VariablesState {
 }
 
 impl VariablesState {
-    pub fn new(callstack: Rc<RefCell<CallStack>>, list_defs_origin: Rc<ListDefinitionsOrigin>) -> VariablesState {
+    pub fn new(
+        callstack: Rc<RefCell<CallStack>>,
+        list_defs_origin: Rc<ListDefinitionsOrigin>,
+    ) -> VariablesState {
         VariablesState {
             global_variables: HashMap::new(),
             default_global_variables: HashMap::new(),
@@ -31,10 +46,10 @@ impl VariablesState {
 
     pub fn start_batch_observing_variable_changes(&mut self) {
         self.batch_observing_variable_changes = true;
-        self.changed_variables_for_batch_obs = Some(HashSet::new());  
+        self.changed_variables_for_batch_obs = Some(HashSet::new());
     }
 
-    pub fn stop_batch_observing_variable_changes(&mut self) -> Vec<(String, ValueType)>{
+    pub fn stop_batch_observing_variable_changes(&mut self) -> Vec<(String, ValueType)> {
         self.batch_observing_variable_changes = false;
 
         let mut changed: Vec<(String, ValueType)> = Vec::with_capacity(0);
@@ -53,7 +68,7 @@ impl VariablesState {
     }
 
     pub fn snapshot_default_globals(&mut self) {
-        for (k,v) in self.global_variables.iter() {
+        for (k, v) in self.global_variables.iter() {
             self.default_global_variables.insert(k.clone(), v.clone());
         }
     }
@@ -62,38 +77,37 @@ impl VariablesState {
         for (name, value) in self.patch.as_ref().unwrap().globals.iter() {
             self.global_variables.insert(name.clone(), value.clone());
         }
-    
+
         if let Some(changed_variables) = &mut self.changed_variables_for_batch_obs {
             for name in self.patch.as_ref().unwrap().changed_variables.iter() {
                 changed_variables.insert(name.clone());
             }
         }
-    
+
         self.patch = None;
     }
 
-    pub fn assign (
+    pub fn assign(
         &mut self,
         var_ass: &VariableAssignment,
         value: Rc<Value>,
-    )  -> Result<(), StoryError>{
+    ) -> Result<(), StoryError> {
         let mut name = var_ass.variable_name.to_string();
         let mut context_index = -1;
         let mut set_global;
-    
+
         // Are we assigning to a global variable?
         if var_ass.is_new_declaration {
             set_global = var_ass.is_global;
         } else {
             set_global = self.global_variable_exists_with_name(&name);
         }
-        
+
         let mut value = value;
         // Constructing new variable pointer reference
         if var_ass.is_new_declaration {
-            if let Some(var_pointer) = Value::get_variable_pointer_value(value.as_ref()){
-                value =
-                    self.resolve_variable_pointer(var_pointer);
+            if let Some(var_pointer) = Value::get_variable_pointer_value(value.as_ref()) {
+                value = self.resolve_variable_pointer(var_pointer);
             }
         } else {
             // Assign to an existing variable pointer
@@ -103,32 +117,37 @@ impl VariablesState {
                 let existing_pointer = self.get_raw_variable_with_name(&name, context_index);
 
                 match existing_pointer {
-                    Some(existing_pointer) => match Value::get_variable_pointer_value(existing_pointer.as_ref()) {
-                        Some(pv) => {
-                            name = pv.variable_name.to_string();
-                            context_index =pv.context_index;
-                            set_global = context_index == 0;
-                        },
-                        None => break,
-                    },
+                    Some(existing_pointer) => {
+                        match Value::get_variable_pointer_value(existing_pointer.as_ref()) {
+                            Some(pv) => {
+                                name = pv.variable_name.to_string();
+                                context_index = pv.context_index;
+                                set_global = context_index == 0;
+                            }
+                            None => break,
+                        }
+                    }
                     None => break,
                 }
             }
         }
-    
+
         if set_global {
             self.set_global(&name, value);
         } else {
-            self.callstack.borrow_mut().set_temporary_variable(name, value, var_ass.is_new_declaration, context_index)?;
+            self.callstack.borrow_mut().set_temporary_variable(
+                name,
+                value,
+                var_ass.is_new_declaration,
+                context_index,
+            )?;
         }
 
         Ok(())
     }
 
     pub fn global_variable_exists_with_name(&self, name: &str) -> bool {
-        self.global_variables.contains_key(name)
-            || self
-                .default_global_variables.contains_key(name)
+        self.global_variables.contains_key(name) || self.default_global_variables.contains_key(name)
     }
 
     // Given a variable pointer with just the name of the target known, resolve
@@ -141,8 +160,9 @@ impl VariablesState {
         if context_index == -1 {
             context_index = self.get_context_index_of_variable_named(&var_pointer.variable_name);
         }
-    
-        let value_of_variable_pointed_to = self.get_raw_variable_with_name(&var_pointer.variable_name, context_index);
+
+        let value_of_variable_pointed_to =
+            self.get_raw_variable_with_name(&var_pointer.variable_name, context_index);
         // Extra layer of indirection:
         // When accessing a pointer to a pointer (e.g. when calling nested or
         // recursive functions that take a variable references, ensure we don't
@@ -153,15 +173,20 @@ impl VariablesState {
                 return value_of_variable_pointed_to;
             }
         }
-            
-        Rc::new(Value::new_variable_pointer(&var_pointer.variable_name, context_index))
+
+        Rc::new(Value::new_variable_pointer(
+            &var_pointer.variable_name,
+            context_index,
+        ))
     }
 
     // returns true if the value changed and we should notify variable observers
     pub fn set(&mut self, variable_name: &str, value_type: ValueType) -> Result<bool, StoryError> {
-
         if !self.default_global_variables.contains_key(variable_name) {
-            return Err(StoryError::BadArgument(format!("Cannot assign to a variable {} that hasn't been declared in the story", variable_name)));
+            return Err(StoryError::BadArgument(format!(
+                "Cannot assign to a variable {} that hasn't been declared in the story",
+                variable_name
+            )));
         }
 
         let val = Value::from_value_type(value_type);
@@ -172,7 +197,6 @@ impl VariablesState {
     }
 
     pub fn get(&self, variable_name: &str) -> Option<ValueType> {
-
         if self.patch.is_some() {
             if let Some(var) = self.patch.as_ref().unwrap().get_global(variable_name) {
                 return Some(var.value.clone());
@@ -190,7 +214,6 @@ impl VariablesState {
         }
 
         None
-
     }
 
     // Make copy of the variable pointer so we're not using the value direct
@@ -230,13 +253,18 @@ impl VariablesState {
                 return Some(default_global.clone());
             }
 
-            if let Some(list_item_value) = self.list_defs_origin.find_single_item_list_with_name(name) {
+            if let Some(list_item_value) =
+                self.list_defs_origin.find_single_item_list_with_name(name)
+            {
                 return Some(list_item_value.clone());
             }
         }
 
         // Temporary
-        let var_value = self.callstack.borrow().get_temporary_variable_with_name(name, context_index);
+        let var_value = self
+            .callstack
+            .borrow()
+            .get_temporary_variable_with_name(name, context_index);
 
         var_value
     }
@@ -260,7 +288,8 @@ impl VariablesState {
         if let Some(patch) = &mut self.patch {
             patch.set_global(name, value.clone());
         } else {
-            self.global_variables.insert(name.to_string(), value.clone());
+            self.global_variables
+                .insert(name.to_string(), value.clone());
         }
 
         if old_value.is_none() || !Rc::ptr_eq(old_value.as_ref().unwrap(), &value) {
@@ -296,17 +325,18 @@ impl VariablesState {
 
     pub fn set_callstack(&mut self, callstack: Rc<RefCell<CallStack>>) {
         self.callstack = callstack;
-    } 
+    }
 
     pub(crate) fn write_json(&self) -> Result<serde_json::Value, StoryError> {
         let mut jobj: Map<String, serde_json::Value> = Map::new();
 
         for (name, val) in self.global_variables.iter() {
-
             // Don't write out values that are the same as the default global values
             let default_val = self.default_global_variables.get(name);
             if let Some(default_val) = default_val {
-                if self.val_equal(val, default_val) {continue;}
+                if self.val_equal(val, default_val) {
+                    continue;
+                }
             }
 
             jobj.insert(name.clone(), json_write::write_rtobject(val.clone())?);
@@ -335,7 +365,7 @@ impl VariablesState {
             },
             ValueType::String(val) => match &default_val.value {
                 ValueType::String(default_val) => val.string.eq(&default_val.string),
-                _ =>  false,
+                _ => false,
             },
             ValueType::DivertTarget(val) => match &default_val.value {
                 ValueType::DivertTarget(default_val) => *val == *default_val,
@@ -348,20 +378,28 @@ impl VariablesState {
         }
     }
 
-    pub(crate) fn load_json(&mut self, jobj: &Map<String, serde_json::Value>) ->  Result<(), StoryError> {
+    pub(crate) fn load_json(
+        &mut self,
+        jobj: &Map<String, serde_json::Value>,
+    ) -> Result<(), StoryError> {
         self.global_variables.clear();
 
         for (k, v) in self.default_global_variables.iter() {
             let loaded_token = jobj.get(k);
 
             if let Some(loaded_token) = loaded_token {
-                self.global_variables.insert(k.to_string(), json_read::jtoken_to_runtime_object(loaded_token, None)?.into_any().downcast::<Value>().unwrap());
+                self.global_variables.insert(
+                    k.to_string(),
+                    json_read::jtoken_to_runtime_object(loaded_token, None)?
+                        .into_any()
+                        .downcast::<Value>()
+                        .unwrap(),
+                );
             } else {
                 self.global_variables.insert(k.clone(), v.clone());
             }
         }
 
-        Ok(())   
+        Ok(())
     }
-
 }

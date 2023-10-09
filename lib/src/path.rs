@@ -1,10 +1,10 @@
 use std::{
+    cell::OnceCell,
     fmt,
-    hash::{Hash, Hasher}, cell::OnceCell,
+    hash::{Hash, Hasher},
 };
 
 const PARENT_ID: &str = "^";
-
 
 /// The componentsString field from the C# impl. has been removed and it is always generated dinamically from the components field.
 #[derive(Eq, Clone, Default)]
@@ -33,7 +33,7 @@ impl Path {
 
     pub fn new_with_components_string(components_string: Option<&str>) -> Path {
         let cs = components_string;
-        let is_relative:bool;
+        let is_relative: bool;
 
         // Empty path, empty components
         // (path is to root, like "/" in file system)
@@ -75,7 +75,7 @@ impl Path {
         Path {
             components,
             is_relative,
-            components_string: cs_cell
+            components_string: cs_cell,
         }
     }
 
@@ -144,31 +144,34 @@ impl Path {
     }
 
     pub fn get_components_string(&self) -> String {
-        return self.components_string.get_or_init( || {
-            let mut sb = String::new();
+        return self
+            .components_string
+            .get_or_init(|| {
+                let mut sb = String::new();
 
-            if !self.components.is_empty() {
-                sb.push_str(&self.components.get(0).unwrap().to_string());
+                if !self.components.is_empty() {
+                    sb.push_str(&self.components.get(0).unwrap().to_string());
 
-                for i in 1..self.components.len() {
-                    sb.push('.');
-                    sb.push_str(&self.components.get(i).unwrap().to_string());
+                    for i in 1..self.components.len() {
+                        sb.push('.');
+                        sb.push_str(&self.components.get(i).unwrap().to_string());
+                    }
                 }
-            }
 
-            if self.is_relative {
-                return ".".to_owned() + &sb;
-            }
+                if self.is_relative {
+                    return ".".to_owned() + &sb;
+                }
 
-            sb
-        }).to_string();
+                sb
+            })
+            .to_string();
     }
 
-    pub fn path_by_appending_component( &self, c: Component) -> Path {
+    pub fn path_by_appending_component(&self, c: Component) -> Path {
         let mut p = Path::new(self.components.as_ref(), false);
         p.components.push(c);
 
-        p 
+        p
     }
 }
 

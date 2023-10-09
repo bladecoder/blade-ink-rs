@@ -1,16 +1,21 @@
 use std::{collections::HashMap, rc::Rc};
 
-use serde_json::{Map, json};
+use serde_json::{json, Map};
 
 use crate::{
-    container::Container,
-    object::RTObject, value::Value, glue::Glue, choice_point::ChoicePoint, push_pop::PushPopType, divert::Divert, ink_list::InkList, control_command::ControlCommand, native_function_call::NativeFunctionCall, variable_reference::VariableReference, variable_assigment::VariableAssignment, tag::Tag, void::Void, choice::Choice, story_error::StoryError,
+    choice::Choice, choice_point::ChoicePoint, container::Container,
+    control_command::ControlCommand, divert::Divert, glue::Glue, ink_list::InkList,
+    native_function_call::NativeFunctionCall, object::RTObject, push_pop::PushPopType,
+    story_error::StoryError, tag::Tag, value::Value, variable_assigment::VariableAssignment,
+    variable_reference::VariableReference, void::Void,
 };
 
-pub fn write_dictionary_values(objs: &HashMap<String, Rc<Value>>) -> Result<serde_json::Value, StoryError> {
+pub fn write_dictionary_values(
+    objs: &HashMap<String, Rc<Value>>,
+) -> Result<serde_json::Value, StoryError> {
     let mut jobjs: Map<String, serde_json::Value> = Map::new();
 
-    for (k,o) in objs {
+    for (k, o) in objs {
         jobjs.insert(k.clone(), write_rtobject(o.clone())?);
     }
 
@@ -25,32 +30,47 @@ pub fn write_rtobject(o: Rc<dyn RTObject>) -> Result<serde_json::Value, StoryErr
     if let Ok(divert) = o.clone().into_any().downcast::<Divert>() {
         let mut div_type_key = "->";
 
-        if divert.is_external { div_type_key = "x()"; }
-        else if divert.pushes_to_stack {
-            if divert.stack_push_type == PushPopType::Function {div_type_key = "f()";}
-            else if divert.stack_push_type == PushPopType::Tunnel {div_type_key = "->t->";}
+        if divert.is_external {
+            div_type_key = "x()";
+        } else if divert.pushes_to_stack {
+            if divert.stack_push_type == PushPopType::Function {
+                div_type_key = "f()";
+            } else if divert.stack_push_type == PushPopType::Tunnel {
+                div_type_key = "->t->";
+            }
         }
 
-        let target_str =
-            if divert.has_variable_target() {divert.variable_divert_name.clone().unwrap()}
-            else {divert.get_target_path_string().unwrap()};
+        let target_str = if divert.has_variable_target() {
+            divert.variable_divert_name.clone().unwrap()
+        } else {
+            divert.get_target_path_string().unwrap()
+        };
 
         let mut jobj: Map<String, serde_json::Value> = Map::new();
 
         jobj.insert(div_type_key.to_string(), json!(target_str));
 
-        if divert.has_variable_target() {jobj.insert("var".to_owned(), json!(true));}
+        if divert.has_variable_target() {
+            jobj.insert("var".to_owned(), json!(true));
+        }
 
-        if divert.is_conditional {jobj.insert("c".to_owned(), json!(true));}
+        if divert.is_conditional {
+            jobj.insert("c".to_owned(), json!(true));
+        }
 
-        if divert.external_args > 0 {jobj.insert("exArgs".to_owned(), json!(divert.external_args));}
+        if divert.external_args > 0 {
+            jobj.insert("exArgs".to_owned(), json!(divert.external_args));
+        }
 
         return Ok(serde_json::Value::Object(jobj));
     }
 
     if let Ok(cp) = o.clone().into_any().downcast::<ChoicePoint>() {
         let mut jobj: Map<String, serde_json::Value> = Map::new();
-        jobj.insert("*".to_owned(), json!(ChoicePoint::get_path_string_on_choice(&cp)));
+        jobj.insert(
+            "*".to_owned(),
+            json!(ChoicePoint::get_path_string_on_choice(&cp)),
+        );
         jobj.insert("flg".to_owned(), json!(cp.get_flags()));
         return Ok(serde_json::Value::Object(jobj));
     }
@@ -109,13 +129,14 @@ pub fn write_rtobject(o: Rc<dyn RTObject>) -> Result<serde_json::Value, StoryErr
         let mut name = NativeFunctionCall::get_name(f.op);
 
         // Avoid collision with ^ used to indicate a string
-        if "^".eq(&name) {name = "L^".to_owned();}
+        if "^".eq(&name) {
+            name = "L^".to_owned();
+        }
 
         return Ok(json!(name));
     }
 
     if let Ok(var_ref) = o.clone().into_any().downcast::<VariableReference>() {
-
         let mut jobj: Map<String, serde_json::Value> = Map::new();
 
         let read_count_path = var_ref.get_path_string_for_count();
@@ -130,13 +151,19 @@ pub fn write_rtobject(o: Rc<dyn RTObject>) -> Result<serde_json::Value, StoryErr
 
     if let Some(var_ass) = o.as_any().downcast_ref::<VariableAssignment>() {
         let mut jobj: Map<String, serde_json::Value> = Map::new();
-        
-        let key = if var_ass.is_global {"VAR=".to_owned()} else {"temp=".to_owned()};
+
+        let key = if var_ass.is_global {
+            "VAR=".to_owned()
+        } else {
+            "temp=".to_owned()
+        };
         jobj.insert(key, json!(var_ass.variable_name));
 
         // Reassignment?
-        if !var_ass.is_new_declaration {jobj.insert("re".to_owned(), json!(true));}
-        
+        if !var_ass.is_new_declaration {
+            jobj.insert("re".to_owned(), json!(true));
+        }
+
         return Ok(serde_json::Value::Object(jobj));
     }
 
@@ -148,7 +175,7 @@ pub fn write_rtobject(o: Rc<dyn RTObject>) -> Result<serde_json::Value, StoryErr
         let mut jobj: Map<String, serde_json::Value> = Map::new();
 
         jobj.insert("#".to_owned(), json!(tag.get_text()));
-        
+
         return Ok(serde_json::Value::Object(jobj));
     }
 
@@ -156,10 +183,16 @@ pub fn write_rtobject(o: Rc<dyn RTObject>) -> Result<serde_json::Value, StoryErr
         return Ok(write_choice(choice));
     }
 
-    Err(StoryError::BadJson(format!("Failed to write runtime object to JSON: {}", o)))
+    Err(StoryError::BadJson(format!(
+        "Failed to write runtime object to JSON: {}",
+        o
+    )))
 }
 
-pub fn write_rt_container(container: &Container, without_name: bool) -> Result<serde_json::Value, StoryError> {
+pub fn write_rt_container(
+    container: &Container,
+    without_name: bool,
+) -> Result<serde_json::Value, StoryError> {
     let mut c_array: Vec<serde_json::Value> = Vec::new();
 
     for c in container.content.iter() {
@@ -187,7 +220,7 @@ pub fn write_rt_container(container: &Container, without_name: bool) -> Result<s
         if count_flags > 0 {
             t_obj.insert("#f".to_owned(), json!(count_flags));
         }
-    
+
         if has_name_property {
             t_obj.insert("#n".to_owned(), json!(container.name));
         }
@@ -205,7 +238,6 @@ pub fn write_ink_list(list: &InkList) -> serde_json::Value {
 
     let mut jlist: Map<String, serde_json::Value> = Map::new();
     for (item, v) in list.items.iter() {
-
         let mut name = String::new();
 
         match item.get_origin_name() {
@@ -221,7 +253,6 @@ pub fn write_ink_list(list: &InkList) -> serde_json::Value {
 
     jobj.insert("list".to_owned(), serde_json::Value::Object(jlist));
 
-
     serde_json::Value::Object(jobj)
 }
 
@@ -231,15 +262,23 @@ pub fn write_choice(choice: &Choice) -> serde_json::Value {
     jobj.insert("text".to_owned(), json!(choice.text));
     jobj.insert("index".to_owned(), json!(choice.index));
     jobj.insert("originalChoicePath".to_owned(), json!(choice.source_path));
-    jobj.insert("originalThreadIndex".to_owned(), json!(choice.original_thread_index));
-    jobj.insert("targetPath".to_owned(), json!(choice.target_path.to_string()));
+    jobj.insert(
+        "originalThreadIndex".to_owned(),
+        json!(choice.original_thread_index),
+    );
+    jobj.insert(
+        "targetPath".to_owned(),
+        json!(choice.target_path.to_string()),
+    );
 
     serde_json::Value::Object(jobj)
 }
 
-pub(crate) fn write_list_rt_objs(objs: &[Rc<dyn RTObject>]) -> Result<serde_json::Value, StoryError> {
+pub(crate) fn write_list_rt_objs(
+    objs: &[Rc<dyn RTObject>],
+) -> Result<serde_json::Value, StoryError> {
     let mut c_array: Vec<serde_json::Value> = Vec::new();
-    
+
     for o in objs {
         c_array.push(write_rtobject(o.clone())?);
     }

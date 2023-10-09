@@ -3,9 +3,8 @@ use bink::{story::Story, story_error::StoryError};
 mod common;
 
 #[test]
-fn single_line_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/knot/single-line.ink.json").unwrap();
+fn single_line_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/knot/single-line.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -18,9 +17,8 @@ fn single_line_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn multi_line_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/knot/multi-line.ink.json").unwrap();
+fn multi_line_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/knot/multi-line.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -35,7 +33,7 @@ fn multi_line_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn strip_empty_lines_test() -> Result<(), StoryError>  {
+fn strip_empty_lines_test() -> Result<(), StoryError> {
     let json_string =
         common::get_json_string("tests/data/knot/strip-empty-lines.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
@@ -52,9 +50,8 @@ fn strip_empty_lines_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn param_strings_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/knot/param-strings.ink.json").unwrap();
+fn param_strings_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/knot/param-strings.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -71,9 +68,8 @@ fn param_strings_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn param_ints_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/knot/param-ints.ink.json").unwrap();
+fn param_ints_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/knot/param-ints.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -90,9 +86,8 @@ fn param_ints_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn param_floats_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/knot/param-floats.ink.json").unwrap();
+fn param_floats_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/knot/param-floats.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -109,9 +104,8 @@ fn param_floats_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn param_vars_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/knot/param-vars.ink.json").unwrap();
+fn param_vars_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/knot/param-vars.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -128,9 +122,8 @@ fn param_vars_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn param_multi_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/knot/param-multi.ink.json").unwrap();
+fn param_multi_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/knot/param-multi.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -147,9 +140,8 @@ fn param_multi_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn param_recurse_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/knot/param-recurse.ink.json").unwrap();
+fn param_recurse_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/knot/param-recurse.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 

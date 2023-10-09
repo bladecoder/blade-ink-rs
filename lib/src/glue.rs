@@ -2,14 +2,13 @@ use std::fmt;
 
 use crate::object::{Object, RTObject};
 
-
 pub struct Glue {
     obj: Object,
 }
 
 impl Glue {
     pub fn new() -> Self {
-        Glue {obj: Object::new()}
+        Glue { obj: Object::new() }
     }
 }
 

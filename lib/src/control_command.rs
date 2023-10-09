@@ -2,7 +2,7 @@ use std::fmt;
 
 use strum::Display;
 
-use crate::object::{RTObject, Object};
+use crate::object::{Object, RTObject};
 
 #[derive(PartialEq, Display, Clone, Copy)]
 pub enum CommandType {
@@ -31,7 +31,7 @@ pub enum CommandType {
     ListRange,
     ListRandom,
     BeginTag,
-    EndTag
+    EndTag,
 }
 
 const EVAL_START_NAME: &str = "ev";
@@ -63,11 +63,10 @@ const END_TAG_NAME: &str = "/#";
 
 pub struct ControlCommand {
     obj: Object,
-    pub command_type: CommandType
+    pub command_type: CommandType,
 }
 
 impl ControlCommand {
-
     pub fn new_from_name(name: &str) -> Option<Self> {
         match name {
             EVAL_START_NAME => Some(Self::new(CommandType::EvalStart)),
@@ -93,12 +92,11 @@ impl ControlCommand {
             END_NAME => Some(Self::new(CommandType::End)),
             LIST_FROM_INT_NAME => Some(Self::new(CommandType::ListFromInt)),
             LIST_RANGE_NAME => Some(Self::new(CommandType::ListRange)),
-            LIST_RANDOM_NAME => Some(Self::new(CommandType::ListRandom,)),
+            LIST_RANDOM_NAME => Some(Self::new(CommandType::ListRandom)),
             BEGIN_TAG_NAME => Some(Self::new(CommandType::BeginTag)),
             END_TAG_NAME => Some(Self::new(CommandType::EndTag)),
             _ => None,
         }
-
     }
 
     pub fn get_name(c: CommandType) -> String {
@@ -133,14 +131,17 @@ impl ControlCommand {
     }
 
     pub fn new(command_type: CommandType) -> Self {
-        Self {obj: Object::new(), command_type}
+        Self {
+            obj: Object::new(),
+            command_type,
+        }
     }
 }
 
 impl RTObject for ControlCommand {
     fn get_object(&self) -> &Object {
         &self.obj
-     }
+    }
 }
 
 impl fmt::Display for ControlCommand {
@@ -148,5 +149,3 @@ impl fmt::Display for ControlCommand {
         write!(f, "{}", self.command_type)
     }
 }
-
-

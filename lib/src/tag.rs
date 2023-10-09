@@ -9,7 +9,10 @@ pub struct Tag {
 
 impl Tag {
     pub fn new(text: &str) -> Self {
-        Tag {obj: Object::new(), text: text.to_string()}
+        Tag {
+            obj: Object::new(),
+            text: text.to_string(),
+        }
     }
 
     pub fn get_text(&self) -> &String {

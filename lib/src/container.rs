@@ -1,13 +1,13 @@
-use std::{
-    fmt,
-    rc::Rc, collections::HashMap,
-};
+use std::{collections::HashMap, fmt, rc::Rc};
 
 use as_any::Downcast;
 
 use crate::{
     object::{Object, RTObject},
-    value::Value, path::{Path, Component}, search_result::SearchResult, value_type::ValueType,
+    path::{Component, Path},
+    search_result::SearchResult,
+    value::Value,
+    value_type::ValueType,
 };
 
 const COUNTFLAGS_VISITS: i32 = 1;
@@ -25,10 +25,14 @@ pub struct Container {
 }
 
 impl Container {
-    pub fn new(name: Option<String>, count_flags: i32, content: Vec<Rc<dyn RTObject>>, named_content: HashMap<String, Rc<Container>>) -> Rc<Container> {
-
+    pub fn new(
+        name: Option<String>,
+        count_flags: i32,
+        content: Vec<Rc<dyn RTObject>>,
+        named_content: HashMap<String, Rc<Container>>,
+    ) -> Rc<Container> {
         let mut named_content = named_content;
-        
+
         content.iter().for_each(|o| {
             if let Ok(c) = o.clone().into_any().downcast::<Container>() {
                 if c.has_valid_name() {
@@ -37,7 +41,8 @@ impl Container {
             }
         });
 
-        let (visits_should_be_counted, turn_index_should_be_counted, counting_at_start_only) = Container::split_count_flags(count_flags);
+        let (visits_should_be_counted, turn_index_should_be_counted, counting_at_start_only) =
+            Container::split_count_flags(count_flags);
 
         let c = Rc::new(Container {
             obj: Object::new(),
@@ -50,7 +55,9 @@ impl Container {
         });
 
         c.content.iter().for_each(|o| o.get_object().set_parent(&c));
-        c.named_content.values().for_each(|o| o.get_object().set_parent(&c));
+        c.named_content
+            .values()
+            .for_each(|o| o.get_object().set_parent(&c));
 
         c
     }
@@ -124,9 +131,9 @@ impl Container {
             sb.push('\n');
         }
 
-        let mut only_named: HashMap<String,Rc<Container>> = HashMap::new();
+        let mut only_named: HashMap<String, Rc<Container>> = HashMap::new();
 
-        for  (k, v) in self.named_content.iter() {
+        for (k, v) in self.named_content.iter() {
             let o: Rc<dyn RTObject> = v.clone();
             if self.content.iter().any(|e| Rc::ptr_eq(e, &o)) {
                 continue;
@@ -134,8 +141,6 @@ impl Container {
                 only_named.insert(k.clone(), v.clone());
             }
         }
-
-       
 
         if !only_named.is_empty() {
             Container::append_indentation(sb, indentation);
@@ -173,29 +178,28 @@ impl Container {
         partial_path_start: usize,
         mut partial_path_length: i32,
     ) -> SearchResult {
-
         if partial_path_length == -1 {
             partial_path_length = path.len() as i32;
-        }  
-       
+        }
+
         let mut approximate = false;
-    
+
         let mut current_container = Some(self.clone());
-        let mut current_obj:Rc<dyn RTObject> = self.clone();
-    
+        let mut current_obj: Rc<dyn RTObject> = self.clone();
+
         for i in partial_path_start..partial_path_length as usize {
             let comp = path.get_component(i);
-    
+
             // Path component was wrong type
             if current_container.is_none() {
                 approximate = true;
                 break;
             }
-    
+
             let found_obj = current_container
                 .unwrap()
                 .content_with_path_component(comp.unwrap());
-    
+
             // Couldn't resolve entire path?
             if found_obj.is_none() {
                 approximate = true;
@@ -203,32 +207,32 @@ impl Container {
             }
 
             current_obj = found_obj.unwrap().clone();
-            current_container = if let Ok(container) = current_obj.clone().into_any().downcast::<Container>() {
-                Some(container)
-            } else {
-                None
-            };
+            current_container =
+                if let Ok(container) = current_obj.clone().into_any().downcast::<Container>() {
+                    Some(container)
+                } else {
+                    None
+                };
         }
-    
+
         SearchResult::new(current_obj, approximate)
     }
-    
 
     pub fn get_count_flags(&self) -> i32 {
         let mut flags: i32 = 0;
-    
+
         if self.visits_should_be_counted {
-            flags |= COUNTFLAGS_VISITS 
+            flags |= COUNTFLAGS_VISITS
         }
-    
+
         if self.turn_index_should_be_counted {
-             flags |= COUNTFLAGS_TURNS;
+            flags |= COUNTFLAGS_TURNS;
         }
-    
+
         if self.counting_at_start_only {
             flags |= COUNTFLAGS_COUNTSTARTONLY;
         }
-    
+
         // If we're only storing CountStartOnly, it serves no purpose,
         // since it's dependent on the other two to be used at all.
         // (e.g. for setting the fact that *if* a gather or choice's
@@ -237,19 +241,22 @@ impl Container {
         if flags == COUNTFLAGS_COUNTSTARTONLY {
             flags = 0;
         }
-    
+
         flags
     }
 
     fn split_count_flags(value: i32) -> (bool, bool, bool) {
+        let visits_should_be_counted = (value & COUNTFLAGS_VISITS) > 0;
 
-        let visits_should_be_counted = (value & COUNTFLAGS_VISITS) > 0 ;
-    
-        let turn_index_should_be_counted = (value & COUNTFLAGS_TURNS) > 0 ;
-    
-        let counting_at_start_only = (value & COUNTFLAGS_COUNTSTARTONLY) > 0 ;
-    
-        (visits_should_be_counted, turn_index_should_be_counted, counting_at_start_only)
+        let turn_index_should_be_counted = (value & COUNTFLAGS_TURNS) > 0;
+
+        let counting_at_start_only = (value & COUNTFLAGS_COUNTSTARTONLY) > 0;
+
+        (
+            visits_should_be_counted,
+            turn_index_should_be_counted,
+            counting_at_start_only,
+        )
     }
 
     fn content_with_path_component(&self, component: &Component) -> Option<Rc<dyn RTObject>> {
@@ -265,21 +272,22 @@ impl Container {
             return match self.get_object().get_parent() {
                 Some(o) => Some(o as Rc<dyn RTObject>),
                 None => None,
-            } 
-        } else if let Some(found_content) = self.named_content.get(component.name.as_ref().unwrap()) {
+            };
+        } else if let Some(found_content) = self.named_content.get(component.name.as_ref().unwrap())
+        {
             return Some(found_content.clone());
         }
 
-        None    
+        None
     }
 
     pub fn get_named_only_content(&self) -> HashMap<String, Rc<Container>> {
         let mut named_only_content_dict = HashMap::new();
-    
+
         for (key, value) in self.named_content.iter() {
             named_only_content_dict.insert(key.clone(), value.clone());
         }
-    
+
         for c in &self.content {
             if let Some(named) = c.as_any().downcast_ref::<Container>() {
                 if named.has_valid_name() {
@@ -287,10 +295,9 @@ impl Container {
                 }
             }
         }
-    
+
         named_only_content_dict
-    }  
-    
+    }
 }
 
 impl RTObject for Container {
@@ -301,6 +308,10 @@ impl RTObject for Container {
 
 impl fmt::Display for Container {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Container ({})", self.name.as_ref().unwrap_or(&"<no name>".to_owned()))
+        write!(
+            f,
+            "Container ({})",
+            self.name.as_ref().unwrap_or(&"<no name>".to_owned())
+        )
     }
 }

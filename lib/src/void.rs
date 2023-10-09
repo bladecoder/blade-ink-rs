@@ -8,7 +8,7 @@ pub struct Void {
 
 impl Void {
     pub fn new() -> Self {
-        Void {obj: Object::new()}
+        Void { obj: Object::new() }
     }
 }
 

@@ -3,9 +3,8 @@ use bink::{story::Story, story_error::StoryError};
 mod common;
 
 #[test]
-fn sequence_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/variabletext/sequence.ink.json").unwrap();
+fn sequence_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/variabletext/sequence.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -33,22 +32,27 @@ fn sequence_test() -> Result<(), StoryError>  {
     common::next_all(&mut story, &mut text)?;
 
     assert_eq!(1, text.len());
-    assert_eq!("The radio hissed into life. There was the white noise racket of an explosion.", text[0]);
+    assert_eq!(
+        "The radio hissed into life. There was the white noise racket of an explosion.",
+        text[0]
+    );
 
     story.choose_choice_index(0)?;
     text.clear();
     common::next_all(&mut story, &mut text)?;
 
     assert_eq!(1, text.len());
-    assert_eq!("The radio hissed into life. There was the white noise racket of an explosion.", text[0]);
+    assert_eq!(
+        "The radio hissed into life. There was the white noise racket of an explosion.",
+        text[0]
+    );
 
     Ok(())
 }
 
 #[test]
-fn cycle_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/variabletext/cycle.ink.json").unwrap();
+fn cycle_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/variabletext/cycle.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -89,9 +93,8 @@ fn cycle_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn once_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/variabletext/once.ink.json").unwrap();
+fn once_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/variabletext/once.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -132,7 +135,7 @@ fn once_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn empty_elements_test() -> Result<(), StoryError>  {
+fn empty_elements_test() -> Result<(), StoryError> {
     let json_string =
         common::get_json_string("tests/data/variabletext/empty-elements.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
@@ -161,7 +164,7 @@ fn empty_elements_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn list_in_choice_test() -> Result<(), StoryError>  {
+fn list_in_choice_test() -> Result<(), StoryError> {
     let json_string =
         common::get_json_string("tests/data/variabletext/list-in-choice.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;

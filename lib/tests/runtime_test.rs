@@ -1,7 +1,11 @@
 use core::panic;
-use std::{cell::RefCell, rc::Rc, error::Error};
+use std::{cell::RefCell, error::Error, rc::Rc};
 
-use bink::{story::Story, value_type::ValueType, story_callbacks::{VariableObserver, ExternalFunction}};
+use bink::{
+    story::Story,
+    story_callbacks::{ExternalFunction, VariableObserver},
+    value_type::ValueType,
+};
 
 mod common;
 
@@ -13,11 +17,11 @@ struct ExtFunc4;
 impl ExternalFunction for ExtFunc1 {
     fn call(&mut self, func_name: &str, args: Vec<ValueType>) -> Option<ValueType> {
         println!("Calling {func_name}...");
-        
+
         let x = args[0].coerce_to_int().unwrap_or_default();
         let y = args[1].coerce_to_int().unwrap_or_default();
-        
-        Some(ValueType::Int(x - y)) 
+
+        Some(ValueType::Int(x - y))
     }
 }
 
@@ -35,7 +39,7 @@ impl ExternalFunction for ExtFunc3 {
 
 impl ExternalFunction for ExtFunc4 {
     fn call(&mut self, _: &str, args: Vec<ValueType>) -> Option<ValueType> {
-        Some(ValueType::Bool(!args[0].coerce_to_bool().unwrap())) 
+        Some(ValueType::Bool(!args[0].coerce_to_bool().unwrap()))
     }
 }
 
@@ -46,7 +50,7 @@ fn external_function() -> Result<(), Box<dyn Error>> {
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
-    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc1{})), true)?;
+    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc1 {})), true)?;
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
@@ -62,7 +66,7 @@ fn external_function_zero_arguments() -> Result<(), Box<dyn Error>> {
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
-    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc2{})), true)?;
+    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc2 {})), true)?;
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
@@ -78,7 +82,7 @@ fn external_function_one_arguments() -> Result<(), Box<dyn Error>> {
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
-    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc3{})), true)?;
+    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc3 {})), true)?;
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
@@ -94,7 +98,7 @@ fn external_function_coerce_test() -> Result<(), Box<dyn Error>> {
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
-    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc4{})), true)?;
+    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc4 {})), true)?;
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
@@ -140,13 +144,12 @@ impl VariableObserver for VObserver {
 }
 
 #[test]
-fn variable_observers_test() -> Result<(), Box<dyn Error>>  {
-    let json_string =
-        common::get_json_string("tests/data/runtime/variable-observers.ink.json")?;
+fn variable_observers_test() -> Result<(), Box<dyn Error>> {
+    let json_string = common::get_json_string("tests/data/runtime/variable-observers.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
-    story.observe_variable("x", Rc::new(RefCell::new(VObserver { expected_value: 5})))?;
+    story.observe_variable("x", Rc::new(RefCell::new(VObserver { expected_value: 5 })))?;
 
     common::next_all(&mut story, &mut text)?;
     story.choose_choice_index(0)?;
@@ -155,11 +158,9 @@ fn variable_observers_test() -> Result<(), Box<dyn Error>>  {
     Ok(())
 }
 
-
 #[test]
-fn set_and_get_variable_test() -> Result<(), Box<dyn Error>>  {
-    let json_string =
-        common::get_json_string("tests/data/runtime/set-get-variables.ink.json")?;
+fn set_and_get_variable_test() -> Result<(), Box<dyn Error>> {
+    let json_string = common::get_json_string("tests/data/runtime/set-get-variables.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -181,11 +182,9 @@ fn set_and_get_variable_test() -> Result<(), Box<dyn Error>>  {
     Ok(())
 }
 
-
 #[test]
-fn set_non_existant_variable_test() -> Result<(), Box<dyn Error>>  {
-    let json_string =
-        common::get_json_string("tests/data/runtime/set-get-variables.ink.json")?;
+fn set_non_existant_variable_test() -> Result<(), Box<dyn Error>> {
+    let json_string = common::get_json_string("tests/data/runtime/set-get-variables.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -212,9 +211,8 @@ fn set_non_existant_variable_test() -> Result<(), Box<dyn Error>>  {
 }
 
 #[test]
-fn jump_knot_test() -> Result<(), Box<dyn Error>>  {
-    let json_string =
-        common::get_json_string("tests/data/runtime/jump-knot.ink.json")?;
+fn jump_knot_test() -> Result<(), Box<dyn Error>> {
+    let json_string = common::get_json_string("tests/data/runtime/jump-knot.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -241,9 +239,8 @@ fn jump_knot_test() -> Result<(), Box<dyn Error>>  {
 }
 
 #[test]
-fn jump_stitch_test() -> Result<(), Box<dyn Error>>  {
-    let json_string =
-        common::get_json_string("tests/data/runtime/jump-stitch.ink.json")?;
+fn jump_stitch_test() -> Result<(), Box<dyn Error>> {
+    let json_string = common::get_json_string("tests/data/runtime/jump-stitch.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -270,9 +267,8 @@ fn jump_stitch_test() -> Result<(), Box<dyn Error>>  {
 }
 
 #[test]
-fn read_visit_counts_test() -> Result<(), Box<dyn Error>>  {
-    let json_string =
-        common::get_json_string("tests/data/runtime/read-visit-counts.ink.json")?;
+fn read_visit_counts_test() -> Result<(), Box<dyn Error>> {
+    let json_string = common::get_json_string("tests/data/runtime/read-visit-counts.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -284,15 +280,17 @@ fn read_visit_counts_test() -> Result<(), Box<dyn Error>>  {
 }
 
 #[test]
-fn load_save_test() -> Result<(), Box<dyn Error>>  {
-    let json_string =
-        common::get_json_string("tests/data/runtime/load-save.ink.json")?;
+fn load_save_test() -> Result<(), Box<dyn Error>> {
+    let json_string = common::get_json_string("tests/data/runtime/load-save.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
-    assert_eq!("We arrived into London at 9.45pm exactly.", text.get(0).unwrap());
+    assert_eq!(
+        "We arrived into London at 9.45pm exactly.",
+        text.get(0).unwrap()
+    );
 
     // save the game state
     let save_string = story.save_state()?;
@@ -302,12 +300,18 @@ fn load_save_test() -> Result<(), Box<dyn Error>>  {
     // recreate game and load state
     Story::new(&json_string).unwrap();
     story.load_state(&save_string)?;
-    
+
     story.choose_choice_index(0)?;
 
     common::next_all(&mut story, &mut text)?;
-    assert_eq!("\"There is not a moment to lose!\" I declared.", text.get(1).unwrap());
-    assert_eq!("We hurried home to Savile Row as fast as we could.", text.get(2).unwrap());
+    assert_eq!(
+        "\"There is not a moment to lose!\" I declared.",
+        text.get(1).unwrap()
+    );
+    assert_eq!(
+        "We hurried home to Savile Row as fast as we could.",
+        text.get(2).unwrap()
+    );
 
     // check that we are at the end
     assert!(!story.can_continue());
@@ -315,6 +319,3 @@ fn load_save_test() -> Result<(), Box<dyn Error>>  {
 
     Ok(())
 }
-
-
-

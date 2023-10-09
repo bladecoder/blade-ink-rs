@@ -1,7 +1,6 @@
 use std::rc::Rc;
 
-use crate::{object::RTObject, container::Container};
-
+use crate::{container::Container, object::RTObject};
 
 #[derive(Clone)]
 pub struct SearchResult {
@@ -11,10 +10,7 @@ pub struct SearchResult {
 
 impl SearchResult {
     pub fn new(obj: Rc<dyn RTObject>, approximate: bool) -> Self {
-        SearchResult {
-            obj,
-            approximate,
-        }
+        SearchResult { obj, approximate }
     }
 
     pub fn from_search_result(sr: &SearchResult) -> Self {

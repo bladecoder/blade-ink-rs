@@ -1,7 +1,7 @@
 use assert_cmd::prelude::*;
 use predicates::prelude::predicate; // Add methods on commands
-use std::process::{Command, Stdio};
 use std::io::Write;
+use std::process::{Command, Stdio};
 
 #[test]
 fn basic_story_test() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,7 +15,7 @@ fn basic_story_test() -> Result<(), Box<dyn std::error::Error>> {
     let mut stdin = child.stdin.take().unwrap();
 
     stdin.write_all(b"1\n").unwrap();
-    
+
     let output = child.wait_with_output()?;
     let output_str = String::from_utf8_lossy(&output.stdout);
 

@@ -1,6 +1,6 @@
 //! C API for bink.
 
-use std::{os::raw::c_char, ffi::CString};
+use std::{ffi::CString, os::raw::c_char};
 
 pub mod cstory;
 
