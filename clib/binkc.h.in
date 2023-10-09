@@ -1,0 +1,38 @@
+#ifndef _LIBBINKC_H_
+#define _LIBBINKC_H_
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stdint.h>
+#include <stdbool.h>
+
+#define BINKC_VERSION_MAJOR        @_VERSION_MAJOR@
+#define BINKC_VERSION_MINOR        @_VERSION_MINOR@
+#define BINKC_VERSION_MICRO        @_VERSION_MICRO@
+
+#define BINKC_VERSION              \
+    ((BINKC_VERSION_MAJOR * 10000) + \
+     (BINKC_VERSION_MINOR * 100) + \
+     BINKC_VERSION_MICRO)
+
+#define BINKC_OK                 0
+#define BINKC_FAIL                 1
+#define BINKC_FAIL_NULL_POINTER    2
+
+struct binkc_story;
+
+int binkc_story_new(struct binkc_story **story, char *json_string, char **err_msg);
+void binkc_story_free(struct binkc_story *story);
+int binkc_story_can_continue(struct binkc_story *story, bool *can_continue);
+int binkc_story_cont(struct binkc_story *story, char **line, char **err_msg);
+
+
+void binkc_cstring_free(char *cstring);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#endif /* End of _LIBBINKC_H_ */
