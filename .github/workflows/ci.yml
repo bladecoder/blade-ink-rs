@@ -21,5 +21,12 @@ jobs:
 
     - name: Build
       run: cargo build --verbose
+    
+    - name: Check Clippy
+      run: cargo clippy --verbose
+
+    - name: Check fmt
+      run: cargo fmt -- --check
+    
     - name: Test
       run: cargo test --verbose    

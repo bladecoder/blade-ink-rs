@@ -21,8 +21,7 @@ fn simple_divert_test() -> Result<(), StoryError> {
 
 #[test]
 fn invisible_divert_test() -> Result<(), StoryError> {
-    let json_string =
-        common::get_json_string("inkfiles/divert/invisible-divert.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/divert/invisible-divert.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
 
     let mut text: Vec<String> = Vec::new();
@@ -38,8 +37,7 @@ fn invisible_divert_test() -> Result<(), StoryError> {
 
 #[test]
 fn divert_on_choice_test() -> Result<(), StoryError> {
-    let json_string =
-        common::get_json_string("inkfiles/divert/divert-on-choice.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/divert/divert-on-choice.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
 
     let mut text: Vec<String> = Vec::new();

@@ -49,8 +49,7 @@ fn ifelse_test() -> Result<(), StoryError> {
 
 #[test]
 fn ifelse_ext_test() -> Result<(), StoryError> {
-    let json_string =
-        common::get_json_string("inkfiles/conditional/ifelse-ext.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/conditional/ifelse-ext.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 

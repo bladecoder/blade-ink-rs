@@ -56,8 +56,7 @@ fn setvar_test() -> Result<(), StoryError> {
 
 #[test]
 fn complex_func1_test() -> Result<(), StoryError> {
-    let json_string =
-        common::get_json_string("inkfiles/function/complex-func1.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/function/complex-func1.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
@@ -70,8 +69,7 @@ fn complex_func1_test() -> Result<(), StoryError> {
 
 #[test]
 fn complex_func2_test() -> Result<(), StoryError> {
-    let json_string =
-        common::get_json_string("inkfiles/function/complex-func2.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/function/complex-func2.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
@@ -84,8 +82,7 @@ fn complex_func2_test() -> Result<(), StoryError> {
 
 #[test]
 fn complex_func3_test() -> Result<(), StoryError> {
-    let json_string =
-        common::get_json_string("inkfiles/function/complex-func3.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/function/complex-func3.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
@@ -115,10 +112,9 @@ fn rnd() -> Result<(), StoryError> {
 
 #[test]
 fn evaluating_function_variable_state_bug_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string(
-        "inkfiles/function/evaluating-function-variablestate-bug.ink.json",
-    )
-    .unwrap();
+    let json_string =
+        common::get_json_string("inkfiles/function/evaluating-function-variablestate-bug.ink.json")
+            .unwrap();
     let mut story = Story::new(&json_string)?;
 
     assert_eq!("Start\n", story.cont()?);
