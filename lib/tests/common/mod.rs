@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::{error::Error, fs, path::Path};
+use std::{error::Error, path::Path, fs};
 
 use bink::{story::Story, story_error::StoryError};
 use rand::Rng;
@@ -32,6 +32,7 @@ pub fn join_text(text: &Vec<String>) -> String {
     sb
 }
 
+
 pub fn run_story(
     filename: &str,
     choice_list: Option<Vec<usize>>,
@@ -49,6 +50,7 @@ pub fn run_story(
     let mut rng = rand::thread_rng();
 
     while story.can_continue() || !story.get_current_choices().is_empty() {
+
         println!("{}", story.build_string_of_hierarchy());
 
         // 2) Game content, line by line
@@ -96,9 +98,9 @@ pub fn run_story(
 pub fn get_json_string(filename: &str) -> Result<String, Box<dyn Error>> {
     let mut path = Path::new(filename).to_path_buf();
 
+    // Due to a bug with Cargo workspaces, for Release mode the current folder is the crate folder and for Debug mode the current folder is the root folder.
     if !path.exists() {
-        let parent = Path::new("../");
-        path = parent.join(path);
+        path = Path::new("../").join(path);
     }
 
     let json = fs::read_to_string(path)?;

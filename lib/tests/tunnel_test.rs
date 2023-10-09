@@ -5,7 +5,7 @@ mod common;
 #[test]
 fn tunnel_onwards_divert_override_test() -> Result<(), StoryError> {
     let json_string =
-        common::get_json_string("tests/data/tunnels/tunnel-onwards-divert-override.ink.json")
+        common::get_json_string("inkfiles/tunnels/tunnel-onwards-divert-override.ink.json")
             .unwrap();
     let mut story = Story::new(&json_string)?;
 

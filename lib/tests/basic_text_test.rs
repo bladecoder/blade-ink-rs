@@ -1,5 +1,5 @@
 use bink::{story::Story, story_error::StoryError};
-use std::{env, fs};
+use std::env;
 
 mod common;
 
@@ -22,7 +22,7 @@ fn oneline_test() -> Result<(), StoryError> {
 
 #[test]
 fn twolines_test() -> Result<(), StoryError> {
-    let json_string = fs::read_to_string("tests/data/basictext/twolines.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/basictext/twolines.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 

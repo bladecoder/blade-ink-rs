@@ -141,7 +141,7 @@ impl Story {
         story.reset_globals()?;
 
         if version != INK_VERSION_CURRENT {
-            story.add_error("WARNING: Version of ink used to build story doesn't match current version of engine. Non-critical, but recommend synchronising.", true);
+            story.add_error(&format!("WARNING: Version of ink used to build story ({}) doesn't match current version ({}) of engine. Non-critical, but recommend synchronising.", version, INK_VERSION_CURRENT), true);
         }
 
         Ok(story)

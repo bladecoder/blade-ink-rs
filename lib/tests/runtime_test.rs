@@ -46,7 +46,7 @@ impl ExternalFunction for ExtFunc4 {
 #[test]
 fn external_function() -> Result<(), Box<dyn Error>> {
     let json_string =
-        common::get_json_string("tests/data/runtime/external-function-2-arg.ink.json")?;
+        common::get_json_string("inkfiles/runtime/external-function-2-arg.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -62,7 +62,7 @@ fn external_function() -> Result<(), Box<dyn Error>> {
 #[test]
 fn external_function_zero_arguments() -> Result<(), Box<dyn Error>> {
     let json_string =
-        common::get_json_string("tests/data/runtime/external-function-0-arg.ink.json")?;
+        common::get_json_string("inkfiles/runtime/external-function-0-arg.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -78,7 +78,7 @@ fn external_function_zero_arguments() -> Result<(), Box<dyn Error>> {
 #[test]
 fn external_function_one_arguments() -> Result<(), Box<dyn Error>> {
     let json_string =
-        common::get_json_string("tests/data/runtime/external-function-1-arg.ink.json")?;
+        common::get_json_string("inkfiles/runtime/external-function-1-arg.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -94,7 +94,7 @@ fn external_function_one_arguments() -> Result<(), Box<dyn Error>> {
 #[test]
 fn external_function_coerce_test() -> Result<(), Box<dyn Error>> {
     let json_string =
-        common::get_json_string("tests/data/runtime/external-function-1-arg.ink.json")?;
+        common::get_json_string("inkfiles/runtime/external-function-1-arg.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -110,7 +110,7 @@ fn external_function_coerce_test() -> Result<(), Box<dyn Error>> {
 #[test]
 fn external_function_fallback_test() -> Result<(), Box<dyn Error>> {
     let json_string =
-        common::get_json_string("tests/data/runtime/external-function-2-arg.ink.json")?;
+        common::get_json_string("inkfiles/runtime/external-function-2-arg.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -145,7 +145,7 @@ impl VariableObserver for VObserver {
 
 #[test]
 fn variable_observers_test() -> Result<(), Box<dyn Error>> {
-    let json_string = common::get_json_string("tests/data/runtime/variable-observers.ink.json")?;
+    let json_string = common::get_json_string("inkfiles/runtime/variable-observers.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -160,7 +160,7 @@ fn variable_observers_test() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn set_and_get_variable_test() -> Result<(), Box<dyn Error>> {
-    let json_string = common::get_json_string("tests/data/runtime/set-get-variables.ink.json")?;
+    let json_string = common::get_json_string("inkfiles/runtime/set-get-variables.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -184,7 +184,7 @@ fn set_and_get_variable_test() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn set_non_existant_variable_test() -> Result<(), Box<dyn Error>> {
-    let json_string = common::get_json_string("tests/data/runtime/set-get-variables.ink.json")?;
+    let json_string = common::get_json_string("inkfiles/runtime/set-get-variables.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -212,7 +212,7 @@ fn set_non_existant_variable_test() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn jump_knot_test() -> Result<(), Box<dyn Error>> {
-    let json_string = common::get_json_string("tests/data/runtime/jump-knot.ink.json")?;
+    let json_string = common::get_json_string("inkfiles/runtime/jump-knot.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -240,7 +240,7 @@ fn jump_knot_test() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn jump_stitch_test() -> Result<(), Box<dyn Error>> {
-    let json_string = common::get_json_string("tests/data/runtime/jump-stitch.ink.json")?;
+    let json_string = common::get_json_string("inkfiles/runtime/jump-stitch.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -268,7 +268,7 @@ fn jump_stitch_test() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn read_visit_counts_test() -> Result<(), Box<dyn Error>> {
-    let json_string = common::get_json_string("tests/data/runtime/read-visit-counts.ink.json")?;
+    let json_string = common::get_json_string("inkfiles/runtime/read-visit-counts.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -281,7 +281,7 @@ fn read_visit_counts_test() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn load_save_test() -> Result<(), Box<dyn Error>> {
-    let json_string = common::get_json_string("tests/data/runtime/load-save.ink.json")?;
+    let json_string = common::get_json_string("inkfiles/runtime/load-save.ink.json")?;
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 

@@ -1,13 +1,21 @@
 use assert_cmd::prelude::*;
 use predicates::prelude::predicate; // Add methods on commands
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 #[test]
 fn basic_story_test() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("binkplayer")?;
 
-    cmd.arg("tests/data/test1.ink.json");
+    let mut path = Path::new("inkfiles/test1.ink.json").to_path_buf();
+
+    // Due to a bug with Cargo workspaces, for Release mode the current folder is the crate folder and for Debug mode the current folder is the root folder.
+    if !path.exists() {
+        path = Path::new("../").join(path);
+    }
+
+    cmd.arg(path);
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
 
