@@ -129,7 +129,6 @@ impl Path {
 
         let mut components = Vec::new();
 
-        // TODO check that this is correct
         for i in 0..self.components.len() - upward_moves {
             components.push(self.components.get(i).unwrap().clone());
         }
