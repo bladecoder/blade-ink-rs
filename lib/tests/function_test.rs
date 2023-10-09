@@ -3,9 +3,8 @@ use bink::{story::Story, story_error::StoryError};
 mod common;
 
 #[test]
-fn fun_basic_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/function/func-basic.ink.json").unwrap();
+fn fun_basic_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/function/func-basic.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
@@ -17,9 +16,8 @@ fn fun_basic_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn fun_none_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/function/func-none.ink.json").unwrap();
+fn fun_none_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/function/func-none.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
@@ -31,9 +29,8 @@ fn fun_none_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn fun_inline_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/function/func-inline.ink.json").unwrap();
+fn fun_inline_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/function/func-inline.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
@@ -45,9 +42,8 @@ fn fun_inline_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn setvar_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/function/setvar-func.ink.json").unwrap();
+fn setvar_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/function/setvar-func.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
@@ -59,7 +55,7 @@ fn setvar_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn complex_func1_test() -> Result<(), StoryError>  {
+fn complex_func1_test() -> Result<(), StoryError> {
     let json_string =
         common::get_json_string("tests/data/function/complex-func1.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
@@ -73,7 +69,7 @@ fn complex_func1_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn complex_func2_test() -> Result<(), StoryError>  {
+fn complex_func2_test() -> Result<(), StoryError> {
     let json_string =
         common::get_json_string("tests/data/function/complex-func2.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
@@ -87,7 +83,7 @@ fn complex_func2_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn complex_func3_test() -> Result<(), StoryError>  {
+fn complex_func3_test() -> Result<(), StoryError> {
     let json_string =
         common::get_json_string("tests/data/function/complex-func3.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
@@ -102,9 +98,8 @@ fn complex_func3_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn rnd() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/function/rnd-func.ink.json").unwrap();
+fn rnd() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/function/rnd-func.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
@@ -119,9 +114,11 @@ fn rnd() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn evaluating_function_variable_state_bug_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/function/evaluating-function-variablestate-bug.ink.json").unwrap();
+fn evaluating_function_variable_state_bug_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string(
+        "tests/data/function/evaluating-function-variablestate-bug.ink.json",
+    )
+    .unwrap();
     let mut story = Story::new(&json_string)?;
 
     assert_eq!("Start\n", story.cont()?);

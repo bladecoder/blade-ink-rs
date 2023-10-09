@@ -3,9 +3,8 @@ use bink::{story::Story, story_error::StoryError};
 mod common;
 
 #[test]
-fn gather_basic_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/gather/gather-basic.ink.json").unwrap();
+fn gather_basic_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/gather/gather-basic.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -24,9 +23,8 @@ fn gather_basic_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn gather_chain_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/gather/gather-chain.ink.json").unwrap();
+fn gather_chain_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/gather/gather-chain.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -45,16 +43,21 @@ fn gather_chain_test() -> Result<(), StoryError>  {
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, text.len());
-    assert_eq!("I reached the road and looked about. And would you believe it?", text[0]);
-    assert_eq!("The road was empty. Mackie was nowhere to be seen.", text[1]);
+    assert_eq!(
+        "I reached the road and looked about. And would you believe it?",
+        text[0]
+    );
+    assert_eq!(
+        "The road was empty. Mackie was nowhere to be seen.",
+        text[1]
+    );
 
     Ok(())
 }
 
 #[test]
-fn nested_flow_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/gather/nested-flow.ink.json").unwrap();
+fn nested_flow_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/gather/nested-flow.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -75,9 +78,8 @@ fn nested_flow_test() -> Result<(), StoryError>  {
 }
 
 #[test]
-fn deep_nesting_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/gather/deep-nesting.ink.json").unwrap();
+fn deep_nesting_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/gather/deep-nesting.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -109,11 +111,9 @@ fn deep_nesting_test() -> Result<(), StoryError>  {
     Ok(())
 }
 
-
 #[test]
-fn complex_flow1_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/gather/complex-flow.ink.json").unwrap();
+fn complex_flow1_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/gather/complex-flow.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -123,15 +123,17 @@ fn complex_flow1_test() -> Result<(), StoryError>  {
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
-    assert_eq!("... but I said nothing and we passed the day in silence.", text[0]);
+    assert_eq!(
+        "... but I said nothing and we passed the day in silence.",
+        text[0]
+    );
 
     Ok(())
 }
 
 #[test]
-fn complex_flow2_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/gather/complex-flow.ink.json").unwrap();
+fn complex_flow2_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/gather/complex-flow.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 

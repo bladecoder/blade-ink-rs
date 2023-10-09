@@ -1,33 +1,36 @@
-use bink::{story::Story, value_type::ValueType, story_error::StoryError};
+use bink::{story::Story, story_error::StoryError, value_type::ValueType};
 
 mod common;
 
 #[test]
-fn operations_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/misc/operations.ink.json").unwrap();
+fn operations_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/misc/operations.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
 
-    assert_eq!("neg:-3\nmod:1\npow:27\nfloor:3\nceiling:4\nint:3\nfloat:1\n", &story.continue_maximally()?);
+    assert_eq!(
+        "neg:-3\nmod:1\npow:27\nfloor:3\nceiling:4\nint:3\nfloat:1\n",
+        &story.continue_maximally()?
+    );
 
     Ok(())
 }
 
 #[test]
-fn read_counts_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/misc/read-counts.ink.json").unwrap();
+fn read_counts_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/misc/read-counts.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
 
-    assert_eq!("Count start: 0 0 0\n1\n2\n3\nCount end: 3 3 3\n", &story.continue_maximally()?);
+    assert_eq!(
+        "Count start: 0 0 0\n1\n2\n3\nCount end: 3 3 3\n",
+        &story.continue_maximally()?
+    );
 
     Ok(())
 }
 
 #[test]
-fn turns_since_test() -> Result<(), StoryError>  {
-    let json_string =
-        common::get_json_string("tests/data/misc/turns-since.ink.json").unwrap();
+fn turns_since_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/misc/turns-since.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
 
     assert_eq!("0\n0\n", &story.continue_maximally()?);
@@ -41,9 +44,8 @@ fn turns_since_test() -> Result<(), StoryError>  {
  * Issue: https://github.com/bladecoder/blade-ink/issues/15
  */
 #[test]
-fn issue15_test() -> Result<(), StoryError>  {
-    let json_string =
-    common::get_json_string("tests/data/misc/issue15.ink.json").unwrap();
+fn issue15_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("tests/data/misc/issue15.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
 
     assert_eq!("This is a test\n", story.cont()?);
@@ -59,5 +61,5 @@ fn issue15_test() -> Result<(), StoryError>  {
         }
     }
 
-    Ok(())   
+    Ok(())
 }

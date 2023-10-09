@@ -1,6 +1,13 @@
 use std::{fmt, rc::Rc};
 
-use crate::{object::{Object, RTObject}, value::Value, void::Void, ink_list::InkList, value_type::ValueType, story_error::StoryError};
+use crate::{
+    ink_list::InkList,
+    object::{Object, RTObject},
+    story_error::StoryError,
+    value::Value,
+    value_type::ValueType,
+    void::Void,
+};
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Op {
@@ -10,7 +17,7 @@ pub enum Op {
     Multiply,
     Mod,
     Negate,
-    
+
     Equal,
     Greater,
     Less,
@@ -18,7 +25,7 @@ pub enum Op {
     LessThanOrEquals,
     NotEquals,
     Not,
-    
+
     And,
     Or,
 
@@ -197,10 +204,14 @@ impl NativeFunctionCall {
         }
     }
 
-    pub(crate) fn call(&self, params: Vec<Rc<dyn RTObject>>) -> Result<Rc<dyn RTObject>, StoryError> {
-
+    pub(crate) fn call(
+        &self,
+        params: Vec<Rc<dyn RTObject>>,
+    ) -> Result<Rc<dyn RTObject>, StoryError> {
         if self.get_number_of_parameters() != params.len() {
-            return Err(StoryError::InvalidStoryState("Unexpected number of parameters".to_owned()));
+            return Err(StoryError::InvalidStoryState(
+                "Unexpected number of parameters".to_owned(),
+            ));
         }
 
         let mut has_list = false;
@@ -226,11 +237,15 @@ impl NativeFunctionCall {
         self.call_type(coerced_params)
     }
 
-    fn call_binary_list_operation(&self, params: &[Rc<dyn RTObject>]) -> Result<Rc<dyn RTObject>, StoryError> {
+    fn call_binary_list_operation(
+        &self,
+        params: &[Rc<dyn RTObject>],
+    ) -> Result<Rc<dyn RTObject>, StoryError> {
         // List-Int addition/subtraction returns a List (e.g., "alpha" + 1 = "beta")
-        if (self.op == Op::Add || self.op == Op::Subtract) && 
-                Value::get_list_value(params[0].as_ref()).is_some() &&
-                Value::get_int_value(params[1].as_ref()).is_some() {
+        if (self.op == Op::Add || self.op == Op::Subtract)
+            && Value::get_list_value(params[0].as_ref()).is_some()
+            && Value::get_int_value(params[1].as_ref()).is_some()
+        {
             return Ok(self.call_list_increment_operation(params));
         }
 
@@ -238,10 +253,10 @@ impl NativeFunctionCall {
         let v2 = params[1].clone().into_any().downcast::<Value>().unwrap();
 
         // And/or with any other type requires coercion to bool
-        if (self.op == Op::And || self.op == Op::Or) &&
-                ( Value::get_list_value(params[0].as_ref()).is_none() ||
-                Value::get_list_value(params[1].as_ref()).is_none()) {
-            
+        if (self.op == Op::And || self.op == Op::Or)
+            && (Value::get_list_value(params[0].as_ref()).is_none()
+                || Value::get_list_value(params[1].as_ref()).is_none())
+        {
             let result = {
                 if self.op == Op::And {
                     v1.is_truthy()? && v2.is_truthy()?
@@ -254,10 +269,11 @@ impl NativeFunctionCall {
         }
 
         // Normal (list • list) operation
-        if Value::get_list_value(params[0].as_ref()).is_some() &&
-                Value::get_list_value(params[1].as_ref()).is_some() {
+        if Value::get_list_value(params[0].as_ref()).is_some()
+            && Value::get_list_value(params[1].as_ref()).is_some()
+        {
             let p = vec![v1.clone(), v2.clone()];
-            
+
             return self.call_type(p);
         }
 
@@ -272,11 +288,10 @@ impl NativeFunctionCall {
     fn call_list_increment_operation(&self, list_int_params: &[Rc<dyn RTObject>]) -> Rc<Value> {
         let list_val = Value::get_list_value(list_int_params[0].as_ref()).unwrap();
         let int_val = Value::get_int_value(list_int_params[1].as_ref()).unwrap();
-    
+
         let mut result_raw_list = InkList::new();
-    
+
         for (list_item, list_item_value) in list_val.items.iter() {
-            
             let target_int = {
                 if self.op == Op::Add {
                     list_item_value + int_val
@@ -286,18 +301,20 @@ impl NativeFunctionCall {
             };
 
             let origins = list_val.origins.borrow();
-    
+
             let item_origin = origins.iter().find(|origin| {
                 origin.get_name() == list_item.get_origin_name().unwrap_or(&"".to_owned())
             });
-    
+
             if let Some(item_origin) = item_origin {
                 if let Some(incremented_item) = item_origin.get_item_with_value(target_int) {
-                    result_raw_list.items.insert(incremented_item.clone(), target_int);
+                    result_raw_list
+                        .items
+                        .insert(incremented_item.clone(), target_int);
                 }
             }
         }
-    
+
         Rc::new(Value::new_list(result_raw_list))
     }
 
@@ -337,7 +354,10 @@ impl NativeFunctionCall {
         }
     }
 
-    fn coerce_values_to_single_type(&self, params: Vec<Rc<dyn RTObject>>) -> Result<Vec<Rc<Value>>, StoryError> {
+    fn coerce_values_to_single_type(
+        &self,
+        params: Vec<Rc<dyn RTObject>>,
+    ) -> Result<Vec<Rc<Value>>, StoryError> {
         let mut dest_type = 1; // Int
         let mut result: Vec<Rc<Value>> = Vec::new();
 
@@ -354,17 +374,20 @@ impl NativeFunctionCall {
         }
 
         for obj in params.iter() {
-            if let Some(v) = obj.as_ref().as_any().downcast_ref::<Value>() {                
-                match v.cast(dest_type)?  {
+            if let Some(v) = obj.as_ref().as_any().downcast_ref::<Value>() {
+                match v.cast(dest_type)? {
                     Some(casted_value) => result.push(Rc::new(casted_value)),
                     None => {
                         if let Ok(obj) = obj.clone().into_any().downcast::<Value>() {
-                            result.push(obj); 
+                            result.push(obj);
                         }
-                    },
+                    }
                 }
             } else {
-                return Err(StoryError::InvalidStoryState(format!("RTObject of type Value expected: {}", obj)));
+                return Err(StoryError::InvalidStoryState(format!(
+                    "RTObject of type Value expected: {}",
+                    obj
+                )));
             }
         }
 
@@ -375,21 +398,33 @@ impl NativeFunctionCall {
         match &params[0].value {
             ValueType::Bool(op1) => match params[1].value {
                 ValueType::Bool(op2) => Ok(Rc::new(Value::new_bool(*op1 && op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Ok(Rc::new(Value::new_bool(*op1 != 0 && op2 != 0))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_bool(*op1 != 0.0 && op2 != 0.0))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::List(op1) => match &params[1].value {
-                ValueType::List(op2) => Ok(Rc::new(Value::new_bool(!op1.items.is_empty()  && !op2.items.is_empty()))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                ValueType::List(op2) => Ok(Rc::new(Value::new_bool(
+                    !op1.items.is_empty() && !op2.items.is_empty(),
+                ))),
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
@@ -397,54 +432,82 @@ impl NativeFunctionCall {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Ok(Rc::new(Value::new_bool(*op1 > op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_bool(*op1 > op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::List(op1) => match &params[1].value {
                 ValueType::List(op2) => Ok(Rc::new(Value::new_bool(op1.greater_than(op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
-
 
     fn less_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Ok(Rc::new(Value::new_bool(*op1 < op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_bool(*op1 < op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::List(op1) => match &params[1].value {
                 ValueType::List(op2) => Ok(Rc::new(Value::new_bool(op1.less_than(op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
-    fn greater_than_or_equals_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
+    fn greater_than_or_equals_op(
+        &self,
+        params: &[Rc<Value>],
+    ) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Ok(Rc::new(Value::new_bool(*op1 >= op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_bool(*op1 >= op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::List(op1) => match &params[1].value {
-                ValueType::List(op2) => Ok(Rc::new(Value::new_bool(op1.greater_than_or_equals(op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                ValueType::List(op2) => {
+                    Ok(Rc::new(Value::new_bool(op1.greater_than_or_equals(op2))))
+                }
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
@@ -452,17 +515,25 @@ impl NativeFunctionCall {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Ok(Rc::new(Value::new_bool(*op1 <= op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_bool(*op1 <= op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::List(op1) => match &params[1].value {
                 ValueType::List(op2) => Ok(Rc::new(Value::new_bool(op1.less_than_or_equals(op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
@@ -470,17 +541,25 @@ impl NativeFunctionCall {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Ok(Rc::new(Value::new_int(*op1 - op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_float(*op1 - op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::List(op1) => match &params[1].value {
                 ValueType::List(op2) => Ok(Rc::new(Value::new_list(op1.without(op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
@@ -488,11 +567,15 @@ impl NativeFunctionCall {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Ok(Rc::new(Value::new_int(op1 + op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_float(op1 + op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::String(op1) => match &params[1].value {
                 ValueType::String(op2) => {
@@ -500,14 +583,20 @@ impl NativeFunctionCall {
                     sb.push_str(&op1.string);
                     sb.push_str(&op2.string);
                     Ok(Rc::new(Value::new_string(&sb)))
-                },
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                }
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::List(op1) => match &params[1].value {
                 ValueType::List(op2) => Ok(Rc::new(Value::new_list(op1.union(op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
@@ -515,13 +604,19 @@ impl NativeFunctionCall {
         match params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Ok(Rc::new(Value::new_int(op1 / op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_float(op1 / op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
@@ -529,13 +624,19 @@ impl NativeFunctionCall {
         match params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Ok(Rc::new(Value::new_float((op1 as f32).powf(op2 as f32)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_float(op1.powf(op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
@@ -543,13 +644,19 @@ impl NativeFunctionCall {
         match params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Ok(Rc::new(Value::new_int(op1 * op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_float(op1 * op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
@@ -557,21 +664,33 @@ impl NativeFunctionCall {
         match &params[0].value {
             ValueType::Bool(op1) => match params[1].value {
                 ValueType::Bool(op2) => Ok(Rc::new(Value::new_bool(*op1 || op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Ok(Rc::new(Value::new_bool(*op1 != 0 || op2 != 0))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_bool(*op1 != 0.0 || op2 != 0.0))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::List(op1) => match &params[1].value {
-                ValueType::List(op2) => Ok(Rc::new(Value::new_bool(!op1.items.is_empty()  || !op2.items.is_empty()))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                ValueType::List(op2) => Ok(Rc::new(Value::new_bool(
+                    !op1.items.is_empty() || !op2.items.is_empty(),
+                ))),
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
@@ -579,11 +698,13 @@ impl NativeFunctionCall {
         match &params[0].value {
             ValueType::Int(op1) => Ok(Rc::new(Value::new_bool(*op1 == 0))),
             ValueType::Float(op1) => Ok(Rc::new(Value::new_bool(*op1 == 0.0))),
-            ValueType::List(op1) =>   Ok(Rc::new(Value::new_int(match op1.items.is_empty() {
+            ValueType::List(op1) => Ok(Rc::new(Value::new_int(match op1.items.is_empty() {
                 true => 1,
                 false => 0,
-            } ))),
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            }))),
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
@@ -591,13 +712,19 @@ impl NativeFunctionCall {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Ok(Rc::new(Value::new_int(i32::min(*op1, op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_float(f32::min(*op1, op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
@@ -605,13 +732,19 @@ impl NativeFunctionCall {
         match &params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Ok(Rc::new(Value::new_int(i32::max(*op1, op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_float(f32::max(*op1, op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
@@ -619,29 +752,43 @@ impl NativeFunctionCall {
         match &params[0].value {
             ValueType::Bool(op1) => match params[1].value {
                 ValueType::Bool(op2) => Ok(Rc::new(Value::new_bool(*op1 == op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Ok(Rc::new(Value::new_bool(*op1 == op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_bool(*op1 == op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::String(op1) => match &params[1].value {
                 ValueType::String(op2) => Ok(Rc::new(Value::new_bool(op1.string.eq(&op2.string)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::List(op1) => match &params[1].value {
                 ValueType::List(op2) => Ok(Rc::new(Value::new_bool(op1.eq(op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::DivertTarget(op1) => match &params[1].value {
                 ValueType::DivertTarget(op2) => Ok(Rc::new(Value::new_bool(op1.eq(op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
@@ -649,29 +796,43 @@ impl NativeFunctionCall {
         match &params[0].value {
             ValueType::Bool(op1) => match params[1].value {
                 ValueType::Bool(op2) => Ok(Rc::new(Value::new_bool(*op1 != op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Ok(Rc::new(Value::new_bool(*op1 != op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_bool(*op1 != op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::String(op1) => match &params[1].value {
                 ValueType::String(op2) => Ok(Rc::new(Value::new_bool(!op1.string.eq(&op2.string)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::List(op1) => match &params[1].value {
                 ValueType::List(op2) => Ok(Rc::new(Value::new_bool(!op1.eq(op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::DivertTarget(op1) => match &params[1].value {
                 ValueType::DivertTarget(op2) => Ok(Rc::new(Value::new_bool(!op1.eq(op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
@@ -679,13 +840,19 @@ impl NativeFunctionCall {
         match params[0].value {
             ValueType::Int(op1) => match params[1].value {
                 ValueType::Int(op2) => Ok(Rc::new(Value::new_int(op1 % op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::Float(op1) => match params[1].value {
                 ValueType::Float(op2) => Ok(Rc::new(Value::new_float(op1 % op2))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
@@ -693,154 +860,164 @@ impl NativeFunctionCall {
         match &params[0].value {
             ValueType::List(op1) => match &params[1].value {
                 ValueType::List(op2) => Ok(Rc::new(Value::new_list(op1.intersect(op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
     fn has(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::String(op1) => match &params[1].value {
-                ValueType::String(op2) => Ok(Rc::new(Value::new_bool(op1.string.contains(&op2.string)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                ValueType::String(op2) => {
+                    Ok(Rc::new(Value::new_bool(op1.string.contains(&op2.string))))
+                }
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::List(op1) => match &params[1].value {
                 ValueType::List(op2) => Ok(Rc::new(Value::new_bool(op1.contains(op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
     fn hasnt(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::String(op1) => match &params[1].value {
-                ValueType::String(op2) => Ok(Rc::new(Value::new_bool(!op1.string.contains(&op2.string)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                ValueType::String(op2) => {
+                    Ok(Rc::new(Value::new_bool(!op1.string.contains(&op2.string))))
+                }
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
             ValueType::List(op1) => match &params[1].value {
                 ValueType::List(op2) => Ok(Rc::new(Value::new_bool(!op1.contains(op2)))),
-                _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+                _ => Err(StoryError::InvalidStoryState(
+                    "Operation not available for type.".to_owned(),
+                )),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
     fn value_of_list_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
-            ValueType::List(op1) => {
-                match op1.get_max_item() {
-                    Some(i) => Ok(Rc::new(Value::new_int(i.1))),
-                    None => Ok(Rc::new(Value::new_int(0))),
-                }
+            ValueType::List(op1) => match op1.get_max_item() {
+                Some(i) => Ok(Rc::new(Value::new_int(i.1))),
+                None => Ok(Rc::new(Value::new_int(0))),
             },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
     fn all_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
-            ValueType::List(op1) => {
-                Ok(Rc::new(Value::new_list(op1.get_all())))
-            },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            ValueType::List(op1) => Ok(Rc::new(Value::new_list(op1.get_all()))),
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
     fn inverse_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
-            ValueType::List(op1) => {
-                Ok(Rc::new(Value::new_list(op1.inverse())))
-            },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            ValueType::List(op1) => Ok(Rc::new(Value::new_list(op1.inverse()))),
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
     fn count_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
-            ValueType::List(op1) => {
-                Ok(Rc::new(Value::new_int(op1.items.len() as i32)))
-            },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            ValueType::List(op1) => Ok(Rc::new(Value::new_int(op1.items.len() as i32))),
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
     fn list_max_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
-            ValueType::List(op1) => {
-                Ok(Rc::new(Value::new_list(op1.max_as_list())))
-            },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            ValueType::List(op1) => Ok(Rc::new(Value::new_list(op1.max_as_list()))),
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
     fn list_min_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
-            ValueType::List(op1) => {
-                Ok(Rc::new(Value::new_list(op1.min_as_list())))
-            },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            ValueType::List(op1) => Ok(Rc::new(Value::new_list(op1.min_as_list()))),
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
     fn negate_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
-            ValueType::Int(op1) => {
-                Ok(Rc::new(Value::new_int(-op1)))
-            },
-            ValueType::Float(op1) => {
-                Ok(Rc::new(Value::new_float(-op1)))
-            },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            ValueType::Int(op1) => Ok(Rc::new(Value::new_int(-op1))),
+            ValueType::Float(op1) => Ok(Rc::new(Value::new_float(-op1))),
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
     fn floor_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
-            ValueType::Int(op1) => {
-                Ok(Rc::new(Value::new_int(*op1)))
-            },
-            ValueType::Float(op1) => {
-                Ok(Rc::new(Value::new_float(op1.floor())))
-            },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            ValueType::Int(op1) => Ok(Rc::new(Value::new_int(*op1))),
+            ValueType::Float(op1) => Ok(Rc::new(Value::new_float(op1.floor()))),
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
     fn ceiling_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
-            ValueType::Int(op1) => {
-                Ok(Rc::new(Value::new_int(*op1)))
-            },
-            ValueType::Float(op1) => {
-                Ok(Rc::new(Value::new_float(op1.ceil())))
-            },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            ValueType::Int(op1) => Ok(Rc::new(Value::new_int(*op1))),
+            ValueType::Float(op1) => Ok(Rc::new(Value::new_float(op1.ceil()))),
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
     fn int_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
-            ValueType::Int(op1) => {
-                Ok(Rc::new(Value::new_int(*op1)))
-            },
-            ValueType::Float(op1) => {
-                Ok(Rc::new(Value::new_int(*op1 as i32)))
-            },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            ValueType::Int(op1) => Ok(Rc::new(Value::new_int(*op1))),
+            ValueType::Float(op1) => Ok(Rc::new(Value::new_int(*op1 as i32))),
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 
     fn float_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
-            ValueType::Int(op1) => {
-                Ok(Rc::new(Value::new_float(*op1 as f32)))
-            },
-            ValueType::Float(op1) => {
-                Ok(Rc::new(Value::new_float(*op1)))
-            },
-            _ => Err(StoryError::InvalidStoryState("Operation not available for type.".to_owned()))
+            ValueType::Int(op1) => Ok(Rc::new(Value::new_float(*op1 as f32))),
+            ValueType::Float(op1) => Ok(Rc::new(Value::new_float(*op1))),
+            _ => Err(StoryError::InvalidStoryState(
+                "Operation not available for type.".to_owned(),
+            )),
         }
     }
 }

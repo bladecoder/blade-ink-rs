@@ -1,11 +1,16 @@
-use std::{fmt::Display, rc::{Weak, Rc}, cell::RefCell, any::Any};
+use std::{
+    any::Any,
+    cell::RefCell,
+    fmt::Display,
+    rc::{Rc, Weak},
+};
 
 use as_any::{AsAny, Downcast};
 
 use crate::{
     container::Container,
     path::{Component, Path},
-    search_result::SearchResult
+    search_result::SearchResult,
 };
 
 pub struct Object {
@@ -42,7 +47,7 @@ impl Object {
         match rtobject.get_object().get_parent() {
             Some(_) => {
                 let mut comps: Vec<Component> = Vec::new();
-                
+
                 let mut container = rtobject.get_object().get_parent();
                 let mut child = rtobject.clone();
                 let mut child_rc;
@@ -65,7 +70,8 @@ impl Object {
                                     let a = r.as_ref() as *const _ as *const ();
                                     let b = child as *const _ as *const ();
                                     std::ptr::eq(a, b)
-                                }).unwrap(),
+                                })
+                                .unwrap(),
                         ));
                     }
 
@@ -77,28 +83,39 @@ impl Object {
                 // Reverse list because components are searched in reverse order.
                 comps.reverse();
 
-                rtobject.get_object().path.replace(Some(Path::new(&comps, Path::default().is_relative())));
-            },
+                rtobject
+                    .get_object()
+                    .path
+                    .replace(Some(Path::new(&comps, Path::default().is_relative())));
+            }
             None => {
-                rtobject.get_object().path.replace(Some(Path::new_with_defaults()));
-            },
+                rtobject
+                    .get_object()
+                    .path
+                    .replace(Some(Path::new_with_defaults()));
+            }
         }
 
-        rtobject.get_object().path.borrow().as_ref().unwrap().clone()
+        rtobject
+            .get_object()
+            .path
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .clone()
     }
 
     pub fn resolve_path(rtobject: Rc<dyn RTObject>, path: &Path) -> SearchResult {
         if path.is_relative() {
             let mut p = path.clone();
             let mut nearest_container = rtobject.clone().into_any().downcast::<Container>().ok();
-            
+
             if nearest_container.is_none() {
                 nearest_container = rtobject.get_object().get_parent();
                 p = path.get_tail();
             };
 
             nearest_container.unwrap().content_at_path(&p, 0, -1)
-    
         } else {
             Object::get_root_container(rtobject).content_at_path(path, 0, -1)
         }
@@ -110,7 +127,7 @@ impl Object {
         // 3. Re-build downward chain from common ancestor
         let own_path = rtobject.get_object().path.borrow();
         let min_path_length = std::cmp::min(global_path.len(), own_path.as_ref().unwrap().len());
-        let mut last_shared_path_comp_index:i32 = -1;
+        let mut last_shared_path_comp_index: i32 = -1;
 
         for i in 0..min_path_length {
             let own_comp = &own_path.as_ref().unwrap().get_component(i);
@@ -128,7 +145,8 @@ impl Object {
             return global_path.clone();
         }
 
-        let num_upwards_moves = (own_path.as_ref().unwrap().len() - 1) - last_shared_path_comp_index as usize;
+        let num_upwards_moves =
+            (own_path.as_ref().unwrap().len() - 1) - last_shared_path_comp_index as usize;
         let mut new_path_comps = Vec::new();
 
         for _ in 0..num_upwards_moves {
@@ -145,16 +163,18 @@ impl Object {
     pub fn compact_path_string(rtobject: Rc<dyn RTObject>, other_path: &Path) -> String {
         let global_path_str: String;
         let relative_path_str: String;
-    
+
         if other_path.is_relative() {
             relative_path_str = other_path.get_components_string();
-            global_path_str = Object::get_path(rtobject.as_ref()).path_by_appending_path(other_path).get_components_string();
+            global_path_str = Object::get_path(rtobject.as_ref())
+                .path_by_appending_path(other_path)
+                .get_components_string();
         } else {
             let relative_path = Object::convert_path_to_relative(&rtobject, other_path);
             relative_path_str = relative_path.get_components_string();
             global_path_str = other_path.get_components_string();
         }
-    
+
         if relative_path_str.len() < global_path_str.len() {
             relative_path_str
         } else {
@@ -166,12 +186,12 @@ impl Object {
         let mut ancestor = rtobject;
 
         while let Some(p) = ancestor.get_object().get_parent() {
-            ancestor =  p;
+            ancestor = p;
         }
 
         match ancestor.into_any().downcast::<Container>() {
             Ok(c) => c.clone(),
-            _ => panic!() // Not possible
+            _ => panic!(), // Not possible
         }
     }
 }
@@ -208,16 +228,33 @@ mod tests {
         let container1 = Container::new(None, 0, Vec::new(), HashMap::new());
         let container21 = Container::new(None, 0, Vec::new(), HashMap::new());
         let container2 = Container::new(None, 0, vec![container21.clone()], HashMap::new());
-        let root = Container::new(None, 0, vec![container1.clone(), container2.clone()], HashMap::new());
+        let root = Container::new(
+            None,
+            0,
+            vec![container1.clone(), container2.clone()],
+            HashMap::new(),
+        );
 
         let mut sb = String::new();
 
-        root.build_string_of_hierarchy(&mut  sb, 0, None);
+        root.build_string_of_hierarchy(&mut sb, 0, None);
 
         println!("root c:{:p}", &*root);
-        println!("container1 p:{:p} c:{:p}", &*(container1.get_object().get_parent().unwrap()), &*container1);
-        println!("container2 p:{:p} c:{:p}", &*(container2.get_object().get_parent().unwrap()), &*container2);
-        println!("container21 p:{:p} c:{:p}", &*(container21.get_object().get_parent().unwrap()), &*container21);
+        println!(
+            "container1 p:{:p} c:{:p}",
+            &*(container1.get_object().get_parent().unwrap()),
+            &*container1
+        );
+        println!(
+            "container2 p:{:p} c:{:p}",
+            &*(container2.get_object().get_parent().unwrap()),
+            &*container2
+        );
+        println!(
+            "container21 p:{:p} c:{:p}",
+            &*(container21.get_object().get_parent().unwrap()),
+            &*container21
+        );
 
         println!("root: {}", sb);
 

@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use crate::ink_list_item::InkListItem;
 
-
 #[derive(Clone)]
 pub struct ListDefinition {
     name: String,
@@ -41,7 +40,8 @@ impl ListDefinition {
     }
 
     pub fn contains_item(&self, item: &InkListItem) -> bool {
-        item.get_origin_name() == Some(&self.name) && self.item_name_to_values.contains_key(item.get_item_name())
+        item.get_origin_name() == Some(&self.name)
+            && self.item_name_to_values.contains_key(item.get_item_name())
     }
 
     pub fn contains_item_with_name(&self, item_name: &str) -> bool {

@@ -1,12 +1,13 @@
-use std::fs;
 use bink::{story::Story, story_error::StoryError};
+use std::{env, fs};
 
 mod common;
 
 #[test]
-fn oneline_test() -> Result<(), StoryError>  {
-    let json_string =
-        fs::read_to_string("tests/data/basictext/oneline.ink.json").unwrap();
+fn oneline_test() -> Result<(), StoryError> {
+    println!("{}", env::current_dir().unwrap().to_string_lossy());
+
+    let json_string = common::get_json_string("inkfiles/basictext/oneline.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 
@@ -21,8 +22,7 @@ fn oneline_test() -> Result<(), StoryError>  {
 
 #[test]
 fn twolines_test() -> Result<(), StoryError> {
-    let json_string =
-        fs::read_to_string("tests/data/basictext/twolines.ink.json").unwrap();
+    let json_string = fs::read_to_string("tests/data/basictext/twolines.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 

@@ -1,13 +1,12 @@
 use std::cell::RefCell;
 
-use std::{path::Path, fs, error::Error, rc::Rc, io};
-use std::io::Write; 
+use std::io::Write;
+use std::{error::Error, fs, io, path::Path, rc::Rc};
 
 use anyhow::Context;
 use bink::story_callbacks::{ErrorHandler, ErrorType};
-use bink::{story::Story, choice::Choice};
+use bink::{choice::Choice, story::Story};
 use clap::Parser;
-
 
 #[derive(Parser)]
 struct Args {
@@ -28,8 +27,10 @@ struct EHandler {
 
 impl EHandler {
     pub fn new() -> Rc<RefCell<EHandler>> {
-        Rc::new(RefCell::new(EHandler {should_terminate: false}))
-     } 
+        Rc::new(RefCell::new(EHandler {
+            should_terminate: false,
+        }))
+    }
 }
 
 impl ErrorHandler for EHandler {
@@ -53,9 +54,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let err_handler = EHandler::new();
     story.set_error_handler(err_handler.clone());
 
-
     let mut end = false;
-    
+
     while !end && !err_handler.borrow().should_terminate {
         while story.can_continue() {
             let line = story.cont()?;
@@ -77,7 +77,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-
 // Returns true if the program has to stop
 fn process_command(command: Command, story: &mut Story) -> Result<bool, Box<dyn Error>> {
     match command {
@@ -87,11 +86,11 @@ fn process_command(command: Command, story: &mut Story) -> Result<bool, Box<dyn 
             let saved_string = get_json_string(&filename)?;
             story.load_state(&saved_string)?;
             println!("Ok.")
-        },
+        }
         Command::Save(filename) => {
             let json_string = story.save_state()?;
             save_json(&filename, &json_string)?;
-        },
+        }
         Command::Help() => println!("Commands:\n\tload <filename>\n\tsave <filename>\n\tquit\n\t"),
     }
 
@@ -130,25 +129,25 @@ fn read_input(choices: &Vec<Rc<Choice>>) -> Result<Command, Box<dyn Error>> {
                     } else {
                         return Ok(Command::Choose((v - 1) as usize));
                     }
-                },
+                }
                 Err(_) => print_error("unrecognized option or command"),
             }
         }
 
-        let words:Vec<&str> = trimmed.split_whitespace().collect();
+        let words: Vec<&str> = trimmed.split_whitespace().collect();
 
         match words[0].trim().to_lowercase().as_str() {
             "exit" | "quit" => return Ok(Command::Exit()),
             "help" => return Ok(Command::Help()),
             "load" => {
                 if words.len() == 2 {
-                    return Ok(Command::Load(words[1].trim().to_string()))
+                    return Ok(Command::Load(words[1].trim().to_string()));
                 }
 
                 print_error("incorrect filename");
-            },
-            "save" => {return Ok(Command::Save(words[1].trim().to_string()))},
-            _ =>  print_error("unrecognized option or command"),           
+            }
+            "save" => return Ok(Command::Save(words[1].trim().to_string())),
+            _ => print_error("unrecognized option or command"),
         }
     }
 }
@@ -159,16 +158,16 @@ fn print_error(error: &str) {
 
 fn get_json_string(filename: &str) -> Result<String, Box<dyn Error>> {
     let path = Path::new(filename);
-    let json = fs::read_to_string(path).with_context(|| format!("could not read file `{}`", path.to_string_lossy()))?;
+    let json = fs::read_to_string(path)
+        .with_context(|| format!("could not read file `{}`", path.to_string_lossy()))?;
 
     Ok(json)
 }
 
 fn save_json(filename: &str, content: &str) -> Result<(), Box<dyn Error>> {
     let path = Path::new(filename);
-    fs::write(path, content).with_context(|| format!("could not write file `{}`", path.to_string_lossy()))?;
+    fs::write(path, content)
+        .with_context(|| format!("could not write file `{}`", path.to_string_lossy()))?;
 
     Ok(())
 }
-
-

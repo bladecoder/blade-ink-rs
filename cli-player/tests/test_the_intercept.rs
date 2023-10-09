@@ -1,6 +1,6 @@
 use assert_cmd::prelude::*;
-use std::process::{Command, Stdio};
 use std::io::Write;
+use std::process::{Command, Stdio};
 
 #[test]
 fn the_intercept_test() -> Result<(), Box<dyn std::error::Error>> {
@@ -14,7 +14,7 @@ fn the_intercept_test() -> Result<(), Box<dyn std::error::Error>> {
     let mut stdin = child.stdin.take().unwrap();
 
     stdin.write_all(b"1\n2\nquit\n").unwrap();
-    
+
     let output = child.wait_with_output()?;
     let output_str = String::from_utf8_lossy(&output.stdout);
 

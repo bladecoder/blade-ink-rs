@@ -1,7 +1,11 @@
 use core::fmt;
 use std::cell::RefCell;
 
-use crate::{path::Path, callstack::Thread, object::{Object, RTObject}};
+use crate::{
+    callstack::Thread,
+    object::{Object, RTObject},
+    path::Path,
+};
 
 pub struct Choice {
     obj: Object,
@@ -16,7 +20,14 @@ pub struct Choice {
 }
 
 impl Choice {
-    pub fn new(target_path: Path, source_path: String, is_invisible_default: bool, tags: Vec<String>, thread_at_generation: Thread, text: String) -> Choice {
+    pub fn new(
+        target_path: Path,
+        source_path: String,
+        is_invisible_default: bool,
+        tags: Vec<String>,
+        thread_at_generation: Thread,
+        text: String,
+    ) -> Choice {
         Self {
             obj: Object::new(),
             target_path,
@@ -30,8 +41,13 @@ impl Choice {
         }
     }
 
-    pub fn new_from_json(path_string_on_choice: &str, source_path: String, text: &str, index: usize, original_thread_index: usize) -> Choice {
-        
+    pub fn new_from_json(
+        path_string_on_choice: &str,
+        source_path: String,
+        text: &str,
+        index: usize,
+        original_thread_index: usize,
+    ) -> Choice {
         Choice {
             obj: Object::new(),
             target_path: Path::new_with_components_string(Some(path_string_on_choice)),
@@ -50,7 +66,10 @@ impl Choice {
     }
 
     pub fn get_thread_at_generation(&self) -> Option<Thread> {
-        self.thread_at_generation.borrow().as_ref().map(|t| t.copy())
+        self.thread_at_generation
+            .borrow()
+            .as_ref()
+            .map(|t| t.copy())
     }
 }
 

@@ -1,15 +1,20 @@
-use std::{os::raw::c_char, ffi::{CString, CStr}};
+use std::{
+    ffi::{CStr, CString},
+    os::raw::c_char,
+};
 
 use bink::story::Story;
 
-use crate::{BINKC_FAIL_NULL_POINTER, BINKC_OK, BINKC_FAIL};
+use crate::{BINKC_FAIL, BINKC_FAIL_NULL_POINTER, BINKC_OK};
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
-pub extern "C" fn binkc_story_new( story: *mut *mut Story, json_string: *const c_char, err_msg: *mut *mut c_char) -> u32 {
-    if story.is_null()
-        || err_msg.is_null()
-    {
+pub extern "C" fn binkc_story_new(
+    story: *mut *mut Story,
+    json_string: *const c_char,
+    err_msg: *mut *mut c_char,
+) -> u32 {
+    if story.is_null() || err_msg.is_null() {
         return BINKC_FAIL_NULL_POINTER;
     }
 
@@ -63,7 +68,11 @@ pub extern "C" fn binkc_story_can_continue(story: *mut Story, can_continue: *mut
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[no_mangle]
-pub extern "C" fn binkc_story_cont(story: *mut Story, line: *mut *mut c_char, err_msg: *mut *mut c_char) -> u32 {
+pub extern "C" fn binkc_story_cont(
+    story: *mut Story,
+    line: *mut *mut c_char,
+    err_msg: *mut *mut c_char,
+) -> u32 {
     if story.is_null() {
         return BINKC_FAIL_NULL_POINTER;
     }
@@ -83,4 +92,3 @@ pub extern "C" fn binkc_story_cont(story: *mut Story, line: *mut *mut c_char, er
         },
     }
 }
-

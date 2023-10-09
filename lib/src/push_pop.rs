@@ -4,7 +4,7 @@ use crate::story_error::StoryError;
 pub enum PushPopType {
     Tunnel,
     Function,
-    FunctionEvaluationFromGame
+    FunctionEvaluationFromGame,
 }
 
 impl PushPopType {
@@ -13,7 +13,9 @@ impl PushPopType {
             0 => Ok(PushPopType::Tunnel),
             1 => Ok(PushPopType::Function),
             2 => Ok(PushPopType::FunctionEvaluationFromGame),
-            _ => Err(StoryError::BadJson("Unexpected PushPopType value".to_owned()))
+            _ => Err(StoryError::BadJson(
+                "Unexpected PushPopType value".to_owned(),
+            )),
         }
     }
 }

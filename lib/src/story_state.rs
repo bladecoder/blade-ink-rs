@@ -1,8 +1,29 @@
 #![allow(unused_variables, dead_code)]
 
-use std::{rc::Rc, cell::RefCell, collections::HashMap};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::{pointer::{Pointer, self}, callstack::CallStack, flow::Flow, variables_state::VariablesState, choice::Choice, object::{RTObject, Object}, value::Value, glue::Glue, push_pop::PushPopType, control_command::{CommandType, ControlCommand}, container::Container, state_patch::StatePatch, story::{Story, INK_VERSION_CURRENT}, path::Path, void::Void, tag::Tag, list_definitions_origin::ListDefinitionsOrigin, value_type::ValueType, json_write, json_read, story_error::StoryError};
+use crate::{
+    callstack::CallStack,
+    choice::Choice,
+    container::Container,
+    control_command::{CommandType, ControlCommand},
+    flow::Flow,
+    glue::Glue,
+    json_read, json_write,
+    list_definitions_origin::ListDefinitionsOrigin,
+    object::{Object, RTObject},
+    path::Path,
+    pointer::{self, Pointer},
+    push_pop::PushPopType,
+    state_patch::StatePatch,
+    story::{Story, INK_VERSION_CURRENT},
+    story_error::StoryError,
+    tag::Tag,
+    value::Value,
+    value_type::ValueType,
+    variables_state::VariablesState,
+    void::Void,
+};
 
 use rand::Rng;
 use serde_json::{json, Map};
@@ -37,14 +58,17 @@ pub(crate) struct StoryState {
 }
 
 impl StoryState {
-    pub fn new(main_content_container: Rc<Container>, list_definitions: Rc<ListDefinitionsOrigin>) -> StoryState {
+    pub fn new(
+        main_content_container: Rc<Container>,
+        list_definitions: Rc<ListDefinitionsOrigin>,
+    ) -> StoryState {
         let current_flow = Flow::new(DEFAULT_FLOW_NAME, main_content_container.clone());
         let callstack = current_flow.callstack.clone();
 
         let mut rng = rand::thread_rng();
         let story_seed = rng.gen_range(0..100);
 
-        let state = StoryState { 
+        let state = StoryState {
             current_flow,
             did_safe_exit: false,
             output_stream_text_dirty: true,
@@ -82,7 +106,11 @@ impl StoryState {
     }
 
     pub fn get_current_pointer(&self) -> Pointer {
-        self.get_callstack().borrow().get_current_element().current_pointer.clone()
+        self.get_callstack()
+            .borrow()
+            .get_current_element()
+            .current_pointer
+            .clone()
     }
 
     pub fn get_callstack(&self) -> &Rc<RefCell<CallStack>> {
@@ -167,7 +195,11 @@ impl StoryState {
 
                 if let (false, Some(text_content)) = (in_tag, text_content) {
                     sb.push_str(&text_content.string);
-                } else if let Some(control_command) = output_obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
+                } else if let Some(control_command) = output_obj
+                    .as_ref()
+                    .as_any()
+                    .downcast_ref::<ControlCommand>()
+                {
                     if control_command.command_type == CommandType::BeginTag {
                         in_tag = true;
                     } else if control_command.command_type == CommandType::EndTag {
@@ -187,12 +219,16 @@ impl StoryState {
     pub fn get_current_tags(&mut self) -> Vec<String> {
         if self.output_stream_tags_dirty {
             self.current_tags.clear();
-    
+
             let mut in_tag = false;
             let mut sb = String::new();
-    
+
             for output_obj in self.get_output_stream().clone() {
-                if let Some(control_command) = output_obj.as_ref().as_any().downcast_ref::<ControlCommand>() {
+                if let Some(control_command) = output_obj
+                    .as_ref()
+                    .as_any()
+                    .downcast_ref::<ControlCommand>()
+                {
                     match control_command.command_type {
                         CommandType::BeginTag => {
                             if in_tag && !sb.is_empty() {
@@ -201,7 +237,7 @@ impl StoryState {
                                 sb.clear();
                             }
                             in_tag = true;
-                        },
+                        }
                         CommandType::EndTag => {
                             if !sb.is_empty() {
                                 let txt = Self::clean_output_whitespace(&sb);
@@ -209,8 +245,8 @@ impl StoryState {
                                 sb.clear();
                             }
                             in_tag = false;
-                        },
-                        _ => {},
+                        }
+                        _ => {}
                     }
                 } else if in_tag {
                     if let Some(string_value) = Value::get_string_value(output_obj.as_ref()) {
@@ -223,16 +259,16 @@ impl StoryState {
                     }
                 }
             }
-    
+
             if !sb.is_empty() {
                 let txt = Self::clean_output_whitespace(&sb);
                 self.current_tags.push(txt);
                 sb.clear();
             }
-    
+
             self.output_stream_tags_dirty = false;
         }
-    
+
         self.current_tags.clone()
     }
 
@@ -240,33 +276,35 @@ impl StoryState {
         let mut sb = String::with_capacity(input_str.len());
         let mut current_whitespace_start = -1;
         let mut start_of_line = 0;
-    
+
         for (i, c) in input_str.chars().enumerate() {
             let is_inline_whitespace = c == ' ' || c == '\t';
-    
+
             if is_inline_whitespace && current_whitespace_start == -1 {
                 current_whitespace_start = i as i32;
             }
-    
+
             if !is_inline_whitespace {
-                if c != '\n' && current_whitespace_start > 0 && current_whitespace_start != start_of_line {
+                if c != '\n'
+                    && current_whitespace_start > 0
+                    && current_whitespace_start != start_of_line
+                {
                     sb.push(' ');
                 }
                 current_whitespace_start = -1;
             }
-    
+
             if c == '\n' {
                 start_of_line = i as i32 + 1;
             }
-    
+
             if !is_inline_whitespace {
                 sb.push(c);
             }
         }
-    
+
         sb
     }
-    
 
     pub fn output_stream_ends_in_newline(&self) -> bool {
         if !self.get_output_stream().is_empty() {
@@ -274,7 +312,7 @@ impl StoryState {
                 if let Some(cmd) = e.as_any().downcast_ref::<ControlCommand>() {
                     break;
                 }
-    
+
                 if let Some(val) = e.as_any().downcast_ref::<Value>() {
                     if let ValueType::String(text) = &val.value {
                         if text.is_newline {
@@ -286,24 +324,33 @@ impl StoryState {
                 }
             }
         }
-    
+
         false
     }
 
     pub fn set_current_pointer(&self, pointer: Pointer) {
-        self.get_callstack().as_ref().borrow_mut().get_current_element_mut().current_pointer = pointer;
+        self.get_callstack()
+            .as_ref()
+            .borrow_mut()
+            .get_current_element_mut()
+            .current_pointer = pointer;
     }
 
     pub fn get_in_expression_evaluation(&self) -> bool {
-        self.get_callstack().borrow().get_current_element().in_expression_evaluation
+        self.get_callstack()
+            .borrow()
+            .get_current_element()
+            .in_expression_evaluation
     }
 
     pub fn set_in_expression_evaluation(&self, value: bool) {
-        self.get_callstack().borrow_mut().get_current_element_mut().in_expression_evaluation = value;
+        self.get_callstack()
+            .borrow_mut()
+            .get_current_element_mut()
+            .in_expression_evaluation = value;
     }
 
     pub fn push_evaluation_stack(&mut self, obj: Rc<dyn RTObject>) {
-    
         if let Some(list) = Value::get_list_value(obj.as_ref()) {
             let origin_names = list.get_origin_names();
 
@@ -311,25 +358,25 @@ impl StoryState {
 
             for name in &origin_names {
                 let def = self.list_definitions.get_list_definition(name).unwrap();
-                if !list.origins.borrow().iter().any(|e| std::ptr::eq(e, def)){
+                if !list.origins.borrow().iter().any(|e| std::ptr::eq(e, def)) {
                     list.origins.borrow_mut().push(def.clone());
                 }
             }
         }
-    
+
         self.evaluation_stack.push(obj);
     }
 
     pub fn push_to_output_stream(&mut self, obj: Rc<dyn RTObject>) {
         let text = {
-                let obj = obj.clone();
-                match obj.into_any().downcast::<Value>() {
-                    Ok(v) => match &v.value {
-                        ValueType::String(s) => Some(s.clone()),
-                        _ => None,
-                    },
-                    Err(_) => None,
-                }
+            let obj = obj.clone();
+            match obj.into_any().downcast::<Value>() {
+                Ok(v) => match &v.value {
+                    ValueType::String(s) => Some(s.clone()),
+                    _ => None,
+                },
+                Err(_) => None,
+            }
         };
 
         if let Some(s) = text {
@@ -353,15 +400,18 @@ impl StoryState {
         if has_patch {
             let curr_count = self.visit_count_for_container(container);
             let new_count = curr_count + 1;
-            self.patch.as_mut().unwrap().set_visit_count(container, new_count);
+            self.patch
+                .as_mut()
+                .unwrap()
+                .set_visit_count(container, new_count);
         } else {
             let mut count = 0;
             let container_path_str = container.get_path().to_string();
-    
+
             if let Some(&existing_count) = self.visit_counts.get(&container_path_str) {
                 count = existing_count;
             }
-    
+
             count += 1;
             self.visit_counts.insert(container_path_str, count);
         }
@@ -378,19 +428,19 @@ impl StoryState {
             // ));
             return 0;
         }
-    
+
         if let Some(patch) = &self.patch {
             if let Some(visit_count) = patch.get_visit_count(container) {
                 return visit_count;
             }
         }
-    
+
         let container_path_str = container.get_path().to_string();
-    
+
         if let Some(&count) = self.visit_counts.get(&container_path_str) {
             return count;
         }
-    
+
         0
     }
 
@@ -401,7 +451,8 @@ impl StoryState {
         }
 
         let container_path_str = Object::get_path(container).to_string();
-        self.turn_indices.insert(container_path_str, self.current_turn_index);
+        self.turn_indices
+            .insert(container_path_str, self.current_turn_index);
     }
 
     fn try_splitting_head_tail_whitespace(text: &str) -> Option<Vec<Value>> {
@@ -467,7 +518,8 @@ impl StoryState {
             if tail_last_newline_idx < text.len() as i32 - 1 {
                 let num_spaces = (text.len() as i32 - tail_last_newline_idx) - 1;
                 let trailing_spaces = Value::new_string(
-                    &text[(tail_last_newline_idx + 1) as usize..(num_spaces + tail_last_newline_idx + 1) as usize],
+                    &text[(tail_last_newline_idx + 1) as usize
+                        ..(num_spaces + tail_last_newline_idx + 1) as usize],
                 );
                 list_texts.push(trailing_spaces);
             }
@@ -480,13 +532,12 @@ impl StoryState {
         let glue = obj.clone().into_any().downcast::<Glue>();
         let text = Value::get_string_value(obj.as_ref());
         let mut include_in_output = true;
-    
+
         // New glue, so chomp away any whitespace from the end of the stream
         if glue.is_ok() {
             self.trim_newlines_from_output_stream();
             include_in_output = true;
         }
-
         // New text: do we really want to append it, if it's whitespace?
         // Two different reasons for whitespace to be thrown away:
         // - Function start/end trimming
@@ -495,14 +546,15 @@ impl StoryState {
         else if let Some(text) = text {
             let mut function_trim_index = -1;
 
-            { // block to release cs borrow
+            {
+                // block to release cs borrow
                 let cs = self.get_callstack().borrow();
                 let curr_el = cs.get_current_element();
                 if curr_el.push_pop_type == PushPopType::Function {
                     function_trim_index = curr_el.function_start_in_output_stream;
                 }
             }
-    
+
             let mut glue_trim_index = -1;
             for (i, o) in self.get_output_stream().iter().rev().enumerate() {
                 if let Some(c) = o.as_ref().as_any().downcast_ref::<ControlCommand>() {
@@ -518,7 +570,7 @@ impl StoryState {
                     break;
                 }
             }
-    
+
             let trim_index;
             if glue_trim_index != -1 && function_trim_index != -1 {
                 trim_index = function_trim_index.min(glue_trim_index);
@@ -527,8 +579,8 @@ impl StoryState {
             } else {
                 trim_index = function_trim_index;
             }
-    
-            if trim_index != -1 {    
+
+            if trim_index != -1 {
                 if text.is_newline {
                     include_in_output = false;
                 } else if text.is_non_whitespace() {
@@ -550,11 +602,13 @@ impl StoryState {
                         }
                     }
                 }
-            } else if text.is_newline && (self.output_stream_ends_in_newline() || !self.output_stream_contains_content()) {
+            } else if text.is_newline
+                && (self.output_stream_ends_in_newline() || !self.output_stream_contains_content())
+            {
                 include_in_output = false;
             }
         }
-    
+
         if include_in_output {
             self.get_output_stream_mut().push(obj);
             self.output_stream_dirty();
@@ -578,7 +632,6 @@ impl StoryState {
                 if obj.as_ref().as_any().is::<ControlCommand>() {
                     break;
                 } else if let Some(sv) = Value::get_string_value(obj.as_ref()) {
-
                     if sv.is_non_whitespace() {
                         break;
                     } else if sv.is_newline {
@@ -593,7 +646,7 @@ impl StoryState {
         if remove_whitespace_from >= 0 {
             i = remove_whitespace_from;
             while i < output_stream.len() as i32 {
-                if let Some(text) =  Value::get_string_value(output_stream[i as usize].as_ref()) {
+                if let Some(text) = Value::get_string_value(output_stream[i as usize].as_ref()) {
                     output_stream.remove(i as usize);
                 } else {
                     i += 1;
@@ -630,20 +683,35 @@ impl StoryState {
                 }
             }
         }
-        
+
         false
     }
 
     pub fn set_previous_pointer(&self, p: Pointer) {
-        self.get_callstack().as_ref().borrow_mut().get_current_thread_mut().previous_pointer = p.clone();
+        self.get_callstack()
+            .as_ref()
+            .borrow_mut()
+            .get_current_thread_mut()
+            .previous_pointer = p.clone();
     }
 
     pub fn get_previous_pointer(&self) -> Pointer {
-        self.get_callstack().as_ref().borrow_mut().get_current_thread_mut().previous_pointer.clone()
+        self.get_callstack()
+            .as_ref()
+            .borrow_mut()
+            .get_current_thread_mut()
+            .previous_pointer
+            .clone()
     }
 
     pub fn try_exit_function_evaluation_from_game(&mut self) -> bool {
-        if self.get_callstack().borrow().get_current_element().push_pop_type == PushPopType::FunctionEvaluationFromGame {
+        if self
+            .get_callstack()
+            .borrow()
+            .get_current_element()
+            .push_pop_type
+            == PushPopType::FunctionEvaluationFromGame
+        {
             self.set_current_pointer(pointer::NULL.clone());
             self.did_safe_exit = true;
             return true;
@@ -654,13 +722,25 @@ impl StoryState {
 
     pub fn pop_callstack(&mut self, t: Option<PushPopType>) -> Result<(), StoryError> {
         // Add the end of a function call, trim any whitespace from the end.
-        if self.get_callstack().borrow().get_current_element().push_pop_type == PushPopType::Function {self.trim_whitespace_from_function_end();}
+        if self
+            .get_callstack()
+            .borrow()
+            .get_current_element()
+            .push_pop_type
+            == PushPopType::Function
+        {
+            self.trim_whitespace_from_function_end();
+        }
 
         self.get_callstack().borrow_mut().pop(t)
     }
 
     fn go_to_start(&self) {
-        self.get_callstack().as_ref().borrow_mut().get_current_element_mut().current_pointer = Pointer::start_of(self.main_content_container.clone())
+        self.get_callstack()
+            .as_ref()
+            .borrow_mut()
+            .get_current_element_mut()
+            .current_pointer = Pointer::start_of(self.main_content_container.clone())
     }
 
     pub fn get_current_choices(&self) -> Option<&Vec<Rc<Choice>>> {
@@ -675,7 +755,10 @@ impl StoryState {
     }
 
     pub fn copy_and_start_patching(&self) -> StoryState {
-        let mut copy = StoryState::new(self.main_content_container.clone(), self.list_definitions.clone());
+        let mut copy = StoryState::new(
+            self.main_content_container.clone(),
+            self.list_definitions.clone(),
+        );
 
         copy.patch = Some(StatePatch::new(self.patch.as_ref()));
 
@@ -683,7 +766,9 @@ impl StoryState {
         // If the patch is applied, then this new flow will replace the old one in
         // _namedFlows
         copy.current_flow.name = self.current_flow.name.clone();
-        copy.current_flow.callstack = Rc::new(RefCell::new(CallStack::new_from(&self.current_flow.callstack.as_ref().borrow())));
+        copy.current_flow.callstack = Rc::new(RefCell::new(CallStack::new_from(
+            &self.current_flow.callstack.as_ref().borrow(),
+        )));
         copy.current_flow.current_choices = self.current_flow.current_choices.clone();
         copy.current_flow.output_stream = self.current_flow.output_stream.clone();
         copy.output_stream_dirty();
@@ -694,7 +779,10 @@ impl StoryState {
         // the above copy is simply the default flow copy and we're done)
         if let Some(named_flows) = &self.named_flows {
             let mut nf = self.named_flows.clone();
-            nf.as_mut().unwrap().insert(copy.current_flow.name.to_string(), copy.current_flow.clone());
+            nf.as_mut().unwrap().insert(
+                copy.current_flow.name.to_string(),
+                copy.current_flow.clone(),
+            );
             copy.alive_flow_names_dirty = true;
 
             copy.named_flows = nf;
@@ -706,14 +794,14 @@ impl StoryState {
 
         if self.has_warning() {
             copy.current_warnings = self.current_warnings.clone();
-
         }
 
         // ref copy - exactly the same variables state!
         // we're expecting not to read it only while in patch mode
-        // (though the callstack will be modified) 
+        // (though the callstack will be modified)
         copy.variables_state = self.variables_state.clone();
-        copy.variables_state.set_callstack(copy.get_callstack().clone());
+        copy.variables_state
+            .set_callstack(copy.get_callstack().clone());
         copy.variables_state.patch = copy.patch.clone();
 
         copy.evaluation_stack = self.evaluation_stack.clone();
@@ -751,24 +839,28 @@ impl StoryState {
         if self.patch.is_none() {
             return;
         }
-    
+
         self.variables_state.apply_patch();
-    
+
         if self.patch.is_some() {
             for (path, count) in self.patch.as_ref().unwrap().visit_counts.clone().iter() {
                 self.apply_count_changes(path, *count, true);
             }
-        
+
             for (path, index) in self.patch.as_ref().unwrap().turn_indices.clone().iter() {
                 self.apply_count_changes(path, *index, false);
             }
         }
-    
+
         self.patch = None;
     }
 
     fn apply_count_changes(&mut self, container: &str, new_count: i32, is_visit: bool) {
-        let counts = if is_visit {&mut self.visit_counts} else {&mut self.turn_indices};
+        let counts = if is_visit {
+            &mut self.visit_counts
+        } else {
+            &mut self.turn_indices
+        };
 
         counts.insert(container.to_string(), new_count);
     }
@@ -788,10 +880,13 @@ impl StoryState {
         self.evaluation_stack.pop().unwrap()
     }
 
-    pub fn pop_evaluation_stack_multiple(&mut self, number_of_objects: usize) -> Vec<Rc<dyn RTObject>> {
+    pub fn pop_evaluation_stack_multiple(
+        &mut self,
+        number_of_objects: usize,
+    ) -> Vec<Rc<dyn RTObject>> {
         let start = self.evaluation_stack.len() - number_of_objects;
         let obj: Vec<Rc<dyn RTObject>> = self.evaluation_stack.drain(start..).collect();
-        
+
         obj
     }
 
@@ -799,7 +894,11 @@ impl StoryState {
         self.diverted_pointer = p;
     }
 
-    pub fn set_chosen_path(&mut self, path: &Path, incrementing_turn_index: bool) -> Result<(), StoryError> {
+    pub fn set_chosen_path(
+        &mut self,
+        path: &Path,
+        incrementing_turn_index: bool,
+    ) -> Result<(), StoryError> {
         // Changing direction, assume we need to clear current set of choices
         self.current_flow.current_choices.clear();
 
@@ -834,22 +933,30 @@ impl StoryState {
     // whitespace is trimmed in one go here when we pop the function.
     fn trim_whitespace_from_function_end(&mut self) {
         assert_eq!(
-            self.get_callstack().borrow().get_current_element().push_pop_type,
+            self.get_callstack()
+                .borrow()
+                .get_current_element()
+                .push_pop_type,
             PushPopType::Function
         );
-    
-        let function_start_point = match self.get_callstack().borrow().get_current_element().function_start_in_output_stream {
+
+        let function_start_point = match self
+            .get_callstack()
+            .borrow()
+            .get_current_element()
+            .function_start_in_output_stream
+        {
             -1 => 0,
             start_point => start_point,
         };
-    
+
         // Trim whitespace from END of function call
         let mut i = self.get_output_stream().len() as isize - 1;
         while i >= function_start_point as isize {
             if let Some(obj) = self.get_output_stream().get(i as usize) {
                 if obj.as_any().is::<ControlCommand>() {
                     break;
-                } 
+                }
 
                 if let Some(txt) = Value::get_string_value(obj.as_ref()) {
                     if txt.is_newline || txt.is_inline_whitespace {
@@ -868,16 +975,30 @@ impl StoryState {
         self.evaluation_stack.last()
     }
 
-    pub fn start_function_evaluation_from_game(&mut self, func_container: Rc<Container>, arguments: Option<&Vec<ValueType>>) -> Result<(), StoryError> {
-        self.get_callstack().borrow_mut().push(PushPopType::FunctionEvaluationFromGame, self.evaluation_stack.len(), 0);
-        self.get_callstack().borrow_mut().get_current_element_mut().current_pointer = Pointer::start_of(func_container);
+    pub fn start_function_evaluation_from_game(
+        &mut self,
+        func_container: Rc<Container>,
+        arguments: Option<&Vec<ValueType>>,
+    ) -> Result<(), StoryError> {
+        self.get_callstack().borrow_mut().push(
+            PushPopType::FunctionEvaluationFromGame,
+            self.evaluation_stack.len(),
+            0,
+        );
+        self.get_callstack()
+            .borrow_mut()
+            .get_current_element_mut()
+            .current_pointer = Pointer::start_of(func_container);
 
         self.pass_arguments_to_evaluation_stack(arguments)?;
 
         Ok(())
     }
 
-    pub fn pass_arguments_to_evaluation_stack(&mut self, arguments: Option<&Vec<ValueType>>) -> Result<(), StoryError> {
+    pub fn pass_arguments_to_evaluation_stack(
+        &mut self,
+        arguments: Option<&Vec<ValueType>>,
+    ) -> Result<(), StoryError> {
         // Pass arguments onto the evaluation stack
         if let Some(arguments) = arguments {
             for arg in arguments {
@@ -887,23 +1008,40 @@ impl StoryState {
                     ValueType::Float(v) => Value::new_float(*v),
                     ValueType::List(v) => Value::new_list(v.clone()),
                     ValueType::String(v) => Value::new_string(&v.string),
-                    _ => {return Err(StoryError::InvalidStoryState("ink arguments when calling EvaluateFunction / ChoosePathStringWithParameters must be \
-                        int, float, string, bool or InkList.".to_owned()));}
+                    _ => {
+                        return Err(StoryError::InvalidStoryState("ink arguments when calling EvaluateFunction / ChoosePathStringWithParameters must be \
+                        int, float, string, bool or InkList.".to_owned()));
+                    }
                 };
 
                 self.push_evaluation_stack(Rc::new(value));
             }
         }
-            
+
         Ok(())
     }
 
-    pub fn complete_function_evaluation_from_game(&mut self) -> Result<Option<ValueType>, StoryError> {
-        if self.get_callstack().borrow().get_current_element().push_pop_type != PushPopType::FunctionEvaluationFromGame {
-            return Err(StoryError::InvalidStoryState(format!("Expected external function evaluation to be complete. Stack trace: {}", self.get_callstack().borrow().get_callstack_trace())));
+    pub fn complete_function_evaluation_from_game(
+        &mut self,
+    ) -> Result<Option<ValueType>, StoryError> {
+        if self
+            .get_callstack()
+            .borrow()
+            .get_current_element()
+            .push_pop_type
+            != PushPopType::FunctionEvaluationFromGame
+        {
+            return Err(StoryError::InvalidStoryState(format!(
+                "Expected external function evaluation to be complete. Stack trace: {}",
+                self.get_callstack().borrow().get_callstack_trace()
+            )));
         }
 
-        let original_evaluation_stack_height = self.get_callstack().borrow().get_current_element().evaluation_stack_height_when_pushed;
+        let original_evaluation_stack_height = self
+            .get_callstack()
+            .borrow()
+            .get_current_element()
+            .evaluation_stack_height_when_pushed;
 
         // Do we have a returned value?
         // Potentially pop multiple values off the stack, in case we need
@@ -919,11 +1057,15 @@ impl StoryState {
         }
 
         // Finally, pop the external function evaluation
-        self.get_callstack().borrow_mut().pop(Some(PushPopType::FunctionEvaluationFromGame))?;
+        self.get_callstack()
+            .borrow_mut()
+            .pop(Some(PushPopType::FunctionEvaluationFromGame))?;
 
         // What did we get back?
-        if let Some(returned_obj) = returned_obj{
-            if returned_obj.as_ref().as_any().is::<Void>() { return Ok(None); }
+        if let Some(returned_obj) = returned_obj {
+            if returned_obj.as_ref().as_any().is::<Void>() {
+                return Ok(None);
+            }
 
             // Some kind of value, if not void
             if let Some(return_val) = returned_obj.as_ref().as_any().downcast_ref::<Value>() {
@@ -937,18 +1079,36 @@ impl StoryState {
                 // int, float, string. VariablePointers get returned as strings.
                 return Ok(Some(return_val.value.clone()));
             }
-        }   
-
-        Ok(None)    
-    }
-
-    pub(crate) fn turns_since_for_container(&self, container: &Container) -> Result<i32, StoryError> {
-        if !container.turn_index_should_be_counted {
-            return Err(StoryError::InvalidStoryState(format!("TURNS_SINCE() for target ({}) unknown.", container.name.as_ref().unwrap())));
         }
 
-        if self.patch.is_some() && self.patch.as_ref().unwrap().get_turn_index(container).is_some() {
-            let index = *self.patch.as_ref().unwrap().get_turn_index(container).unwrap();
+        Ok(None)
+    }
+
+    pub(crate) fn turns_since_for_container(
+        &self,
+        container: &Container,
+    ) -> Result<i32, StoryError> {
+        if !container.turn_index_should_be_counted {
+            return Err(StoryError::InvalidStoryState(format!(
+                "TURNS_SINCE() for target ({}) unknown.",
+                container.name.as_ref().unwrap()
+            )));
+        }
+
+        if self.patch.is_some()
+            && self
+                .patch
+                .as_ref()
+                .unwrap()
+                .get_turn_index(container)
+                .is_some()
+        {
+            let index = *self
+                .patch
+                .as_ref()
+                .unwrap()
+                .get_turn_index(container)
+                .unwrap();
             return Ok(self.current_turn_index - index);
         }
 
@@ -959,11 +1119,10 @@ impl StoryState {
             Ok(self.current_turn_index - index)
         } else {
             Ok(-1)
-        }    
+        }
     }
 
     pub(crate) fn switch_flow_internal(&mut self, flow_name: &str) {
-
         if flow_name.eq(&self.current_flow.name) {
             return;
         }
@@ -988,7 +1147,8 @@ impl StoryState {
         std::mem::swap(&mut self.current_flow, &mut next_flow);
         named_flows.insert(next_flow.name.clone(), next_flow);
 
-        self.variables_state.set_callstack(self.current_flow.callstack.clone());
+        self.variables_state
+            .set_callstack(self.current_flow.callstack.clone());
 
         // Cause text to be regenerated from output stream if necessary
         self.output_stream_dirty();
@@ -998,15 +1158,31 @@ impl StoryState {
         let mut visit_count_out;
 
         if self.patch.is_some() {
-            let container = self.main_content_container.content_at_path(&Path::new_with_components_string(Some(path_string)), 0, -1).container();
-            if container.is_none() { return Err(StoryError::InvalidStoryState(format!("Content at path not found: {}", path_string)));}
+            let container = self
+                .main_content_container
+                .content_at_path(&Path::new_with_components_string(Some(path_string)), 0, -1)
+                .container();
+            if container.is_none() {
+                return Err(StoryError::InvalidStoryState(format!(
+                    "Content at path not found: {}",
+                    path_string
+                )));
+            }
 
-            visit_count_out = self.patch.as_ref().unwrap().get_visit_count(container.as_ref().unwrap());
-            if let Some(visit_count_out) = visit_count_out {return Ok(visit_count_out);}
+            visit_count_out = self
+                .patch
+                .as_ref()
+                .unwrap()
+                .get_visit_count(container.as_ref().unwrap());
+            if let Some(visit_count_out) = visit_count_out {
+                return Ok(visit_count_out);
+            }
         }
 
         visit_count_out = self.visit_counts.get(path_string).copied();
-        if let Some(visit_count_out) = visit_count_out {return Ok(visit_count_out);}
+        if let Some(visit_count_out) = visit_count_out {
+            return Ok(visit_count_out);
+        }
 
         Ok(0)
     }
@@ -1029,33 +1205,54 @@ impl StoryState {
         let mut flows: Map<String, serde_json::Value> = Map::new();
 
         // current flow
-        flows.insert(self.current_flow.name.clone(), self.current_flow.write_json()?);
+        flows.insert(
+            self.current_flow.name.clone(),
+            self.current_flow.write_json()?,
+        );
 
         // named flows
         if let Some(named_flows) = &self.named_flows {
-            for (k,v) in named_flows {
+            for (k, v) in named_flows {
                 flows.insert(k.clone(), v.write_json()?);
             }
         }
 
         obj.insert("flows".to_owned(), serde_json::Value::Object(flows));
 
-
         obj.insert("currentFlowName".to_owned(), json!(self.current_flow.name));
-        obj.insert("variablesState".to_owned(), self.variables_state.write_json()?);
-        obj.insert("evalStack".to_owned(), json_write::write_list_rt_objs(&self.evaluation_stack)?);
+        obj.insert(
+            "variablesState".to_owned(),
+            self.variables_state.write_json()?,
+        );
+        obj.insert(
+            "evalStack".to_owned(),
+            json_write::write_list_rt_objs(&self.evaluation_stack)?,
+        );
 
         if !self.diverted_pointer.is_null() {
-            obj.insert("currentDivertTarget".to_owned(), json!(self.diverted_pointer.get_path().unwrap().get_components_string()));
+            obj.insert(
+                "currentDivertTarget".to_owned(),
+                json!(self
+                    .diverted_pointer
+                    .get_path()
+                    .unwrap()
+                    .get_components_string()),
+            );
         }
-        
-        obj.insert("visitCounts".to_owned(), json_write::write_int_dictionary(&self.visit_counts));
-        obj.insert("turnIndices".to_owned(), json_write::write_int_dictionary(&self.turn_indices));
+
+        obj.insert(
+            "visitCounts".to_owned(),
+            json_write::write_int_dictionary(&self.visit_counts),
+        );
+        obj.insert(
+            "turnIndices".to_owned(),
+            json_write::write_int_dictionary(&self.turn_indices),
+        );
 
         obj.insert("turnIdx".to_owned(), json!(self.current_turn_index));
         obj.insert("storySeed".to_owned(), json!(self.story_seed));
         obj.insert("previousRandom".to_owned(), json!(self.previous_random));
-        
+
         obj.insert("inkSaveVersion".to_owned(), json!(INK_SAVE_STATE_VERSION));
 
         // Not using this right now, but could do in future.
@@ -1067,7 +1264,11 @@ impl StoryState {
     fn load_json_obj(&mut self, j_object: serde_json::Value) -> Result<(), StoryError> {
         let j_save_version = match j_object.get("inkSaveVersion") {
             Some(version) => version,
-            None => return Err(StoryError::BadJson("ink save format incorrect, can't load.".to_owned())),
+            None => {
+                return Err(StoryError::BadJson(
+                    "ink save format incorrect, can't load.".to_owned(),
+                ))
+            }
         };
 
         if let Some(version) = j_save_version.as_i64() {
@@ -1083,7 +1284,9 @@ impl StoryState {
         // Flows: Always exists in latest format (even if there's just one default)
         // but this dictionary doesn't exist in prev format
         if let Some(flows_obj) = j_object.get("flows") {
-            let flows_obj_dict = flows_obj.as_object().ok_or_else(|| StoryError::BadJson("Invalid flows object".to_string()))?;
+            let flows_obj_dict = flows_obj
+                .as_object()
+                .ok_or_else(|| StoryError::BadJson("Invalid flows object".to_string()))?;
 
             // Single default flow
             if flows_obj_dict.len() == 1 {
@@ -1101,17 +1304,22 @@ impl StoryState {
             // Load up each flow (there may only be one)
             for (named_flow_name, named_flow_obj) in flows_obj_dict.iter() {
                 let name = named_flow_name.clone();
-                let flow_obj = named_flow_obj.as_object().ok_or_else(|| StoryError::BadJson("Invalid flow object".to_string()))?;
+                let flow_obj = named_flow_obj
+                    .as_object()
+                    .ok_or_else(|| StoryError::BadJson("Invalid flow object".to_string()))?;
 
                 // Load up this flow using JSON data
                 let flow = Flow::from_json(&name, self.main_content_container.clone(), flow_obj)?;
 
                 if flows_obj_dict.len() == 1 {
-                    self.current_flow = Flow::from_json(&name, self.main_content_container.clone(), flow_obj)?;
+                    self.current_flow =
+                        Flow::from_json(&name, self.main_content_container.clone(), flow_obj)?;
                 } else {
                     self.named_flows
                         .as_mut()
-                        .ok_or_else(|| StoryError::BadJson("Named flows should be initialized".to_string()))?
+                        .ok_or_else(|| {
+                            StoryError::BadJson("Named flows should be initialized".to_string())
+                        })?
                         .insert(name, flow);
                 }
             }
@@ -1134,58 +1342,95 @@ impl StoryState {
         else {
             self.named_flows = None;
             self.current_flow.name = "default".to_owned(); // Replace with the default flow name
-            self.current_flow
-                .callstack
-                .borrow_mut().load_json(&self.main_content_container, j_object.get("callstackThreads").and_then(|o| o.as_object()).ok_or(StoryError::BadJson("loading callstack threads".to_owned()))?)?;
+            self.current_flow.callstack.borrow_mut().load_json(
+                &self.main_content_container,
+                j_object
+                    .get("callstackThreads")
+                    .and_then(|o| o.as_object())
+                    .ok_or(StoryError::BadJson("loading callstack threads".to_owned()))?,
+            )?;
 
             if let Some(output_stream_obj) = j_object.get("outputStream") {
-                self.current_flow.output_stream = json_read::jarray_to_runtime_obj_list(output_stream_obj.as_array().unwrap(), false)?;
+                self.current_flow.output_stream = json_read::jarray_to_runtime_obj_list(
+                    output_stream_obj.as_array().unwrap(),
+                    false,
+                )?;
             }
 
             if let Some(current_choices_obj) = j_object.get("currentChoices") {
-                self.current_flow.current_choices = json_read::jarray_to_runtime_obj_list(current_choices_obj.as_array().unwrap(), false)?.iter().map(|o| o.clone().into_any().downcast::<Choice>().unwrap()).collect();
+                self.current_flow.current_choices = json_read::jarray_to_runtime_obj_list(
+                    current_choices_obj.as_array().unwrap(),
+                    false,
+                )?
+                .iter()
+                .map(|o| o.clone().into_any().downcast::<Choice>().unwrap())
+                .collect();
             }
 
             let j_choice_threads_obj = j_object.get("choiceThreads");
-            self.current_flow.load_flow_choice_threads(j_choice_threads_obj, self.main_content_container.clone())?;
+            self.current_flow.load_flow_choice_threads(
+                j_choice_threads_obj,
+                self.main_content_container.clone(),
+            )?;
         }
 
         self.output_stream_dirty();
         self.alive_flow_names_dirty = true;
 
         if let Some(variables_state_obj) = j_object.get("variablesState") {
-            self.variables_state.load_json(variables_state_obj.as_object().ok_or_else(|| StoryError::BadJson("Invalid variables state object".to_string()))?)?;
-            self.variables_state.set_callstack(self.current_flow.callstack.clone());
+            self.variables_state
+                .load_json(variables_state_obj.as_object().ok_or_else(|| {
+                    StoryError::BadJson("Invalid variables state object".to_string())
+                })?)?;
+            self.variables_state
+                .set_callstack(self.current_flow.callstack.clone());
         }
 
         if let Some(eval_stack_obj) = j_object.get("evalStack") {
-            self.evaluation_stack = json_read::jarray_to_runtime_obj_list(eval_stack_obj.as_array().unwrap(), false)?;
+            self.evaluation_stack =
+                json_read::jarray_to_runtime_obj_list(eval_stack_obj.as_array().unwrap(), false)?;
         }
 
         if let Some(current_divert_target_path) = j_object.get("currentDivertTarget") {
             let divert_path = Path::new_with_components_string(current_divert_target_path.as_str());
-            self.diverted_pointer = Story::pointer_at_path(&self.main_content_container, &divert_path)?.clone();
+            self.diverted_pointer =
+                Story::pointer_at_path(&self.main_content_container, &divert_path)?.clone();
         }
 
         if let Some(visit_counts_obj) = j_object.get("visitCounts") {
-            self.visit_counts = json_read::jobject_to_int_hashmap(visit_counts_obj.as_object().ok_or_else(|| StoryError::BadJson("Invalid visit counts object".to_string()))?)?;
+            self.visit_counts =
+                json_read::jobject_to_int_hashmap(visit_counts_obj.as_object().ok_or_else(
+                    || StoryError::BadJson("Invalid visit counts object".to_string()),
+                )?)?;
         }
 
         if let Some(turn_indices_obj) = j_object.get("turnIndices") {
-            self.turn_indices = json_read::jobject_to_int_hashmap(turn_indices_obj.as_object().ok_or_else(|| StoryError::BadJson("Invalid turn indices object".to_string()))?)?;
+            self.turn_indices =
+                json_read::jobject_to_int_hashmap(turn_indices_obj.as_object().ok_or_else(
+                    || StoryError::BadJson("Invalid turn indices object".to_string()),
+                )?)?;
         }
 
         if let Some(current_turn_index) = j_object.get("turnIdx") {
-            self.current_turn_index = current_turn_index.as_i64().ok_or_else(|| StoryError::BadJson("Invalid current turn index".to_string()))? as i32;
+            self.current_turn_index = current_turn_index
+                .as_i64()
+                .ok_or_else(|| StoryError::BadJson("Invalid current turn index".to_string()))?
+                as i32;
         }
 
         if let Some(story_seed) = j_object.get("storySeed") {
-            self.story_seed = story_seed.as_i64().ok_or_else(|| StoryError::BadJson("Invalid story seed".to_string()))? as i32;
+            self.story_seed = story_seed
+                .as_i64()
+                .ok_or_else(|| StoryError::BadJson("Invalid story seed".to_string()))?
+                as i32;
         }
 
         // Not optional, but bug in inkjs means it's actually missing in inkjs saves
         if let Some(previous_random_obj) = j_object.get("previousRandom") {
-            self.previous_random = previous_random_obj.as_i64().ok_or_else(|| StoryError::BadJson("Invalid previous random value".to_string()))? as i32;
+            self.previous_random = previous_random_obj
+                .as_i64()
+                .ok_or_else(|| StoryError::BadJson("Invalid previous random value".to_string()))?
+                as i32;
         } else {
             self.previous_random = 0;
         }
@@ -1194,7 +1439,11 @@ impl StoryState {
     }
 
     pub(crate) fn remove_flow_internal(&mut self, flow_name: &str) -> Result<(), StoryError> {
-        if flow_name.eq(DEFAULT_FLOW_NAME) {return Err(StoryError::BadArgument("Cannot destroy default flow".to_owned()));}
+        if flow_name.eq(DEFAULT_FLOW_NAME) {
+            return Err(StoryError::BadArgument(
+                "Cannot destroy default flow".to_owned(),
+            ));
+        }
 
         // If we're currently in the flow that's being removed, switch back to default
         if self.current_flow.name.eq(flow_name) {
@@ -1202,8 +1451,8 @@ impl StoryState {
         }
 
         self.named_flows.as_mut().unwrap().remove(flow_name);
-        self.alive_flow_names_dirty = true;    
-        
+        self.alive_flow_names_dirty = true;
+
         Ok(())
     }
 
@@ -1223,5 +1472,5 @@ impl StoryState {
 
     pub(crate) fn reset_errors(&mut self) {
         self.current_errors.clear();
-    } 
+    }
 }

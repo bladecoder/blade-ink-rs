@@ -1,8 +1,10 @@
 use core::fmt;
-use std::{collections::HashMap, cell::RefCell};
+use std::{cell::RefCell, collections::HashMap};
 
-use crate::{ink_list_item::InkListItem, list_definition::ListDefinition, list_definitions_origin::ListDefinitionsOrigin, value_type::ValueType, story_error::StoryError};
-
+use crate::{
+    ink_list_item::InkListItem, list_definition::ListDefinition,
+    list_definitions_origin::ListDefinitionsOrigin, story_error::StoryError, value_type::ValueType,
+};
 
 #[derive(Clone)]
 pub struct InkList {
@@ -21,14 +23,17 @@ impl InkList {
         }
     }
 
-    pub fn from_single_element(single_element: (InkListItem, i32))  -> Self {
+    pub fn from_single_element(single_element: (InkListItem, i32)) -> Self {
         let mut l = Self::new();
         l.items.insert(single_element.0, single_element.1);
 
         l
     }
 
-    pub fn from_single_origin(single_origin: String, list_definitions: &ListDefinitionsOrigin) -> Result<Self, StoryError> {
+    pub fn from_single_origin(
+        single_origin: String,
+        list_definitions: &ListDefinitionsOrigin,
+    ) -> Result<Self, StoryError> {
         let l = Self::new();
 
         l.initial_origin_names.borrow_mut().push(single_origin);
@@ -65,8 +70,7 @@ impl InkList {
         let mut ordered: Vec<_> = self.items.iter().collect();
         ordered.sort_by(|a, b| {
             if a.1 == b.1 {
-                a.0.get_origin_name()
-                    .cmp(&b.0.get_origin_name())
+                a.0.get_origin_name().cmp(&b.0.get_origin_name())
             } else {
                 a.1.cmp(b.1)
             }
@@ -77,11 +81,10 @@ impl InkList {
     pub fn get_max_item(&self) -> Option<(&InkListItem, i32)> {
         let mut max: Option<(&InkListItem, i32)> = None;
 
-        for (k,v) in &self.items {
+        for (k, v) in &self.items {
             if max.is_none() || *v > max.as_ref().unwrap().1 {
                 max = Some((k, *v));
             }
-
         }
 
         max
@@ -90,11 +93,10 @@ impl InkList {
     pub fn get_min_item(&self) -> Option<(&InkListItem, i32)> {
         let mut min: Option<(&InkListItem, i32)> = None;
 
-        for (k,v) in &self.items {
+        for (k, v) in &self.items {
             if min.is_none() || *v < min.as_ref().unwrap().1 {
                 min = Some((k, *v));
             }
-
         }
 
         min
@@ -106,7 +108,6 @@ impl InkList {
 
     pub fn get_origin_names(&self) -> Vec<String> {
         if !self.items.is_empty() {
-
             let mut names = Vec::new();
 
             for k in self.items.keys() {
@@ -121,8 +122,8 @@ impl InkList {
 
     pub fn union(&self, other_list: &InkList) -> InkList {
         let mut union = InkList::from_other_list(self);
-       
-       for (key, value) in &other_list.items {
+
+        for (key, value) in &other_list.items {
             union.items.insert(key.clone(), *value);
         }
 
@@ -131,7 +132,7 @@ impl InkList {
 
     pub fn without(&self, other_list: &InkList) -> InkList {
         let mut result = InkList::from_other_list(self);
-       
+
         other_list.items.iter().for_each(|(key, _)| {
             result.items.remove(key);
         });
@@ -141,7 +142,7 @@ impl InkList {
 
     pub fn intersect(&self, other_list: &InkList) -> InkList {
         let mut intersection = InkList::new();
-       
+
         for (k, v) in &self.items {
             if other_list.items.contains_key(k) {
                 intersection.items.insert(k.clone(), *v);
@@ -153,7 +154,7 @@ impl InkList {
 
     pub fn has(&self, other_list: &InkList) -> InkList {
         let mut result = InkList::new();
-       
+
         for (k, v) in &self.items {
             if other_list.items.contains_key(k) {
                 result.items.insert(k.clone(), *v);
@@ -164,13 +165,17 @@ impl InkList {
     }
 
     pub fn contains(&self, other_list: &InkList) -> bool {
-        if other_list.items.is_empty() || self.items.is_empty() { return false; }
-
-        for k in other_list.items.keys() {
-            if !self.items.contains_key(k) { return false; }
+        if other_list.items.is_empty() || self.items.is_empty() {
+            return false;
         }
 
-        true    
+        for k in other_list.items.keys() {
+            if !self.items.contains_key(k) {
+                return false;
+            }
+        }
+
+        true
     }
 
     pub(crate) fn get_all(&self) -> InkList {
@@ -183,8 +188,14 @@ impl InkList {
         list
     }
 
-    pub(crate) fn list_with_sub_range(&self, min_bound: &ValueType, max_bound: &ValueType) -> InkList {
-        if self.items.is_empty() {return InkList::new();}
+    pub(crate) fn list_with_sub_range(
+        &self,
+        min_bound: &ValueType,
+        max_bound: &ValueType,
+    ) -> InkList {
+        if self.items.is_empty() {
+            return InkList::new();
+        }
 
         let ordered = self.get_ordered_items();
         let mut min_value = 0;
@@ -237,8 +248,11 @@ impl InkList {
             true => InkList::new(),
             false => {
                 let item = self.get_max_item();
-                InkList::from_single_element((item.as_ref().unwrap().0.clone(), item.as_ref().unwrap().1))
-            },
+                InkList::from_single_element((
+                    item.as_ref().unwrap().0.clone(),
+                    item.as_ref().unwrap().1,
+                ))
+            }
         }
     }
 
@@ -247,8 +261,11 @@ impl InkList {
             true => InkList::new(),
             false => {
                 let item = self.get_min_item();
-                InkList::from_single_element((item.as_ref().unwrap().0.clone(), item.as_ref().unwrap().1))
-            },
+                InkList::from_single_element((
+                    item.as_ref().unwrap().0.clone(),
+                    item.as_ref().unwrap().1,
+                ))
+            }
         }
     }
 
@@ -261,7 +278,7 @@ impl InkList {
         if other_list.items.is_empty() {
             return true;
         }
-        
+
         // All greater
         self.get_min_item().unwrap().1 > other_list.get_max_item().unwrap().1
     }
@@ -275,7 +292,7 @@ impl InkList {
         if other_list.items.is_empty() {
             return true;
         }
-        
+
         // All greater
         self.get_min_item().unwrap().1 >= other_list.get_min_item().unwrap().1
             && self.get_max_item().unwrap().1 >= other_list.get_max_item().unwrap().1
@@ -290,7 +307,7 @@ impl InkList {
         if self.items.is_empty() {
             return true;
         }
-        
+
         self.get_max_item().unwrap().1 < other_list.get_min_item().unwrap().1
     }
 
@@ -303,7 +320,7 @@ impl InkList {
         if self.items.is_empty() {
             return true;
         }
-        
+
         self.get_max_item().unwrap().1 <= other_list.get_max_item().unwrap().1
             && self.get_min_item().unwrap().1 <= other_list.get_min_item().unwrap().1
     }
@@ -317,10 +334,14 @@ impl Default for InkList {
 
 impl PartialEq for InkList {
     fn eq(&self, other: &Self) -> bool {
-        if other.items.len() != self.items.len() {return false;}
+        if other.items.len() != self.items.len() {
+            return false;
+        }
 
         for key in self.items.keys() {
-            if !other.items.contains_key(key) {return false;}
+            if !other.items.contains_key(key) {
+                return false;
+            }
         }
 
         true
@@ -329,7 +350,6 @@ impl PartialEq for InkList {
 
 impl fmt::Display for InkList {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-
         let ordered = self.get_ordered_items();
         let mut result = String::new();
 
