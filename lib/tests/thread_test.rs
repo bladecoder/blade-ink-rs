@@ -4,7 +4,7 @@ mod common;
 
 #[test]
 fn thread_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("tests/data/threads/thread-bug.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/threads/thread-bug.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 
@@ -30,7 +30,7 @@ fn thread_test() -> Result<(), StoryError> {
 
 #[test]
 fn thread_test_bug() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("tests/data/threads/thread-bug.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/threads/thread-bug.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 

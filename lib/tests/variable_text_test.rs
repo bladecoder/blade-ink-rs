@@ -4,7 +4,7 @@ mod common;
 
 #[test]
 fn sequence_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("tests/data/variabletext/sequence.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/variabletext/sequence.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -52,7 +52,7 @@ fn sequence_test() -> Result<(), StoryError> {
 
 #[test]
 fn cycle_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("tests/data/variabletext/cycle.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/variabletext/cycle.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -94,7 +94,7 @@ fn cycle_test() -> Result<(), StoryError> {
 
 #[test]
 fn once_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("tests/data/variabletext/once.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/variabletext/once.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -137,7 +137,7 @@ fn once_test() -> Result<(), StoryError> {
 #[test]
 fn empty_elements_test() -> Result<(), StoryError> {
     let json_string =
-        common::get_json_string("tests/data/variabletext/empty-elements.ink.json").unwrap();
+        common::get_json_string("inkfiles/variabletext/empty-elements.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -166,7 +166,7 @@ fn empty_elements_test() -> Result<(), StoryError> {
 #[test]
 fn list_in_choice_test() -> Result<(), StoryError> {
     let json_string =
-        common::get_json_string("tests/data/variabletext/list-in-choice.ink.json").unwrap();
+        common::get_json_string("inkfiles/variabletext/list-in-choice.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 

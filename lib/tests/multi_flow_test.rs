@@ -5,7 +5,7 @@ mod common;
 #[test]
 fn basics_test() -> Result<(), StoryError> {
     let json_string =
-        common::get_json_string("tests/data/runtime/multiflow-basics.ink.json").unwrap();
+        common::get_json_string("inkfiles/runtime/multiflow-basics.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
 
     story.switch_flow("First")?;
@@ -28,7 +28,7 @@ fn basics_test() -> Result<(), StoryError> {
 #[test]
 fn multiflow_save_load_threads() -> Result<(), StoryError> {
     let json_string =
-        common::get_json_string("tests/data/runtime/multiflow-saveloadthreads.ink.json").unwrap();
+        common::get_json_string("inkfiles/runtime/multiflow-saveloadthreads.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
 
     // Default flow

@@ -1,12 +1,20 @@
 use assert_cmd::prelude::*;
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 #[test]
-fn the_intercept_test() -> Result<(), Box<dyn std::error::Error>> {
+fn the_intercept_test() -> Result<(), Box<dyn std::error::Error>> { 
     let mut cmd = Command::cargo_bin("binkplayer")?;
 
-    cmd.arg("tests/data/TheIntercept.ink.json");
+    let mut path = Path::new("inkfiles/TheIntercept.ink.json").to_path_buf();
+
+    // Due to a bug with Cargo workspaces, for Release mode the current folder is the crate folder and for Debug mode the current folder is the root folder.
+    if !path.exists() {
+        path = Path::new("../").join(path);
+    }
+
+    cmd.arg(path);
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
 

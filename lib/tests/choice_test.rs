@@ -7,7 +7,7 @@ fn no_choice_test() -> Result<(), StoryError> {
     let mut errors: Vec<String> = Vec::new();
 
     let text = common::run_story(
-        "tests/data/choices/no-choice-text.ink.json",
+        "inkfiles/choices/no-choice-text.ink.json",
         None,
         &mut errors,
     )?;
@@ -22,7 +22,7 @@ fn no_choice_test() -> Result<(), StoryError> {
 fn one_test() -> Result<(), StoryError> {
     let mut errors: Vec<String> = Vec::new();
 
-    let text = common::run_story("tests/data/choices/one.ink.json", None, &mut errors)?;
+    let text = common::run_story("inkfiles/choices/one.ink.json", None, &mut errors)?;
 
     assert_eq!(0, errors.len());
     assert_eq!(
@@ -38,7 +38,7 @@ fn multi_choice_test() -> Result<(), StoryError> {
     let mut errors: Vec<String> = Vec::new();
 
     let text = common::run_story(
-        "tests/data/choices/multi-choice.ink.json",
+        "inkfiles/choices/multi-choice.ink.json",
         Some(vec![0]),
         &mut errors,
     )?;
@@ -51,7 +51,7 @@ fn multi_choice_test() -> Result<(), StoryError> {
 
     // Select second choice
     let text = common::run_story(
-        "tests/data/choices/multi-choice.ink.json",
+        "inkfiles/choices/multi-choice.ink.json",
         Some(vec![1]),
         &mut errors,
     )?;
@@ -67,7 +67,7 @@ fn multi_choice_test() -> Result<(), StoryError> {
 
 #[test]
 fn single_choice1_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("tests/data/choices/single-choice.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/choices/single-choice.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
@@ -80,7 +80,7 @@ fn single_choice1_test() -> Result<(), StoryError> {
 
 #[test]
 fn single_choic2_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("tests/data/choices/single-choice.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/choices/single-choice.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
@@ -98,7 +98,7 @@ fn single_choic2_test() -> Result<(), StoryError> {
 #[test]
 fn suppress_choice_test() -> Result<(), StoryError> {
     let json_string =
-        common::get_json_string("tests/data/choices/suppress-choice.ink.json").unwrap();
+        common::get_json_string("inkfiles/choices/suppress-choice.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -120,7 +120,7 @@ fn suppress_choice_test() -> Result<(), StoryError> {
 
 #[test]
 fn mixed_choice_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("tests/data/choices/mixed-choice.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/choices/mixed-choice.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -144,7 +144,7 @@ fn mixed_choice_test() -> Result<(), StoryError> {
 #[test]
 fn varying_choice_test() -> Result<(), StoryError> {
     let json_string =
-        common::get_json_string("tests/data/choices/varying-choice.ink.json").unwrap();
+        common::get_json_string("inkfiles/choices/varying-choice.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -166,7 +166,7 @@ fn varying_choice_test() -> Result<(), StoryError> {
 
 #[test]
 fn sticky_choice_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("tests/data/choices/sticky-choice.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/choices/sticky-choice.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -185,7 +185,7 @@ fn sticky_choice_test() -> Result<(), StoryError> {
 #[test]
 fn fallback_choice_test() -> Result<(), StoryError> {
     let json_string =
-        common::get_json_string("tests/data/choices/fallback-choice.ink.json").unwrap();
+        common::get_json_string("inkfiles/choices/fallback-choice.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -198,7 +198,7 @@ fn fallback_choice_test() -> Result<(), StoryError> {
 #[test]
 fn fallback_choice2_test() -> Result<(), StoryError> {
     let json_string =
-        common::get_json_string("tests/data/choices/fallback-choice.ink.json").unwrap();
+        common::get_json_string("inkfiles/choices/fallback-choice.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -221,7 +221,7 @@ fn fallback_choice2_test() -> Result<(), StoryError> {
 #[test]
 fn conditional_choice_test() -> Result<(), StoryError> {
     let json_string =
-        common::get_json_string("tests/data/choices/conditional-choice.ink.json").unwrap();
+        common::get_json_string("inkfiles/choices/conditional-choice.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -233,7 +233,7 @@ fn conditional_choice_test() -> Result<(), StoryError> {
 
 #[test]
 fn label_flow_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("tests/data/choices/label-flow.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/choices/label-flow.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -255,7 +255,7 @@ fn label_flow_test() -> Result<(), StoryError> {
 
 #[test]
 fn label_flow2_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("tests/data/choices/label-flow.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/choices/label-flow.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -274,7 +274,7 @@ fn label_flow2_test() -> Result<(), StoryError> {
 
 #[test]
 fn label_scope_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("tests/data/choices/label-scope.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/choices/label-scope.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -292,7 +292,7 @@ fn label_scope_test() -> Result<(), StoryError> {
 
 #[test]
 fn divert_choice_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("tests/data/choices/divert-choice.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/choices/divert-choice.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
