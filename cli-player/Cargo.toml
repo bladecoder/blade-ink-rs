@@ -1,6 +1,6 @@
 [package]
 name = "binkplayer"
-version = "0.1.0"
+version = "0.9.0"
 description = """
 Console player for compiled .json Ink story files.
 """

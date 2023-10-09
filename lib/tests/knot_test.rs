@@ -34,8 +34,7 @@ fn multi_line_test() -> Result<(), StoryError> {
 
 #[test]
 fn strip_empty_lines_test() -> Result<(), StoryError> {
-    let json_string =
-        common::get_json_string("inkfiles/knot/strip-empty-lines.ink.json").unwrap();
+    let json_string = common::get_json_string("inkfiles/knot/strip-empty-lines.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 

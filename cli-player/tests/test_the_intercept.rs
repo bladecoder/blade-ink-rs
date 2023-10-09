@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 #[test]
-fn the_intercept_test() -> Result<(), Box<dyn std::error::Error>> { 
+fn the_intercept_test() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("binkplayer")?;
 
     let mut path = Path::new("inkfiles/TheIntercept.ink.json").to_path_buf();
