@@ -30,7 +30,7 @@ pub struct Story {
     async_saving: bool,
     prev_containers: Vec<Rc<Container>>,
     list_definitions: Rc<ListDefinitionsOrigin>,
-    on_error: Option<Rc<RefCell<dyn ErrorHandler>>>,
+    pub(crate) on_error: Option<Rc<RefCell<dyn ErrorHandler>>>,
     pub(crate) state_snapshot_at_last_new_line: Option<StoryState>,
     pub(crate) variable_observers: HashMap<String, Vec<Rc<RefCell<dyn VariableObserver>>>>,
     pub(crate) has_validated_externals: bool,
@@ -501,11 +501,13 @@ impl Story {
 
         self.get_state_mut().add_error(m, is_warning);
 
-        self.get_state_mut().force_end()
+        if !is_warning {
+            self.get_state_mut().force_end();
+        }
     }
 
-    fn reset_errors(&self) {
-        todo!()
+    fn reset_errors(&mut self) {
+        self.get_state_mut().reset_errors();
     }
 
     fn step(&mut self) -> Result<(), StoryError> {

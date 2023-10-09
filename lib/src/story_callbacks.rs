@@ -19,6 +19,7 @@ pub trait ErrorHandler {
     fn error(&mut self, message: &str, error_type: ErrorType);
 }
 
+#[derive(PartialEq, Clone, Copy)]
 pub enum ErrorType {
         // You should probably fix this, but it's not critical
         Warning,
@@ -27,6 +28,10 @@ pub enum ErrorType {
 }
 
 impl Story {
+
+    pub fn set_error_handler(&mut self, err_handler: Rc<RefCell<dyn ErrorHandler>>) {
+        self.on_error = Some(err_handler);
+    }
 
     pub fn observe_variable(&mut self, variable_name: &str, observer: Rc<RefCell<dyn VariableObserver>>) -> Result<(), StoryError> {
         self.if_async_we_cant("observe a new variable")?;

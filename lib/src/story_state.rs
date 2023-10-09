@@ -1219,5 +1219,9 @@ impl StoryState {
         } else {
             self.current_warnings.push(message);
         }
+    }
+
+    pub(crate) fn reset_errors(&mut self) {
+        self.current_errors.clear();
     } 
 }

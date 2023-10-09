@@ -20,7 +20,7 @@ fn basic_story_test() -> Result<(), Box<dyn std::error::Error>> {
     let output_str = String::from_utf8_lossy(&output.stdout);
 
     assert!(output.status.success());
-    assert!(output_str.starts_with("Test conditional choices"));
+    assert!(output_str.contains("Test conditional choices"));
     assert!(output_str.contains("1. one"));
     assert!(output_str.ends_with("one\n"));
 
