@@ -61,8 +61,6 @@ impl Story {
             return Err(StoryError::BadJson("Version of ink used to build story was newer than the current version of the engine".to_owned()));
         } else if version < INK_VERSION_MINIMUM_COMPATIBLE {
             return Err(StoryError::BadJson("Version of ink used to build story is too old to be loaded by this version of the engine".to_owned()));
-        } else if version != INK_VERSION_CURRENT {
-            // TODO println!("WARNING: Version of ink used to build story doesn't match current version of engine. Non-critical, but recommend synchronising.");
         }
 
         let root_token = match json.get("root") {
@@ -114,6 +112,10 @@ impl Story {
         };
 
         story.reset_globals()?;
+
+        if version != INK_VERSION_CURRENT {
+            story.add_error("WARNING: Version of ink used to build story doesn't match current version of engine. Non-critical, but recommend synchronising.", true);
+        }
 
         Ok(story)
     }
@@ -1616,11 +1618,8 @@ impl Story {
             )));
         } else if result.approximate {
             // TODO
-            // warning(format!(
-            //     "Failed to find content at path '{}', so it was approximated to: '{}'.",
-            //     path,
-            //     result.obj.unwrap().get_path()
-            // ));
+            // self.add_error(&format!("Failed to find content at path '{}', so it was approximated to: '{}'.", path
+            //                         , result.obj.unwrap().get_path()), true);
         }
     
         Ok(p)
@@ -1701,8 +1700,7 @@ impl Story {
         }
     }
 
-    // TODO: The result and the args should be an object not a String
-    pub fn evaluate_function(&mut self, func_name: &str, args: Option<&Vec<String>>, text_output: &mut String) -> Result<Option<String>, StoryError> {
+    pub fn evaluate_function(&mut self, func_name: &str, args: Option<&Vec<ValueType>>, text_output: &mut String) -> Result<Option<ValueType>, StoryError> {
         self.if_async_we_cant("evaluate a function")?;
 
         if func_name.trim().is_empty() {
@@ -1855,7 +1853,7 @@ impl Story {
         Ok(self.get_state_mut().get_current_tags())
     }
 
-    pub fn choose_path_string(&mut self, path: &str, reset_call_stack: bool, args: Option<&Vec<String>>) -> Result<(), StoryError> {
+    pub fn choose_path_string(&mut self, path: &str, reset_call_stack: bool, args: Option<&Vec<ValueType>>) -> Result<(), StoryError> {
         self.if_async_we_cant("call ChoosePathString right now")?;
 
         if reset_call_stack {

@@ -868,7 +868,7 @@ impl StoryState {
         self.evaluation_stack.last()
     }
 
-    pub fn start_function_evaluation_from_game(&mut self, func_container: Rc<Container>, arguments: Option<&Vec<String>>) -> Result<(), StoryError> {
+    pub fn start_function_evaluation_from_game(&mut self, func_container: Rc<Container>, arguments: Option<&Vec<ValueType>>) -> Result<(), StoryError> {
         self.get_callstack().borrow_mut().push(PushPopType::FunctionEvaluationFromGame, self.evaluation_stack.len(), 0);
         self.get_callstack().borrow_mut().get_current_element_mut().current_pointer = Pointer::start_of(func_container);
 
@@ -877,38 +877,30 @@ impl StoryState {
         Ok(())
     }
 
-    pub fn pass_arguments_to_evaluation_stack(&mut self, arguments: Option<&Vec<String>>) -> Result<(), StoryError> {
+    pub fn pass_arguments_to_evaluation_stack(&mut self, arguments: Option<&Vec<ValueType>>) -> Result<(), StoryError> {
         // Pass arguments onto the evaluation stack
         if let Some(arguments) = arguments {
             for arg in arguments {
-                // TODO
+                let value = match arg {
+                    ValueType::Bool(v) => Value::new_bool(*v),
+                    ValueType::Int(v) => Value::new_int(*v),
+                    ValueType::Float(v) => Value::new_float(*v),
+                    ValueType::List(v) => Value::new_list(v.clone()),
+                    ValueType::String(v) => Value::new_string(&v.string),
+                    _ => {return Err(StoryError::InvalidStoryState("ink arguments when calling EvaluateFunction / ChoosePathStringWithParameters must be \
+                        int, float, string, bool or InkList.".to_owned()));}
+                };
 
-                // if (!(arguments[i] instanceof Integer
-                //         || arguments[i] instanceof Float
-                //         || arguments[i] instanceof String
-                //         || arguments[i] instanceof Boolean
-                //         || arguments[i] instanceof InkList)) {
-                //     throw new Exception(
-                //             "ink arguments when calling EvaluateFunction / ChoosePathStringWithParameters must be "
-                //                     + "int, float, string, bool or InkList. Argument was "
-                //                     + (arguments[i] == null
-                //                             ? "null"
-                //                             : arguments[i].getClass().getName()));
-                // }
-
-                self.push_evaluation_stack(Rc::new(Value::new_string(arg)));
+                self.push_evaluation_stack(Rc::new(value));
             }
         }
             
         Ok(())
     }
 
-    pub fn complete_function_evaluation_from_game(&mut self) -> Result<Option<String>, StoryError> {
+    pub fn complete_function_evaluation_from_game(&mut self) -> Result<Option<ValueType>, StoryError> {
         if self.get_callstack().borrow().get_current_element().push_pop_type != PushPopType::FunctionEvaluationFromGame {
-            // TODO
-            // return Err(format!("Expected external function evaluation to be complete. Stack trace: {}", getCallStack().getCallStackTrace());
-
-            return Err(StoryError::InvalidStoryState("Expected external function evaluation to be complete. Stack trace".to_owned()));
+            return Err(StoryError::InvalidStoryState(format!("Expected external function evaluation to be complete. Stack trace: {}", self.get_callstack().borrow().get_callstack_trace())));
         }
 
         let original_evaluation_stack_height = self.get_callstack().borrow().get_current_element().evaluation_stack_height_when_pushed;
@@ -938,13 +930,12 @@ impl StoryState {
                 // DivertTargets get returned as the string of components
                 // (rather than a Path, which isn't public)
                 if let ValueType::DivertTarget(p) = &return_val.value {
-                    return Ok(Some(p.to_string()));
+                    return Ok(Some(ValueType::new_string(&p.to_string())));
                 }
 
-                // Other types can ust have their exact object type:
+                // Other types can just have their exact object type:
                 // int, float, string. VariablePointers get returned as strings.
-                // TODO
-                return Ok(Some(return_val.to_string()));
+                return Ok(Some(return_val.value.clone()));
             }
         }   
 
