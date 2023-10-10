@@ -1,3 +1,4 @@
+//! Console player that can runs compiled `.ink.json` story files writen in the **Ink** language.
 use std::cell::RefCell;
 
 use std::io::Write;
