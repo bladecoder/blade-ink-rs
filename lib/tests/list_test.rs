@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use bink::story::Story;
+use bladeink::story::Story;
 
 mod common;
 

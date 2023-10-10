@@ -5,8 +5,8 @@ use std::io::Write;
 use std::{error::Error, fs, io, path::Path, rc::Rc};
 
 use anyhow::Context;
-use bink::story_callbacks::{ErrorHandler, ErrorType};
-use bink::{choice::Choice, story::Story};
+use bladeink::story_callbacks::{ErrorHandler, ErrorType};
+use bladeink::{choice::Choice, story::Story};
 use clap::Parser;
 
 #[derive(Parser)]

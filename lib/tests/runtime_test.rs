@@ -1,7 +1,7 @@
 use core::panic;
 use std::{cell::RefCell, error::Error, rc::Rc};
 
-use bink::{
+use bladeink::{
     story::Story,
     story_callbacks::{ExternalFunction, VariableObserver},
     value_type::ValueType,
