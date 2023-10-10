@@ -7,6 +7,8 @@ This is a Rust port of inkle's ink, a scripting language for writing interactive
 """
 license = "Apache-2.0"
 repository = "https://github.com/bladecoder/blade-ink-rs/"
+keywords = ["ink", "gamedev", "narrative"]
+categories = ["gamedev"]
 edition = "2021"
 
 [lib]
