@@ -6,6 +6,7 @@ C bindings for the `bladeink` library.
 """
 license = "Apache-2.0"
 authors = ["Rafael Garcia <bladecoder@gmail.com>"]
+readme = "../README.md"
 edition = "2021"
 
 [lib]

@@ -5,7 +5,7 @@ This is a Rust port of inkle's [ink](https://github.com/inkle/ink), a scripting 
 
 To know more about the Ink language, you can check [the oficial documentation](https://github.com/inkle/ink/blob/master/Documentation/WritingWithInk.md).
 
-This repository/workspace contains 3 crates:
+The **Blade Ink** project contains 3 crates:
 
 - `lib` is the `bladeink` lib crate. It is available in crates.io and it can be used in your project as a dependency.
 - `cli-player` contains an implementation of a cli player (called `binkplayer`) to run .json.ink story files directly from the console.
