@@ -4,7 +4,7 @@ use std::{
     rc::Rc,
 };
 
-use bink::{choice::Choice, story::Story};
+use bladeink::{choice::Choice, story::Story};
 
 use crate::{BINKC_FAIL, BINKC_FAIL_NULL_POINTER, BINKC_OK};
 

@@ -1,4 +1,4 @@
-//! C API for bink.
+//! C API for bladeink.
 
 use std::{ffi::CString, os::raw::c_char};
 

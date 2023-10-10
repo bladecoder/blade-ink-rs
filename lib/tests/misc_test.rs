@@ -1,4 +1,4 @@
-use bink::{story::Story, story_error::StoryError, value_type::ValueType};
+use bladeink::{story::Story, story_error::StoryError, value_type::ValueType};
 
 mod common;
 

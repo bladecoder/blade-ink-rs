@@ -1,5 +1,5 @@
 [package]
-name = "bink"
+name = "bladeink"
 version = "0.9.0"
 authors = ["Rafael Garcia <bladecoder@gmail.com>"]
 description = """
@@ -12,7 +12,7 @@ categories = ["gamedev"]
 edition = "2021"
 
 [lib]
-name = "bink"
+name = "bladeink"
 path = "src/lib.rs"
 
 [dependencies]

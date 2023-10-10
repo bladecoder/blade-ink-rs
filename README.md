@@ -1,22 +1,22 @@
-# blade-ink (bink)
+# Blade Ink
 This is a Rust port of inkle's [ink](https://github.com/inkle/ink), a scripting language for writing interactive narrative.
 
-`bink` is fully compatible with the reference version and supports all the language features.
+`bladeink` is fully compatible with the reference version and supports all the language features.
 
 To know more about the Ink language, you can check [the oficial documentation](https://github.com/inkle/ink/blob/master/Documentation/WritingWithInk.md).
 
 This repository/workspace contains 3 crates:
 
-- `lib` is the `bink` lib crate. It will be published to crates.io and it would be easyly used adding it to your project as a dependency.
+- `lib` is the `bladeink` lib crate. It will be published to crates.io and it would be easily used adding it to your project as a dependency.
 - `cli-player` contains an implementation of a cli player (called `binkplayer`) to run .json.ink story files directly from the console.
-- `clib` is a C binding of the `bink` library ready to be used in C or any other program that can uses C libraries.
+- `clib` is a C binding of the `bladeink` library ready to be used in C or any other program that can uses C libraries.
 
-## Using the bink library crate
+## Using the bladeink library crate
 
-Here it is a quick example that uses the basic features to play an Ink story using the `bink` crate.
+Here it is a quick example that uses the basic features to play an Ink story using the `bladeink` crate.
 
 ```rust
-// story is the entry point of the `bink` lib.
+// story is the entry point of the `bladeink` lib.
 // json_string is a string with all the contents of the .ink.json file.
 let mut story = Story::new(json_string)?;
 
@@ -42,7 +42,7 @@ while !end {
 }
 ```
 
-The `bink` library support all the **Ink** language features, including threads, multi-flows, variable set/get from code, variable observing, external functions, tags on choices, etc. Examples of uses of all these features can be found in the `lib/tests` folder.
+The `bladeink` library support all the **Ink** language features, including threads, multi-flows, variable set/get from code, variable observing, external functions, tags on choices, etc. Examples of uses of all these features can be found in the `lib/tests` folder.
 
 
 ## Running Ink stories with *binkplayer*

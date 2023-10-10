@@ -2,7 +2,7 @@
 name = "binkc"
 version = "0.1.0"
 description = """
-C bindings for the `bink` library.
+C bindings for the `bladeink` library.
 """
 license = "Apache-2.0"
 authors = ["Rafael Garcia <bladecoder@gmail.com>"]
@@ -14,4 +14,4 @@ path = "src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-bink = { "version" = "0.9.0", path = "../lib" }
+bladeink = { "version" = "0.9.0", path = "../lib" }
