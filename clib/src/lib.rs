@@ -2,6 +2,7 @@
 
 use std::{ffi::CString, os::raw::c_char};
 
+pub mod cchoices;
 pub mod cstory;
 
 const BINKC_OK: u32 = 0;

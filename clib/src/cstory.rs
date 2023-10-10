@@ -1,9 +1,10 @@
 use std::{
     ffi::{CStr, CString},
     os::raw::c_char,
+    rc::Rc,
 };
 
-use bink::story::Story;
+use bink::{choice::Choice, story::Story};
 
 use crate::{BINKC_FAIL, BINKC_FAIL_NULL_POINTER, BINKC_OK};
 
@@ -90,5 +91,45 @@ pub extern "C" fn binkc_story_cont(
             *err_msg = CString::new(e.to_string()).unwrap().into_raw();
             BINKC_FAIL
         },
+    }
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn binkc_story_get_current_choices(
+    story: *mut Story,
+    choices: *mut *mut Vec<Rc<Choice>>,
+    len: *mut usize,
+) -> u32 {
+    if story.is_null() {
+        return BINKC_FAIL_NULL_POINTER;
+    }
+
+    let story: &mut Story = unsafe { &mut *story };
+
+    let result = Box::new(story.get_current_choices());
+
+    unsafe {
+        *len = result.len();
+        *choices = Box::into_raw(result);
+    }
+
+    BINKC_OK
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn binkc_story_choose_choice_index(story: *mut Story, choice_index: usize) -> u32 {
+    if story.is_null() {
+        return BINKC_FAIL_NULL_POINTER;
+    }
+
+    let story: &mut Story = unsafe { &mut *story };
+
+    let result = story.choose_choice_index(choice_index);
+
+    match result {
+        Ok(_) => BINKC_OK,
+        Err(_) => BINKC_FAIL,
     }
 }

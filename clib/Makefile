@@ -4,14 +4,11 @@ VERSION_MAJOR=$(shell echo $(VERSION) | cut -f1 -d.)
 VERSION_MINOR=$(shell echo $(VERSION) | cut -f2 -d.)
 VERSION_MICRO=$(shell echo $(VERSION) | cut -f3 -d.)
 CLIB_SO_DEV=libbinkc.so
-CLIB_SO_MAN=$(CLIB_SO_DEV).$(VERSION_MAJOR)
 CLIB_SO_FULL=$(CLIB_SO_DEV).$(VERSION)
-CLI_EXEC=binkplayer
 CLIB_HEADER=binkc.h
 CLIB_SO_DEV_RELEASE=../target/release/$(CLIB_SO_DEV)
 CLIB_SO_DEV_DEBUG=../target/debug/$(CLIB_SO_DEV)
 CLIB_PKG_CONFIG=binkc.pc
-CLI_EXEC_RELEASE=../target/release/$(CLI_EXEC)
 PREFIX ?= /usr/local
 
 #outdir is used by COPR as well: https://docs.pagure.org/copr.copr/user_documentation.html
@@ -26,23 +23,27 @@ endif
 
 INCLUDE_DIR ?= $(PREFIX)/include
 PKG_CONFIG_LIBDIR ?= $(LIBDIR)/pkgconfig
-MAN_DIR ?= $(PREFIX)/share/man
 
 SKIP_VENDOR_CREATION ?=0
 RELEASE ?=0
 
 .PHONY: debug
-debug:
-	cd .. && cargo build --all
-	ln -sfv $(CLIB_SO_DEV) ../target/debug/$(CLIB_SO_FULL)
-	ln -sfv $(CLIB_SO_DEV) ../target/debug/$(CLIB_SO_MAN)
+debug: $(CLIB_HEADER) $(CLIB_SO_DEV_DEBUG)
+	mv $(CLIB_HEADER) ../target/debug/$(shell basename $(CLIB_HEADER))
+	mv $(CLIB_SO_DEV_DEBUG) ../target/debug/$(CLIB_SO_FULL)
+	ln -sfv $(CLIB_SO_FULL) ../target/debug/$(CLIB_SO_DEV)
 
-$(CLI_EXEC_RELEASE) $(CLIB_SO_DEV_RELEASE):
+$(CLIB_SO_DEV_RELEASE):
 	cd .. && cargo build --all --release
 
-$(CLIB_SO_DEV_DEBUG): debug
+$(CLIB_SO_DEV_DEBUG):
+	cd .. && cargo build --all
 
 clib: $(CLIB_HEADER) $(CLIB_SO_DEV_RELEASE) $(CLIB_PKG_CONFIG)
+	mv $(CLIB_HEADER) ../target/release/$(shell basename $(CLIB_HEADER))
+	mv $(CLIB_PKG_CONFIG) ../target/release/$(shell basename $(CLIB_PKG_CONFIG))
+	mv $(CLIB_SO_DEV_RELEASE) ../target/release/$(CLIB_SO_FULL)
+	ln -sfv $(CLIB_SO_FULL) ../target/release/$(CLIB_SO_DEV)
 
 .PHONY: $(CLIB_HEADER)
 $(CLIB_HEADER): $(CLIB_HEADER).in
@@ -66,9 +67,8 @@ $(CLIB_PKG_CONFIG): $(CLIB_PKG_CONFIG).in
 clib_check: $(CLIB_SO_DEV_DEBUG) $(CLIB_HEADER)
 	$(eval TMPDIR := $(shell mktemp -d))
 	cp $(CLIB_SO_DEV_DEBUG) $(TMPDIR)/$(CLIB_SO_FULL)
-	ln -sfv $(CLIB_SO_FULL) $(TMPDIR)/$(CLIB_SO_MAN)
 	ln -sfv $(CLIB_SO_FULL) $(TMPDIR)/$(CLIB_SO_DEV)
-	cp $(CLIB_HEADER) $(TMPDIR)/$(shell basename $(CLIB_HEADER))
+	mv $(CLIB_HEADER) $(TMPDIR)/$(shell basename $(CLIB_HEADER))
 	cc -g -Wall -Wextra -L$(TMPDIR) -I$(TMPDIR) \
 		-o $(TMPDIR)/binkc_test clib/tests/binkc_test.c -lbinkc
 	LD_LIBRARY_PATH=$(TMPDIR) \
@@ -83,10 +83,7 @@ rust_check:
 
 check: rust_check clib_check
 
-run_test: $(CLIB_SO_DEV_DEBUG) $(CLIB_HEADER)
-	mv $(CLIB_SO_DEV_DEBUG) ../target/debug/$(CLIB_SO_FULL)
-	ln -sfv $(CLIB_SO_FULL) ../target/debug/$(CLIB_SO_DEV)
-	cp $(CLIB_HEADER) ../target/debug/$(shell basename $(CLIB_HEADER))
+run_test: debug
 	cc -g -Wall -Wextra -L../target/debug -I../target/debug \
 		-o ../target/debug/binkc_test ./tests/binkc_test.c -lbinkc
 	LD_LIBRARY_PATH=../target/debug \
