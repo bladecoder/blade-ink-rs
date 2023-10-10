@@ -260,7 +260,7 @@ pub fn write_choice(choice: &Choice) -> serde_json::Value {
     let mut jobj: Map<String, serde_json::Value> = Map::new();
 
     jobj.insert("text".to_owned(), json!(choice.text));
-    jobj.insert("index".to_owned(), json!(choice.index));
+    jobj.insert("index".to_owned(), json!(*choice.index.borrow()));
     jobj.insert("originalChoicePath".to_owned(), json!(choice.source_path));
     jobj.insert(
         "originalThreadIndex".to_owned(),

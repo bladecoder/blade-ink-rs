@@ -1,3 +1,6 @@
+//! Error that represents an error when running a Story at runtime.
+//! An error being returned of this type is typically when there's
+//! a bug in your ink, rather than in the ink engine itself!
 use core::fmt;
 
 #[derive(Debug)]
@@ -6,6 +9,7 @@ pub enum StoryError {
     BadJson(String),
     BadArgument(String),
 }
+
 impl StoryError {
     pub(crate) fn get_message(&self) -> &str {
         match self {

@@ -1,6 +1,11 @@
 [package]
 name = "binkc"
 version = "0.1.0"
+description = """
+C bindings for the `bink` library.
+"""
+license = "Apache-2.0"
+authors = ["Rafael Garcia <bladecoder@gmail.com>"]
 edition = "2021"
 
 [lib]

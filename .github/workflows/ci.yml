@@ -20,13 +20,13 @@ jobs:
         override: true
 
     - name: Build
-      run: cargo build --verbose
+      run: cargo build
     
     - name: Check Clippy
-      run: cargo clippy --verbose
+      run: cargo clippy
 
     - name: Check fmt
       run: cargo fmt -- --check
     
     - name: Test
-      run: cargo test --verbose    
+      run: cargo test 

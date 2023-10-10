@@ -1,5 +1,3 @@
-#![allow(unused_variables, dead_code)]
-
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
@@ -309,7 +307,7 @@ impl StoryState {
     pub fn output_stream_ends_in_newline(&self) -> bool {
         if !self.get_output_stream().is_empty() {
             for e in self.get_output_stream().iter().rev() {
-                if let Some(cmd) = e.as_any().downcast_ref::<ControlCommand>() {
+                if e.as_any().is::<ControlCommand>() {
                     break;
                 }
 
@@ -646,7 +644,7 @@ impl StoryState {
         if remove_whitespace_from >= 0 {
             i = remove_whitespace_from;
             while i < output_stream.len() as i32 {
-                if let Some(text) = Value::get_string_value(output_stream[i as usize].as_ref()) {
+                if Value::get_string_value(output_stream[i as usize].as_ref()).is_some() {
                     output_stream.remove(i as usize);
                 } else {
                     i += 1;
@@ -777,7 +775,7 @@ impl StoryState {
         // except with the current flow replaced with the copy above
         // (Assuming we're in multi-flow mode at all. If we're not then
         // the above copy is simply the default flow copy and we're done)
-        if let Some(named_flows) = &self.named_flows {
+        if self.named_flows.is_some() {
             let mut nf = self.named_flows.clone();
             nf.as_mut().unwrap().insert(
                 copy.current_flow.name.to_string(),
@@ -1456,7 +1454,7 @@ impl StoryState {
         Ok(())
     }
 
-    fn switch_to_default_flow_internal(&mut self) {
+    pub(crate) fn switch_to_default_flow_internal(&mut self) {
         if self.named_flows.is_some() {
             self.switch_flow_internal(DEFAULT_FLOW_NAME);
         }
