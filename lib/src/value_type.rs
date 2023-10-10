@@ -1,3 +1,4 @@
+//! A combination of an Ink value with its type.
 use crate::{ink_list::InkList, path::Path, story_error::StoryError};
 
 #[repr(u8)]
@@ -13,6 +14,7 @@ pub enum ValueType {
 }
 
 impl ValueType {
+    /// Creates a new ValueType with the String type.
     pub fn new_string(str: &str) -> ValueType {
         let mut inline_ws = true;
 
@@ -30,6 +32,7 @@ impl ValueType {
         })
     }
 
+    /// Gets the internal boolean value or None if the ValueType is not a ValueType::Bool
     pub fn get_bool(&self) -> Option<bool> {
         match self {
             ValueType::Bool(v) => Some(*v),
@@ -37,6 +40,7 @@ impl ValueType {
         }
     }
 
+    /// Gets the internal i32 value or None if the ValueType is not a ValueType::Int
     pub fn get_int(&self) -> Option<i32> {
         match self {
             ValueType::Int(v) => Some(*v),
@@ -44,6 +48,7 @@ impl ValueType {
         }
     }
 
+    /// Gets the internal f32 value or None if the ValueType is not a ValueType::Float
     pub fn get_float(&self) -> Option<f32> {
         match self {
             ValueType::Float(v) => Some(*v),
@@ -51,6 +56,7 @@ impl ValueType {
         }
     }
 
+    /// Gets the internal string value or None if the ValueType is not a ValueType::String
     pub fn get_str(&self) -> Option<&str> {
         match self {
             ValueType::String(v) => Some(&v.string),
@@ -58,6 +64,7 @@ impl ValueType {
         }
     }
 
+    /// Try to convert the internal value of this ValueType to i32
     pub fn coerce_to_int(&self) -> Result<i32, StoryError> {
         match self {
             ValueType::Bool(v) => {
@@ -73,6 +80,7 @@ impl ValueType {
         }
     }
 
+    /// Try to convert the internal value of this ValueType to f32
     pub fn coerce_to_float(&self) -> Result<f32, StoryError> {
         match self {
             ValueType::Bool(v) => {
@@ -90,6 +98,7 @@ impl ValueType {
         }
     }
 
+    /// Try to convert the internal value of this ValueType to bool
     pub fn coerce_to_bool(&self) -> Result<bool, StoryError> {
         match self {
             ValueType::Bool(v) => Ok(*v),
@@ -106,6 +115,7 @@ impl ValueType {
         }
     }
 
+    /// Try to convert the internal value of this ValueType to String
     pub fn coerce_to_string(&self) -> Result<String, StoryError> {
         match self {
             ValueType::Bool(v) => Ok(v.to_string()),
@@ -121,9 +131,10 @@ impl ValueType {
 
 #[derive(Clone)]
 pub struct StringValue {
+    /// The internal string value.
     pub string: String,
-    pub is_inline_whitespace: bool,
-    pub is_newline: bool,
+    pub(crate) is_inline_whitespace: bool,
+    pub(crate) is_newline: bool,
 }
 
 impl StringValue {
@@ -134,11 +145,11 @@ impl StringValue {
 
 #[derive(Clone, PartialEq)]
 pub struct VariablePointerValue {
-    pub variable_name: String,
+    pub(crate) variable_name: String,
 
     // Where the variable is located
     // -1 = default, unknown, yet to be determined
     // 0  = in global scope
     // 1+ = callstack element index + 1 (so that the first doesn't conflict with special global scope)
-    pub context_index: i32,
+    pub(crate) context_index: i32,
 }

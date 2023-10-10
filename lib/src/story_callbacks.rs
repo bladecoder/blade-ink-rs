@@ -1,3 +1,4 @@
+//! For setting the callbacks functions that will be called while the story is processing.
 use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
 use crate::{
@@ -6,10 +7,12 @@ use crate::{
     value_type::ValueType, void::Void,
 };
 
+/// Defines the method that will be called when a observed global variable changes.
 pub trait VariableObserver {
     fn changed(&mut self, variable_name: &str, value: &ValueType);
 }
 
+/// Defines the method callback that implements the external function.
 pub trait ExternalFunction {
     fn call(&mut self, func_name: &str, args: Vec<ValueType>) -> Option<ValueType>;
 }
@@ -19,6 +22,7 @@ pub(crate) struct ExternalFunctionDef {
     lookahead_safe: bool,
 }
 
+/// Defines the method that will be called when an error occurs while executing the story.
 pub trait ErrorHandler {
     fn error(&mut self, message: &str, error_type: ErrorType);
 }
@@ -32,10 +36,23 @@ pub enum ErrorType {
 }
 
 impl Story {
+    /// Assing the error handler for all runtime errors in ink - i.e. problems
+    /// with the source ink itself that are only discovered when playing
+    /// the story.
+    /// It's strongly recommended that you assign an error handler to your
+    /// story instance to avoid getting exceptions for ink errors.
     pub fn set_error_handler(&mut self, err_handler: Rc<RefCell<dyn ErrorHandler>>) {
         self.on_error = Some(err_handler);
     }
 
+    /// When the named global variable changes it's value, the observer will be
+    /// called to notify it of the change. Note that if the value changes multiple
+    /// times within the ink, the observer will only be called once, at the end
+    /// of the ink's evaluation. If, during the evaluation, it changes and then
+    /// changes back again to its original value, it will still be called.
+    /// Note that the observer will also be fired if the value of the variable
+    /// is changed externally to the ink, by directly setting a value in
+    /// `story.set_variable`.
     pub fn observe_variable(
         &mut self,
         variable_name: &str,
@@ -65,6 +82,10 @@ impl Story {
         Ok(())
     }
 
+    /// Removes the variable observer, to stop getting variable change notifications.
+    /// If you pass a specific variable name, it will stop observing that particular one. If you
+    /// pass None, then the observer will be removed
+    /// from all variables that it's subscribed to.
     pub fn remove_variable_observer(
         &mut self,
         observer: &Rc<RefCell<dyn VariableObserver>>,
@@ -116,6 +137,17 @@ impl Story {
         }
     }
 
+    /// Bind a Rust function to an ink EXTERNAL function declaration.
+    ///
+    /// * `lookahead_safe` - The ink engine often evaluates further
+    /// than you might expect beyond the current line just in case it sees
+    /// glue that will cause the two lines to become one. In this case it's
+    /// possible that a function can appear to be called twice instead of
+    /// just once, and earlier than you expect. If it's safe for your
+    /// function to be called in this way (since the result and side effect
+    /// of the function will not change), then you can pass 'true'.
+    /// Usually, you want to pass 'false', especially if you want some action
+    /// to be performed in game code when this function is called.
     pub fn bind_external_function(
         &mut self,
         func_name: &str,

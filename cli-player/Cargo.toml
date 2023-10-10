@@ -5,6 +5,7 @@ description = """
 Console player for compiled .json Ink story files.
 """
 authors = ["Rafael Garcia <bladecoder@gmail.com>"]
+license = "Apache-2.0"
 edition = "2021"
 
 [[bin]]

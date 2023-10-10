@@ -1,3 +1,4 @@
+//! A generated Choice from the story.
 use core::fmt;
 use std::cell::RefCell;
 
@@ -11,16 +12,20 @@ pub struct Choice {
     obj: Object,
     thread_at_generation: RefCell<Option<Thread>>,
     pub(crate) original_thread_index: RefCell<usize>,
+    /// Get the path to the original choice point - where was this choice defined in the story?
     pub(crate) source_path: String,
     pub(crate) target_path: Path,
-    pub is_invisible_default: bool,
+    pub(crate) is_invisible_default: bool,
     pub tags: Vec<String>,
+    /// The original index into currentChoices list on the Story when
+    /// this Choice was generated, for convenience.
     pub index: RefCell<usize>,
+    /// The main text to presented to the player for this Choice.
     pub text: String,
 }
 
 impl Choice {
-    pub fn new(
+    pub(crate) fn new(
         target_path: Path,
         source_path: String,
         is_invisible_default: bool,
@@ -41,7 +46,7 @@ impl Choice {
         }
     }
 
-    pub fn new_from_json(
+    pub(crate) fn new_from_json(
         path_string_on_choice: &str,
         source_path: String,
         text: &str,
@@ -61,11 +66,11 @@ impl Choice {
         }
     }
 
-    pub fn set_thread_at_generation(&self, thread: Thread) {
+    pub(crate) fn set_thread_at_generation(&self, thread: Thread) {
         self.thread_at_generation.replace(Some(thread));
     }
 
-    pub fn get_thread_at_generation(&self) -> Option<Thread> {
+    pub(crate) fn get_thread_at_generation(&self) -> Option<Thread> {
         self.thread_at_generation
             .borrow()
             .as_ref()
