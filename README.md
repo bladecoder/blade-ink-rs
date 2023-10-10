@@ -42,12 +42,12 @@ while !end {
 }
 ```
 
-The `bladeink` library support all the **Ink** language features, including threads, multi-flows, variable set/get from code, variable observing, external functions, tags on choices, etc. Examples of uses of all these features can be found in the `lib/tests` folder.
+The `bladeink` library support all the **Ink** language features, including threads, multi-flows, variable set/get from code, variable observing, external functions, tags on choices, etc. Examples of uses of all these features can be found in the `lib/tests` folder in the source code.
 
 
 ## Running Ink stories with *binkplayer*
 
-When you run `cargo build` in the workspace root folder, the `binkplayer` binary will be compiled and found in `target/debug`. You can play any of the `.ink.json` file using it.
+If you download the source code repository, you can run `cargo build` in the workspace root folder, the `binkplayer` binary will be compiled and found in `target/debug`. You can play any of the `.ink.json` file using it.
 
 In the `inkfiles` folder we can found many Ink test stories to test the Ink language capabilities. And also we have **The Intercept**, a full featured story created by **Inkle** also included in the `inkfiles` folder. You can run **The Intercept** running the next command in your console.
 
@@ -57,7 +57,7 @@ $ target/debug/binkplayer inkfiles/TheIntercept.ink.json
 
 ## Using the C bindings
 
-You can build the C bindings using the Makefile inside the clib folder.
+If you download the source code repository, you can build the C bindings using the Makefile inside the clib folder.
 
 To create the library in the target/release folder use
 
