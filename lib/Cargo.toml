@@ -9,6 +9,7 @@ license = "Apache-2.0"
 repository = "https://github.com/bladecoder/blade-ink-rs/"
 keywords = ["ink", "gamedev", "narrative"]
 categories = ["game-development"]
+readme = "../README.md"
 edition = "2021"
 
 [lib]
