@@ -7,7 +7,7 @@ To know more about the Ink language, you can check [the oficial documentation](h
 
 This repository/workspace contains 3 crates:
 
-- `lib` is the `bladeink` lib crate. It will be published to crates.io and it would be easily used adding it to your project as a dependency.
+- `lib` is the `bladeink` lib crate. It is available in crates.io and it can be used in your project as a dependency.
 - `cli-player` contains an implementation of a cli player (called `binkplayer`) to run .json.ink story files directly from the console.
 - `clib` is a C binding of the `bladeink` library ready to be used in C or any other program that can uses C libraries.
 
