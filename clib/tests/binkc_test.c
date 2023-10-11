@@ -110,6 +110,8 @@ int main(void) {
         if (len !=0) {
             print_choices(choices, len);
             printf("\n");
+            binkc_choices_free(choices);
+
             // Always choose the first option
             ret = binkc_story_choose_choice_index(story, 0);
             check_ret(ret, story, NULL);

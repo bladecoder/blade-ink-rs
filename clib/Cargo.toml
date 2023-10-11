@@ -15,4 +15,4 @@ path = "src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-bladeink = { "version" = "0.9.0", path = "../lib" }
+bladeink = { path = "../lib" }
