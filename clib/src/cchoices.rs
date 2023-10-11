@@ -30,3 +30,13 @@ pub extern "C" fn binkc_choices_get_text(
 
     BINKC_OK
 }
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn binkc_choices_free(choices: *mut Vec<Rc<Choice>>) {
+    if !choices.is_null() {
+        unsafe {
+            drop(Box::from_raw(choices));
+        }
+    }
+}

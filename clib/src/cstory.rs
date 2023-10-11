@@ -133,3 +133,29 @@ pub extern "C" fn binkc_story_choose_choice_index(story: *mut Story, choice_inde
         Err(_) => BINKC_FAIL,
     }
 }
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[no_mangle]
+pub extern "C" fn binkc_story_get_current_tags(
+    story: *mut Story,
+    tags: *mut *mut Vec<String>,
+    len: *mut usize,
+) -> u32 {
+    if story.is_null() {
+        return BINKC_FAIL_NULL_POINTER;
+    }
+
+    let story: &mut Story = unsafe { &mut *story };
+
+    let result = story.get_current_tags();
+
+    match result {
+        Ok(result) => unsafe {
+            *len = result.len();
+            *tags = Box::into_raw(Box::new(result));
+        },
+        Err(_) => return BINKC_FAIL,
+    }
+
+    BINKC_OK
+}

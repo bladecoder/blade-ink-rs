@@ -28,7 +28,7 @@ SKIP_VENDOR_CREATION ?=0
 RELEASE ?=0
 
 .PHONY: debug
-debug: $(CLIB_HEADER) $(CLIB_SO_DEV_DEBUG)
+debug: $(CLIB_SO_DEV_DEBUG) $(CLIB_HEADER)
 	mv $(CLIB_HEADER) ../target/debug/$(shell basename $(CLIB_HEADER))
 	mv $(CLIB_SO_DEV_DEBUG) ../target/debug/$(CLIB_SO_FULL)
 	ln -sfv $(CLIB_SO_FULL) ../target/debug/$(CLIB_SO_DEV)
@@ -83,11 +83,15 @@ rust_check:
 
 check: rust_check clib_check
 
-run_test: debug
+test: clean debug
 	cc -g -Wall -Wextra -L../target/debug -I../target/debug \
 		-o ../target/debug/binkc_test ./tests/binkc_test.c -lbinkc
 	LD_LIBRARY_PATH=../target/debug \
 		../target/debug/binkc_test
+	cc -g -Wall -Wextra -L../target/debug -I../target/debug \
+		-o ../target/debug/binkc_tags_test ./tests/binkc_tags_test.c -lbinkc
+	LD_LIBRARY_PATH=../target/debug \
+		../target/debug/binkc_tags_test
 
 clean:
 	- cd .. && cargo clean

@@ -1,5 +1,5 @@
 # Blade Ink
-This is a Rust port of inkle's [ink](https://github.com/inkle/ink), a scripting language for writing interactive narrative.
+This is a Rust port of Inkle's [Ink](https://github.com/inkle/ink), a scripting language for writing interactive narrative.
 
 `bladeink` is fully compatible with the reference version and supports all the language features.
 
