@@ -1,6 +1,4 @@
-use std::{ffi::CString, os::raw::c_char, rc::Rc};
-
-use bladeink::choice::Choice;
+use std::{ffi::CString, os::raw::c_char};
 
 use crate::{BINKC_FAIL, BINKC_FAIL_NULL_POINTER, BINKC_OK};
 
