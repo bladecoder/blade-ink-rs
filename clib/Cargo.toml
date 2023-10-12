@@ -12,7 +12,7 @@ edition = "2021"
 [lib]
 name = "binkc"
 path = "src/lib.rs"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 bladeink = { path = "../lib" }
