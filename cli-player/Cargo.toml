@@ -5,8 +5,9 @@ description = """
 Console player for compiled .json Ink story files.
 """
 authors = ["Rafael Garcia <bladecoder@gmail.com>"]
+repository = "https://github.com/bladecoder/blade-ink-rs/"
 license = "Apache-2.0"
-readme = "../README.md"
+readme = "README.md"
 edition = "2021"
 
 [[bin]]
