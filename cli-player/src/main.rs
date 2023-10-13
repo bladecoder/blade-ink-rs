@@ -8,10 +8,17 @@ use anyhow::Context;
 use bladeink::story_callbacks::{ErrorHandler, ErrorType};
 use bladeink::{choice::Choice, story::Story};
 use clap::Parser;
+use rand::Rng;
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
 struct Args {
+    /// The compiled .ink.json file
     pub json_filename: String,
+
+    /// Choose options randomly
+    #[arg(short, default_value_t = false)]
+    pub auto_play: bool,
 }
 
 enum Command {
@@ -20,6 +27,7 @@ enum Command {
     Help(),
     Load(String),
     Save(String),
+    DivertPath(String),
 }
 
 struct EHandler {
@@ -68,7 +76,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let choices = story.get_current_choices();
         if !choices.is_empty() {
-            let command = read_input(&choices)?;
+            let command = if args.auto_play {
+                let i = rand::thread_rng().gen_range(0..choices.len());
+
+                println!();
+                print_choices(&choices);
+                println!();
+                println!("?>{i}");
+
+                Command::Choose(i)
+            } else {
+                read_input(&choices)?
+            };
+
             end = process_command(command, &mut story)?;
         } else {
             end = true;
@@ -91,8 +111,18 @@ fn process_command(command: Command, story: &mut Story) -> Result<bool, Box<dyn 
         Command::Save(filename) => {
             let json_string = story.save_state()?;
             save_json(&filename, &json_string)?;
+            println!("Ok.")
         }
-        Command::Help() => println!("Commands:\n\tload <filename>\n\tsave <filename>\n\tquit\n\t"),
+        Command::DivertPath(path) => {
+            let result = story.choose_path_string(&path, true, None);
+
+            if let Err(desc) = result {
+                println!("<error diverting to '{path}': {desc}>")
+            }
+        }
+        Command::Help() => println!(
+            "Commands:\n\tload <filename>\n\tsave <filename>\n\t-> <divert_path>\n\tquit\n\t"
+        ),
     }
 
     Ok(false)
@@ -114,6 +144,7 @@ fn read_input(choices: &Vec<Rc<Choice>>) -> Result<Command, Box<dyn Error>> {
         print!("?>");
         io::stdout().flush()?;
 
+        line.clear();
         let _b1 = std::io::stdin().read_line(&mut line)?;
 
         let trimmed = line.trim();
@@ -127,11 +158,15 @@ fn read_input(choices: &Vec<Rc<Choice>>) -> Result<Command, Box<dyn Error>> {
                 Ok(v) => {
                     if v < 1 || v > choices.len() as i32 {
                         print_error("option out of range");
+                        continue;
                     } else {
                         return Ok(Command::Choose((v - 1) as usize));
                     }
                 }
-                Err(_) => print_error("unrecognized option or command"),
+                Err(_) => {
+                    print_error("unrecognized option or command");
+                    continue;
+                }
             }
         }
 
@@ -147,7 +182,21 @@ fn read_input(choices: &Vec<Rc<Choice>>) -> Result<Command, Box<dyn Error>> {
 
                 print_error("incorrect filename");
             }
-            "save" => return Ok(Command::Save(words[1].trim().to_string())),
+            "save" => {
+                if words.len() == 2 {
+                    return Ok(Command::Save(words[1].trim().to_string()));
+                }
+
+                print_error("incorrect filename");
+            }
+
+            "->" => {
+                if words.len() == 2 {
+                    return Ok(Command::DivertPath(words[1].trim().to_string()));
+                }
+
+                print_error("incorrect divert");
+            }
             _ => print_error("unrecognized option or command"),
         }
     }
