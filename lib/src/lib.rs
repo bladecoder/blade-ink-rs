@@ -1,7 +1,7 @@
-//! This is a Rust port of inkle's [Ink](https://github.com/inkle/ink), a scripting language for writing interactive narrative.
+//! This is a Rust port of inkle's [Ink](https://github.com/inkle/ink), a scripting language for writing interactive narratives.
 //! `bladeink` is fully compatible with the reference version and supports all its language features.
 //!
-//! To know more about the Ink language, you can check [the official documentation](https://github.com/inkle/ink/blob/master/Documentation/WritingWithInk.md).
+//! To learn more about the Ink language, you can check [the official documentation](https://github.com/inkle/ink/blob/master/Documentation/WritingWithInk.md).
 //!
 //! Here is a quick example that uses basic features to play an Ink story using the `bladeink` crate.
 //!
