@@ -1,9 +1,9 @@
 //! This is a Rust port of inkle's [Ink](https://github.com/inkle/ink), a scripting language for writing interactive narrative.
-//! `bladeink` is fully compatible with the reference version and supports all the language features.
+//! `bladeink` is fully compatible with the reference version and supports all its language features.
 //!
-//! To know more about the Ink language, you can check [the oficial documentation](https://github.com/inkle/ink/blob/master/Documentation/WritingWithInk.md).
+//! To know more about the Ink language, you can check [the official documentation](https://github.com/inkle/ink/blob/master/Documentation/WritingWithInk.md).
 //!
-//! Here it is a quick example that uses the basic features to play an Ink story using the `bladeink` crate.
+//! Here is a quick example that uses basic features to play an Ink story using the `bladeink` crate.
 //!
 //! ```
 //! # use bladeink::{story::Story, story_error::StoryError};
@@ -36,7 +36,7 @@
 //! # }
 //! ```
 //!
-//! The `bladeink` library support all the **Ink** language features, including threads, multi-flows, variable set/get from code, variable observing, external functions,
+//! The `bladeink` library supports all the **Ink** language features, including threads, multi-flows, variable set/get from code, variable observing, external functions,
 //! tags on choices, etc. Examples of uses of all these features will be added to this documentation in the future, but meanwhile, all the examples can be found in the `lib/tests` folder in the source code of this crate.
 
 mod callstack;
