@@ -14,9 +14,7 @@ Here it is a quick example that uses the basic features to play an Ink story usi
 // json_string is a string with all the contents of the .ink.json file.
 let mut story = Story::new(json_string)?;
 
-let mut end = false;
-
-while !end {
+loop {
     while story.can_continue() {
         let line = story.cont()?;
 
@@ -31,7 +29,7 @@ while !end {
         // set the option selected by the user
         story.choose_choice_index(choice_idx)?;
     } else {
-        end = true;
+        break;
     }
 }
 ```
