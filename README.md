@@ -5,12 +5,6 @@ This is a Rust port of Inkle's [Ink](https://github.com/inkle/ink), a scripting 
 
 To know more about the Ink language, you can check [the official documentation](https://github.com/inkle/ink/blob/master/Documentation/WritingWithInk.md).
 
-The **Blade Ink** project contains 3 crates:
-
-- `lib` is the `bladeink` lib crate. It is available in crates.io and it can be used in your project as a dependency.
-- `cli-player` contains an implementation of a cli player (called `binkplayer`) to run .json.ink story files directly from the console.
-- `clib` is a C binding of the `bladeink` library ready to be used in C or any other program that can uses C libraries.
-
 ## Using the bladeink library crate
 
 Here is a quick example that uses basic features to play an Ink story using the `bladeink` crate.
@@ -62,18 +56,6 @@ In the `inkfiles` folder you can find many Ink test stories to test the Ink lang
 $ target/debug/binkplayer inkfiles/TheIntercept.ink.json
 ```
 
-## Using the C bindings
+## Using Blade Ink in C
 
-If you download the source code repository, you can build the C bindings using the Makefile inside the clib folder.
-
-To create the library in the target/release folder use
-
-```bash
- $ make clib
-```
-
-This will create the `libbinkc.so.x.x.x`, where x.x.x is the version of the library, and the `binkc.h` ready to include in your C projects.
-
-The C bindings is a work in progress. In the current state, only the basic functionality to play an Ink story is finish.
-
-We can find an example of use in C in the `clib/tests/binkc_test.c` file. It plays **The Intercept** story included in the `inkfiles` folder, choosing always the first option presented to the user.
+There are available C bindings to use Blade Ink in your C projects. Check it out [here](https://github.com/bladecoder/blade-ink-ffi).
