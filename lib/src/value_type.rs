@@ -1,20 +1,25 @@
 //! A combination of an Ink value with its type.
 use crate::{ink_list::InkList, path::Path, story_error::StoryError};
 
+/// An Ink value, tagged with its type.
 #[repr(u8)]
 #[derive(Clone)]
 pub enum ValueType {
     Bool(bool),
     Int(i32),
     Float(f32),
+    /// An Ink list value.
     List(InkList),
+    /// Ink string, constructed with [`new_string`](ValueType::new_string)
     String(StringValue),
+    /// Reference to an Ink divert.
     DivertTarget(Path),
+    /// Reference to an Ink variable.
     VariablePointer(VariablePointerValue),
 }
 
 impl ValueType {
-    /// Creates a new ValueType with the String type.
+    /// Creates a new `ValueType` for a `String`.
     pub fn new_string(str: &str) -> ValueType {
         let mut inline_ws = true;
 
@@ -32,7 +37,7 @@ impl ValueType {
         })
     }
 
-    /// Gets the internal boolean value or None if the ValueType is not a ValueType::Bool
+    /// Gets the internal boolean, value or `None` if the `ValueType` is not a [`ValueType::Bool`]
     pub fn get_bool(&self) -> Option<bool> {
         match self {
             ValueType::Bool(v) => Some(*v),
@@ -40,7 +45,7 @@ impl ValueType {
         }
     }
 
-    /// Gets the internal i32 value or None if the ValueType is not a ValueType::Int
+    /// Gets the internal `i32` value, or `None` if the `ValueType` is not a [`ValueType::Int`]
     pub fn get_int(&self) -> Option<i32> {
         match self {
             ValueType::Int(v) => Some(*v),
@@ -48,7 +53,7 @@ impl ValueType {
         }
     }
 
-    /// Gets the internal f32 value or None if the ValueType is not a ValueType::Float
+    /// Gets the internal `f32` value, or `None` if the `ValueType` is not a [`ValueType::Float`]
     pub fn get_float(&self) -> Option<f32> {
         match self {
             ValueType::Float(v) => Some(*v),
@@ -56,7 +61,7 @@ impl ValueType {
         }
     }
 
-    /// Gets the internal string value or None if the ValueType is not a ValueType::String
+    /// Gets the internal string value, or `None` if the `ValueType` is not a [`ValueType::String`]
     pub fn get_str(&self) -> Option<&str> {
         match self {
             ValueType::String(v) => Some(&v.string),
@@ -64,7 +69,7 @@ impl ValueType {
         }
     }
 
-    /// Try to convert the internal value of this ValueType to i32
+    /// Tries to convert the internal value of this `ValueType` to `i32`
     pub fn coerce_to_int(&self) -> Result<i32, StoryError> {
         match self {
             ValueType::Bool(v) => {
@@ -80,7 +85,7 @@ impl ValueType {
         }
     }
 
-    /// Try to convert the internal value of this ValueType to f32
+    /// Tries to convert the internal value of this `ValueType` to `f32`
     pub fn coerce_to_float(&self) -> Result<f32, StoryError> {
         match self {
             ValueType::Bool(v) => {
@@ -98,7 +103,7 @@ impl ValueType {
         }
     }
 
-    /// Try to convert the internal value of this ValueType to bool
+    /// Tries to convert the internal value of this `ValueType` to `bool`
     pub fn coerce_to_bool(&self) -> Result<bool, StoryError> {
         match self {
             ValueType::Bool(v) => Ok(*v),
@@ -115,7 +120,7 @@ impl ValueType {
         }
     }
 
-    /// Try to convert the internal value of this ValueType to String
+    /// Tries to convert the internal value of this `ValueType` to `String`
     pub fn coerce_to_string(&self) -> Result<String, StoryError> {
         match self {
             ValueType::Bool(v) => Ok(v.to_string()),
