@@ -35,7 +35,7 @@ use crate::{
     void::Void,
 };
 
-/// The current version of the ink story file format.
+/// The current version of the Ink story file format.
 pub const INK_VERSION_CURRENT: i32 = 21;
 /// The minimum legacy version of ink that can be loaded by the current version of the code.
 const INK_VERSION_MINIMUM_COMPATIBLE: i32 = 18;
@@ -47,8 +47,8 @@ enum OutputStateChange {
     NewlineRemoved,
 }
 
-/// A Story is the core struct that represents a complete Ink narrative, and
-/// manages the evaluation and state of it.
+/// A `Story` is the core struct representing a complete Ink narrative,
+/// managing evaluation and state.
 pub struct Story {
     main_content_container: Rc<Container>,
     state: StoryState,
@@ -68,7 +68,7 @@ pub struct Story {
 }
 
 impl Story {
-    /// Construct a Story object using a JSON string compiled through inklecate.
+    /// Construct a `Story` out of a JSON string that was compiled with `inklecate`.
     pub fn new(json_string: &str) -> Result<Self, StoryError> {
         let json: serde_json::Value = match serde_json::from_str(json_string) {
             Ok(value) => value,
@@ -188,6 +188,8 @@ impl Story {
         Ok(())
     }
 
+    /// Creates a string representing the hierarchy of objects and containers
+    /// in a story.
     pub fn build_string_of_hierarchy(&self) -> String {
         let mut sb = String::new();
 
@@ -201,15 +203,19 @@ impl Story {
         sb
     }
 
+    /// `true` if the story is not waiting for user input from [`choose_choice_index`](Story::choose_choice_index).
     pub fn can_continue(&self) -> bool {
         self.get_state().can_continue()
     }
 
+    /// Tries to continue pulling text from the story.
     pub fn cont(&mut self) -> Result<String, StoryError> {
         self.continue_async(0.0)?;
         self.get_current_text()
     }
 
+    /// Continues the story until a choice or error is reached.
+    /// If a choice is reached, returns all text produced along the way.
     pub fn continue_maximally(&mut self) -> Result<String, StoryError> {
         self.if_async_we_cant("continue_maximally")?;
 
@@ -222,6 +228,7 @@ impl Story {
         Ok(sb)
     }
 
+    /// Continues running the story code for the specified number of milliseconds.
     pub fn continue_async(&mut self, millisecs_limit_async: f32) -> Result<(), StoryError> {
         if !self.has_validated_externals {
             self.validate_external_bindings()?;
@@ -509,6 +516,9 @@ impl Story {
         Ok(false)
     }
 
+    /// The string of output text available at the current point in
+    /// the `Story`. This string will be built as the `Story` is stepped
+    /// through with the [`cont`](Story::cont) method.
     pub fn get_current_text(&mut self) -> Result<String, StoryError> {
         self.if_async_we_cant("call currentText since it's a work in progress")?;
         Ok(self.get_state_mut().get_current_text())
@@ -1720,11 +1730,11 @@ impl Story {
         successful_increment
     }
 
-    /// The vector of Choice objects available at the current point in
-    /// the Story. This vector will be populated as the Story is stepped
-    /// through with the cont() method. Once can_continue becomes
-    /// false, this vector will be populated, and is usually
-    /// (but not always) on the final cont() step.
+    /// The vector of [`Choice`](crate::choice::Choice) objects available at the current point in
+    /// the `Story`. This vector will be populated as the `Story` is stepped
+    /// through with the [`cont`](Story::cont) method. Once [`can_continue`](Story::can_continue) becomes
+    /// `false`, this vector will be populated, and is usually
+    /// (but not always) on the final [`cont`](Story::cont) step.
     pub fn get_current_choices(&self) -> Vec<Rc<Choice>> {
         // Don't include invisible choices for external usage.
         let mut choices = Vec::new();
@@ -1741,26 +1751,27 @@ impl Story {
         choices
     }
 
-    /// Whether the currentErrors list contains any errors.
-    /// THIS MAY BE REMOVED - you should be setting an error handler directly
+    /// Whether the `currentErrors` list contains any errors.
+    ///
+    /// THIS METHOD MAY BE REMOVED IN FUTURE -- you should be setting an error handler directly
     /// using Story.onError.
     pub fn has_error(&self) -> bool {
         self.get_state().has_error()
     }
 
-    /// Any errors generated during evaluation of the Story.
+    /// Any critical errors generated during evaluation of the `Story`.
     pub fn get_current_errors(&self) -> &Vec<String> {
         self.get_state().get_current_errors()
     }
 
-    /// Any warnings generated during evaluation of the Story.
+    /// Any warnings generated during evaluation of the `Story`.
     pub fn get_current_warnings(&self) -> &Vec<String> {
         self.get_state().get_current_warnings()
     }
 
-    /// Chooses the Choice from the currentChoices list with the given
-    /// index. Internally, this sets the current content path to that
-    /// pointed to by the Choice, ready to continue story evaluation.
+    /// Chooses the [`Choice`](crate::choice::Choice) from the `currentChoices` list with the given
+    /// index. Internally, this sets the current content path to what
+    /// the [`Choice`](crate::choice::Choice) points to, ready to continue story evaluation.
     pub fn choose_choice_index(&mut self, choice_index: usize) -> Result<(), StoryError> {
         let choices = self.get_current_choices();
         if choice_index >= choices.len() {
@@ -2018,8 +2029,9 @@ impl Story {
         }
     }
 
-    /// Evaluates a function defined in ink, and gathers the possibly multi-line text as generated by the function.
-    /// This text output is any text written as normal content within the function, as opposed to the return value, as returned with `~ return`.
+    /// Evaluates a function defined in ink, and gathers the (possibly multi-line) text the function produces while executing.
+    /// This output text is any text written as normal content within the function,
+    /// as opposed to the ink function's return value, which is specified by `~ return` in the ink.
     pub fn evaluate_function(
         &mut self,
         func_name: &str,
@@ -2190,15 +2202,15 @@ impl Story {
         self.main_content_container.content_at_path(path, 0, -1)
     }
 
-    /// Gets a list of tags as defined with '#' in source that were seen
-    /// during the latest cont() call.
+    /// Gets a list of tags defined with '#' in the ink source that were seen
+    /// during the most recent [`cont`](Story::cont) call.
     pub fn get_current_tags(&mut self) -> Result<Vec<String>, StoryError> {
         self.if_async_we_cant("call currentTags since it's a work in progress")?;
         Ok(self.get_state_mut().get_current_tags())
     }
 
     /// Change the current position of the story to the given path. From here you can
-    /// call `cont()` to evaluate the next line.
+    /// call [`cont()`](Story::cont) to evaluate the next line.
     ///
     /// The path string is a dot-separated path as used internally by the engine.
     /// These examples should work:
@@ -2216,20 +2228,20 @@ impl Story {
     ///
     /// ...because of the way that content is nested within a weave structure.
     ///
-    /// By default this will reset the callstack beforehand, which means that any
+    /// Usually you would reset the callstack beforehand, which means that any
     /// tunnels, threads or functions you were in at the time of calling will be
-    /// discarded. This is different from the behaviour of ChooseChoiceIndex, which
-    /// will always keep the callstack, since the choices are known to come from the
-    /// correct state, and known their source thread.
+    /// discarded. This is different from the behaviour of [`choose_choice_index`](Story::choose_choice_index), which
+    /// will always keep the callstack, since the choices are known to come from a
+    /// correct state, and their source thread is known.
     ///
-    /// You have the option of passing false to the resetCallstack parameter if you
-    /// don't want this behaviour, and will leave any active threads, tunnels or
-    /// function calls in-tact.
+    /// You have the option of passing `false` to the `reset_callstack` parameter if you
+    /// don't want this behaviour, leaving any active threads, tunnels or
+    /// function calls intact.
     ///
-    /// This is potentially dangerous! If you're in the middle of a tunnel,
+    /// Not reseting the call stack is potentially dangerous! If you're in the middle of a tunnel,
     /// it'll redirect only the inner-most tunnel, meaning that when you tunnel-return
-    /// using '->->', it'll return to where you were before. This may be what you
-    /// want though. However, if you're in the middle of a function, ChoosePathString
+    /// using `->->`, it'll return to where you were before. This may be what you
+    /// want though. However, if you're in the middle of a function, `choose_path_string`
     /// will throw an error.
     pub fn choose_path_string(
         &mut self,
@@ -2285,7 +2297,7 @@ impl Story {
         Ok(())
     }
 
-    /// Changes the current flow.
+    /// Changes from the current flow to the specified one.
     pub fn switch_flow(&mut self, flow_name: &str) -> Result<(), StoryError> {
         self.if_async_we_cant("switch flow")?;
 
@@ -2301,19 +2313,19 @@ impl Story {
         Ok(())
     }
 
-    /// Removes the specified flow.
+    /// Removes the specified flow from the story.
     pub fn remove_flow(&mut self, flow_name: &str) -> Result<(), StoryError> {
         self.get_state_mut().remove_flow_internal(flow_name)
     }
 
-    /// Removes the specified flow.
+    /// Switches to the default flow, keeping the current flow around for later.
     pub fn switch_to_default_flow(&mut self) {
         self.get_state_mut().switch_to_default_flow_internal();
     }
 
     pub(crate) fn if_async_we_cant(&self, activity_str: &str) -> Result<(), StoryError> {
         if self.async_continue_active {
-            return Err(StoryError::InvalidStoryState(format!("Can't {}. Story is in the middle of a ContinueAsync(). Make more continue_async() calls or a single cont() call beforehand.", activity_str)));
+            return Err(StoryError::InvalidStoryState(format!("Can't {}. Story is in the middle of a continue_async(). Make more continue_async() calls or a single cont() call beforehand.", activity_str)));
         }
 
         Ok(())
@@ -2344,7 +2356,7 @@ impl Story {
         self.get_state().variables_state.get(variable_name)
     }
 
-    /// Exports the current state to json format, in order to save the game.
+    /// Exports the current state to JSON format, in order to save the game.
     pub fn save_state(&self) -> Result<String, StoryError> {
         self.get_state().to_json()
     }
@@ -2354,7 +2366,7 @@ impl Story {
         self.get_state_mut().load_json(json_state)
     }
 
-    /// Gets the visit/read count of a particular Container at the given path.
+    /// Gets the visit/read count of a particular `Container` at the given path.
     /// For a knot or stitch, that path string will be in the form:
     ///
     ///```ink
@@ -2365,10 +2377,10 @@ impl Story {
         self.get_state().visit_count_at_path_string(path_string)
     }
 
-    /// An ink file can provide a fallback functions for when when an `EXTERNAL` has been left
-    /// unbound by the client, and the fallback function will be called instead. Useful when
-    /// testing a story in playmode, when it's not possible to write a client-side external
-    /// function, but you don't want it to fail to run.
+    /// An ink file can provide a fallback function for when when an `EXTERNAL` has been left
+    /// unbound by the client, in which case the fallback will be called instead. Useful when
+    /// testing a story in play-mode, when it's not possible to write a client-side external
+    /// function, but when you don't want it to completely fail to run.
     pub fn set_allow_external_function_fallbacks(&mut self, v: bool) {
         self.allow_external_function_fallbacks = v;
     }
