@@ -1,13 +1,3 @@
-//! [`Story`] is the entry point to load and run an Ink story.
-use std::{
-    cell::RefCell,
-    collections::{HashMap, VecDeque},
-    rc::Rc,
-    time::Instant,
-};
-
-use rand::{rngs::StdRng, Rng, SeedableRng};
-
 use crate::{
     choice::Choice,
     choice_point::ChoicePoint,
@@ -16,15 +6,12 @@ use crate::{
     divert::Divert,
     ink_list::InkList,
     ink_list_item::InkListItem,
-    json_read,
-    list_definitions_origin::ListDefinitionsOrigin,
     native_function_call::NativeFunctionCall,
-    object::{Object, RTObject},
-    path::Path,
-    pointer::{self, Pointer},
+    object::RTObject,
+    pointer::{Pointer, self},
     push_pop::PushPopType,
-    search_result::SearchResult,
-    story_callbacks::{ErrorHandler, ErrorType, ExternalFunctionDef, VariableObserver},
+    story::{OutputStateChange, Story},
+    story_callbacks::ErrorType,
     story_error::StoryError,
     story_state::StoryState,
     tag::Tag,
@@ -34,176 +21,18 @@ use crate::{
     variable_reference::VariableReference,
     void::Void,
 };
+use rand::{rngs::StdRng, SeedableRng, Rng};
+use std::{
+    collections::{HashMap, VecDeque},
+    rc::Rc,
+    time::Instant,
+};
 
-/// The current version of the Ink story file format.
-pub const INK_VERSION_CURRENT: i32 = 21;
-/// The minimum legacy version of ink that can be loaded by the current version of the code.
-const INK_VERSION_MINIMUM_COMPATIBLE: i32 = 18;
-
-#[derive(PartialEq)]
-enum OutputStateChange {
-    NoChange,
-    ExtendedBeyondNewline,
-    NewlineRemoved,
-}
-
-/// A `Story` is the core struct representing a complete Ink narrative,
-/// managing evaluation and state.
-pub struct Story {
-    main_content_container: Rc<Container>,
-    state: StoryState,
-    temporary_evaluation_container: Option<Rc<Container>>,
-    recursive_continue_count: usize,
-    async_continue_active: bool,
-    async_saving: bool,
-    prev_containers: Vec<Rc<Container>>,
-    list_definitions: Rc<ListDefinitionsOrigin>,
-    pub(crate) on_error: Option<Rc<RefCell<dyn ErrorHandler>>>,
-    pub(crate) state_snapshot_at_last_new_line: Option<StoryState>,
-    pub(crate) variable_observers: HashMap<String, Vec<Rc<RefCell<dyn VariableObserver>>>>,
-    pub(crate) has_validated_externals: bool,
-    pub(crate) allow_external_function_fallbacks: bool,
-    pub(crate) saw_lookahead_unsafe_function_after_new_line: bool,
-    pub(crate) externals: HashMap<String, ExternalFunctionDef>,
-}
-
+/// # Story Progress
+/// Methods to move the story forwards.
 impl Story {
-    /// Construct a `Story` out of a JSON string that was compiled with `inklecate`.
-    pub fn new(json_string: &str) -> Result<Self, StoryError> {
-        let json: serde_json::Value = match serde_json::from_str(json_string) {
-            Ok(value) => value,
-            Err(_) => return Err(StoryError::BadJson("Story not in JSON format.".to_owned())),
-        };
-
-        let version_opt = json.get("inkVersion");
-
-        if version_opt.is_none() || !version_opt.unwrap().is_number() {
-            return Err(StoryError::BadJson(
-                "ink version number not found. Are you sure it's a valid .ink.json file?"
-                    .to_owned(),
-            ));
-        }
-
-        let version: i32 = version_opt.unwrap().as_i64().unwrap().try_into().unwrap();
-
-        if version > INK_VERSION_CURRENT {
-            return Err(StoryError::BadJson("Version of ink used to build story was newer than the current version of the engine".to_owned()));
-        } else if version < INK_VERSION_MINIMUM_COMPATIBLE {
-            return Err(StoryError::BadJson("Version of ink used to build story is too old to be loaded by this version of the engine".to_owned()));
-        }
-
-        let root_token = match json.get("root") {
-            Some(value) => value,
-            None => {
-                return Err(StoryError::BadJson(
-                    "Root node for ink not found. Are you sure it's a valid .ink.json file?"
-                        .to_owned(),
-                ))
-            }
-        };
-
-        let list_definitions = match json.get("listDefs") {
-            Some(def) => Rc::new(json_read::jtoken_to_list_definitions(def)?),
-            None => {
-                return Err(
-                    StoryError::BadJson("List Definitions node for ink not found. Are you sure it's a valid .ink.json file?"
-                        .to_owned()),
-                )
-            }
-        };
-
-        let main_content_container = json_read::jtoken_to_runtime_object(root_token, None)?;
-
-        let main_content_container = main_content_container.into_any().downcast::<Container>();
-
-        if main_content_container.is_err() {
-            return Err(StoryError::BadJson(
-                "Root node for ink is not a container?".to_owned(),
-            ));
-        };
-
-        let main_content_container = main_content_container.unwrap(); // unwrap: checked for err above
-
-        let mut story = Story {
-            main_content_container: main_content_container.clone(),
-            state: StoryState::new(main_content_container.clone(), list_definitions.clone()),
-            temporary_evaluation_container: None,
-            recursive_continue_count: 0,
-            async_continue_active: false,
-            async_saving: false,
-            saw_lookahead_unsafe_function_after_new_line: false,
-            state_snapshot_at_last_new_line: None,
-            on_error: None,
-            prev_containers: Vec::new(),
-            list_definitions,
-            variable_observers: HashMap::with_capacity(0),
-            has_validated_externals: false,
-            allow_external_function_fallbacks: false,
-            externals: HashMap::with_capacity(0),
-        };
-
-        story.reset_globals()?;
-
-        if version != INK_VERSION_CURRENT {
-            story.add_error(&format!("WARNING: Version of ink used to build story ({}) doesn't match current version ({}) of engine. Non-critical, but recommend synchronising.", version, INK_VERSION_CURRENT), true);
-        }
-
-        Ok(story)
-    }
-
-    #[inline]
-    pub(crate) fn get_state(&self) -> &StoryState {
-        &self.state
-    }
-
-    #[inline]
-    pub(crate) fn get_state_mut(&mut self) -> &mut StoryState {
-        &mut self.state
-    }
-
-    fn reset_globals(&mut self) -> Result<(), StoryError> {
-        if self
-            .main_content_container
-            .named_content
-            .contains_key("global decl")
-        {
-            let original_pointer = self.get_state().get_current_pointer().clone();
-
-            self.choose_path(
-                &Path::new_with_components_string(Some("global decl")),
-                false,
-            )?;
-
-            // Continue, but without validating external bindings,
-            // since we may be doing this reset at initialisation time.
-            self.continue_internal(0.0)?;
-
-            self.get_state().set_current_pointer(original_pointer);
-        }
-
-        self.get_state_mut()
-            .variables_state
-            .snapshot_default_globals();
-
-        Ok(())
-    }
-
-    /// Creates a string representing the hierarchy of objects and containers
-    /// in a story.
-    pub fn build_string_of_hierarchy(&self) -> String {
-        let mut sb = String::new();
-
-        let cp = self.get_state().get_current_pointer().resolve();
-
-        let cp = cp.as_ref().map(|cp| cp.as_ref());
-
-        self.main_content_container
-            .build_string_of_hierarchy(&mut sb, 0, cp);
-
-        sb
-    }
-
-    /// `true` if the story is not waiting for user input from [`choose_choice_index`](Story::choose_choice_index).
+    /// `true` if the story is not waiting for user input from
+    /// [`choose_choice_index`](Story::choose_choice_index).
     pub fn can_continue(&self) -> bool {
         self.get_state().can_continue()
     }
@@ -228,7 +57,8 @@ impl Story {
         Ok(sb)
     }
 
-    /// Continues running the story code for the specified number of milliseconds.
+    /// Continues running the story code for the specified number of
+    /// milliseconds.
     pub fn continue_async(&mut self, millisecs_limit_async: f32) -> Result<(), StoryError> {
         if !self.has_validated_externals {
             self.validate_external_bindings()?;
@@ -237,7 +67,10 @@ impl Story {
         self.continue_internal(millisecs_limit_async)
     }
 
-    fn continue_internal(&mut self, millisecs_limit_async: f32) -> Result<(), StoryError> {
+    pub(crate) fn continue_internal(
+        &mut self,
+        millisecs_limit_async: f32,
+    ) -> Result<(), StoryError> {
         let is_async_time_limited = millisecs_limit_async > 0.0;
 
         self.recursive_continue_count += 1;
@@ -249,7 +82,8 @@ impl Story {
             self.async_continue_active = is_async_time_limited;
             if !self.can_continue() {
                 return Err(StoryError::InvalidStoryState(
-                    "Can't continue - should check can_continue before calling Continue".to_owned(),
+                    "Can't continue - should check can_continue before calling Continue"
+                        .to_owned(),
                 ));
             }
 
@@ -441,7 +275,7 @@ impl Story {
         Ok(())
     }
 
-    fn continue_single_step(&mut self) -> Result<bool, StoryError> {
+    pub(crate) fn continue_single_step(&mut self) -> Result<bool, StoryError> {
         // Run main step function (walks through content)
         self.step()?;
 
@@ -500,7 +334,8 @@ impl Story {
                     // Don't bother to record the state beyond the current newline.
                     // e.g.:
                     // Hello world\n // record state at the end of here
-                    // ~ complexCalculation() // don't actually need this unless it generates text
+                    // ~ complexCalculation() // don't actually need this unless it generates
+                    // text
                     if self.state_snapshot_at_last_new_line.is_none() {
                         self.state_snapshot();
                     }
@@ -516,68 +351,7 @@ impl Story {
         Ok(false)
     }
 
-    /// The string of output text available at the current point in
-    /// the `Story`. This string will be built as the `Story` is stepped
-    /// through with the [`cont`](Story::cont) method.
-    pub fn get_current_text(&mut self) -> Result<String, StoryError> {
-        self.if_async_we_cant("call currentText since it's a work in progress")?;
-        Ok(self.get_state_mut().get_current_text())
-    }
-
-    pub(crate) fn get_main_content_container(&self) -> Rc<Container> {
-        match self.temporary_evaluation_container.as_ref() {
-            Some(c) => c.clone(),
-            None => self.main_content_container.clone(),
-        }
-    }
-
-    fn restore_state_snapshot(&mut self) {
-        // Patched state had temporarily hijacked our
-        // VariablesState and set its own callstack on it,
-        // so we need to restore that.
-        // If we're in the middle of saving, we may also
-        // need to give the VariablesState the old patch.
-        self.state_snapshot_at_last_new_line
-            .as_mut()
-            .unwrap()
-            .restore_after_patch(); //unwrap: state_snapshot_at_last_new_line checked Some in previous fn
-
-        self.state = self.state_snapshot_at_last_new_line.take().unwrap();
-
-        // If save completed while the above snapshot was
-        // active, we need to apply any changes made since
-        // the save was started but before the snapshot was made.
-        if !self.async_saving {
-            self.get_state_mut().apply_any_patch();
-        }
-    }
-
-    fn add_error(&mut self, message: &str, is_warning: bool) {
-        let error_type_str = if is_warning { "WARNING" } else { "ERROR" };
-
-        let m = if !self.get_state().get_current_pointer().is_null() {
-            format!(
-                "RUNTIME {}: ({}): {}",
-                error_type_str,
-                self.get_state().get_current_pointer().get_path().unwrap(),
-                message
-            )
-        } else {
-            format!("RUNTIME {}: {}", error_type_str, message)
-        };
-
-        self.get_state_mut().add_error(m, is_warning);
-
-        if !is_warning {
-            self.get_state_mut().force_end();
-        }
-    }
-
-    fn reset_errors(&mut self) {
-        self.get_state_mut().reset_errors();
-    }
-
-    fn step(&mut self) -> Result<(), StoryError> {
+    pub(crate) fn step(&mut self) -> Result<(), StoryError> {
         let mut should_add_to_stream = true;
 
         // Get current content
@@ -631,7 +405,8 @@ impl Story {
         // that was diverted to rather than called as a function)
         let mut current_content_obj = pointer.resolve();
 
-        let is_logic_or_flow_control = self.perform_logic_and_flow_control(&current_content_obj)?;
+        let is_logic_or_flow_control =
+            self.perform_logic_and_flow_control(&current_content_obj)?;
 
         // Has flow been forced to end by flow control above?
         if self.get_state().get_current_pointer().is_null() {
@@ -670,8 +445,9 @@ impl Story {
             // to our current (possibly temporary) context index. And make a
             // copy of the pointer
             // so that we're not editing the original runtime Object.
-            let var_pointer =
-                Value::get_variable_pointer_value(current_content_obj.as_ref().unwrap().as_ref());
+            let var_pointer = Value::get_variable_pointer_value(
+                current_content_obj.as_ref().unwrap().as_ref(),
+            );
 
             if let Some(var_pointer) = var_pointer {
                 if var_pointer.context_index == -1 {
@@ -724,134 +500,7 @@ impl Story {
         Ok(())
     }
 
-    fn try_follow_default_invisible_choice(&mut self) -> Result<(), StoryError> {
-        let all_choices = match self.get_state().get_current_choices() {
-            Some(c) => c,
-            None => return Ok(()),
-        };
-
-        // Is a default invisible choice the ONLY choice?
-        // var invisibleChoices = allChoices.Where (c =>
-        // c.choicePoint.isInvisibleDefault).ToList();
-        let mut invisible_choices: Vec<Rc<Choice>> = Vec::new();
-        for c in all_choices {
-            if c.is_invisible_default {
-                invisible_choices.push(c.clone());
-            }
-        }
-
-        if invisible_choices.is_empty() || all_choices.len() > invisible_choices.len() {
-            return Ok(());
-        }
-
-        let choice = &invisible_choices[0];
-
-        // Invisible choice may have been generated on a different thread,
-        // in which case we need to restore it before we continue
-        self.get_state()
-            .get_callstack()
-            .as_ref()
-            .borrow_mut()
-            .set_current_thread(choice.get_thread_at_generation().unwrap().clone());
-
-        // If there's a chance that this state will be rolled back to before
-        // the invisible choice then make sure that the choice thread is
-        // left intact, and it isn't re-entered in an old state.
-        if self.state_snapshot_at_last_new_line.is_some() {
-            let fork_thread = self
-                .get_state()
-                .get_callstack()
-                .as_ref()
-                .borrow_mut()
-                .fork_thread();
-            self.get_state()
-                .get_callstack()
-                .as_ref()
-                .borrow_mut()
-                .set_current_thread(fork_thread);
-        }
-
-        self.choose_path(&choice.target_path, false)
-    }
-
-    fn calculate_newline_output_state_change(
-        prev_text: &str,
-        curr_text: &str,
-        prev_tag_count: i32,
-        curr_tag_count: i32,
-    ) -> OutputStateChange {
-        // Simple case: nothing's changed, and we still have a newline
-        // at the end of the current content
-        let newline_still_exists = curr_text.len() >= prev_text.len()
-            && !prev_text.is_empty()
-            && curr_text.chars().nth(prev_text.len() - 1) == Some('\n');
-        if prev_tag_count == curr_tag_count
-            && prev_text.len() == curr_text.len()
-            && newline_still_exists
-        {
-            return OutputStateChange::NoChange;
-        }
-
-        // Old newline has been removed, it wasn't the end of the line after all
-        if !newline_still_exists {
-            return OutputStateChange::NewlineRemoved;
-        }
-
-        // Tag added - definitely the start of a new line
-        if curr_tag_count > prev_tag_count {
-            return OutputStateChange::ExtendedBeyondNewline;
-        }
-
-        // There must be new content - check whether it's just whitespace
-        for c in curr_text.chars().skip(prev_text.len()) {
-            if c != ' ' && c != '\t' {
-                return OutputStateChange::ExtendedBeyondNewline;
-            }
-        }
-
-        // There's new text but it's just spaces and tabs, so there's still the
-        // potential
-        // for glue to kill the newline.
-        OutputStateChange::NoChange
-    }
-
-    fn state_snapshot(&mut self) {
-        // tmp_state contains the new state and current state is stored in snapshot
-        let mut tmp_state = self.state.copy_and_start_patching();
-        std::mem::swap(&mut tmp_state, &mut self.state);
-        self.state_snapshot_at_last_new_line = Some(tmp_state);
-    }
-
-    fn discard_snapshot(&mut self) {
-        // Normally we want to integrate the patch
-        // into the main global/counts dictionaries.
-        // However, if we're in the middle of async
-        // saving, we simply stay in a "patching" state,
-        // albeit with the newer cloned patch.
-
-        if !self.async_saving {
-            self.get_state_mut().apply_any_patch();
-        }
-
-        // No longer need the snapshot.
-        self.state_snapshot_at_last_new_line = None;
-    }
-
-    fn visit_container(&mut self, container: &Rc<Container>, at_start: bool) {
-        if !container.counting_at_start_only || at_start {
-            if container.visits_should_be_counted {
-                self.get_state_mut()
-                    .increment_visit_count_for_container(container);
-            }
-
-            if container.turn_index_should_be_counted {
-                self.get_state_mut()
-                    .record_turn_index_visit_to_container(container);
-            }
-        }
-    }
-
-    fn perform_logic_and_flow_control(
+    pub(crate) fn perform_logic_and_flow_control(
         &mut self,
         content_obj: &Option<Rc<dyn RTObject>>,
     ) -> Result<bool, StoryError> {
@@ -876,7 +525,8 @@ impl Story {
                     .variables_state
                     .get_variable_with_name(var_name.as_ref().unwrap(), -1)
                 {
-                    if let Some(target) = Value::get_divert_target_value(var_contents.as_ref()) {
+                    if let Some(target) = Value::get_divert_target_value(var_contents.as_ref())
+                    {
                         let p = Self::pointer_at_path(&self.main_content_container, target)?;
                         self.get_state_mut().set_diverted_pointer(p);
                     } else {
@@ -885,16 +535,16 @@ impl Story {
                             var_name.as_ref().unwrap()
                         );
 
-                        let error_message = if let ValueType::Int(int_content) = var_contents.value
-                        {
-                            if int_content == 0 {
-                                format!("{}was empty/null (the value 0).", error_message)
+                        let error_message =
+                            if let ValueType::Int(int_content) = var_contents.value {
+                                if int_content == 0 {
+                                    format!("{}was empty/null (the value 0).", error_message)
+                                } else {
+                                    format!("{}contained '{}'.", error_message, var_contents)
+                                }
                             } else {
-                                format!("{}contained '{}'.", error_message, var_contents)
-                            }
-                        } else {
-                            error_message
-                        };
+                                error_message
+                            };
 
                         return Err(StoryError::InvalidStoryState(error_message));
                     }
@@ -921,7 +571,8 @@ impl Story {
             }
 
             if self.get_state().diverted_pointer.is_null() && !current_divert.is_external {
-                //     error(format!("Divert resolution failed: {:?}", current_divert));
+                //     error(format!("Divert resolution failed: {:?}",
+                // current_divert));
             }
 
             return Ok(true);
@@ -1053,7 +704,9 @@ impl Story {
 
                         // Does tunnel onwards override by diverting to a new ->->
                         // target?
-                        if let Some(override_tunnel_return_target) = override_tunnel_return_target {
+                        if let Some(override_tunnel_return_target) =
+                            override_tunnel_return_target
+                        {
                             let p = Self::pointer_at_path(
                                 &self.main_content_container,
                                 &override_tunnel_return_target,
@@ -1068,7 +721,8 @@ impl Story {
 
                     if !self.get_state().get_in_expression_evaluation() {
                         return Err(StoryError::InvalidStoryState(
-                            "Expected to be in an expression when evaluating a string".to_owned(),
+                            "Expected to be in an expression when evaluating a string"
+                                .to_owned(),
                         ));
                     }
 
@@ -1078,7 +732,8 @@ impl Story {
                     // Since we're iterating backward through the content,
                     // build a stack so that when we build the string,
                     // it's in the right order
-                    let mut content_stack_for_string: VecDeque<Rc<dyn RTObject>> = VecDeque::new();
+                    let mut content_stack_for_string: VecDeque<Rc<dyn RTObject>> =
+                        VecDeque::new();
                     let mut content_to_retain: VecDeque<Rc<dyn RTObject>> = VecDeque::new();
 
                     let mut output_count_consumed = 0;
@@ -1176,7 +831,8 @@ impl Story {
                         }
                         None => {
                             if eval_command.command_type == CommandType::TurnsSince {
-                                either_count = -1; // turn count, default to never/unknown
+                                either_count = -1; // turn count, default to
+                                                   // never/unknown
                             } else {
                                 either_count = 0;
                             } // visit count, assume 0 to default to allowing entry
@@ -1405,8 +1061,10 @@ impl Story {
                             let next_random = rng.gen::<u32>();
                             let list_item_index = (next_random as usize) % list.items.len();
 
-                            // Iterate through to get the random element, sorted for predictibility
-                            let mut sorted: Vec<(&InkListItem, &i32)> = list.items.iter().collect();
+                            // Iterate through to get the random element, sorted for
+                            // predictibility
+                            let mut sorted: Vec<(&InkListItem, &i32)> =
+                                list.items.iter().collect();
                             sorted.sort_by(|a, b| b.1.cmp(a.1));
                             let random_item = sorted[list_item_index];
 
@@ -1441,12 +1099,11 @@ impl Story {
                     //   + choice # tag
                     //
                     // In the above case, the ink will be run twice:
-                    //  - First, to generate the choice text. String evaluation
-                    //    will be on, and the final string will be pushed to the
-                    //    evaluation stack, ready to be popped to make a Choice
-                    //    object.
-                    //  - Second, when ink generates text after choosing the choice.
-                    //    On this ocassion, it's not in string evaluation mode.
+                    //  - First, to generate the choice text. String evaluation will be on, and
+                    //    the final string will be pushed to the evaluation stack, ready to be
+                    //    popped to make a Choice object.
+                    //  - Second, when ink generates text after choosing the choice. On this
+                    //    ocassion, it's not in string evaluation mode.
                     //
                     // On the writing side, we disallow manually putting tags within
                     // strings like this:
@@ -1585,7 +1242,7 @@ impl Story {
         Ok(false)
     }
 
-    fn next_content(&mut self) -> Result<(), StoryError> {
+    pub(crate) fn next_content(&mut self) -> Result<(), StoryError> {
         // Setting previousContentObject is critical for
         // VisitChangedContainersDueToDivert
         let cp = self.get_state().get_current_pointer();
@@ -1610,7 +1267,8 @@ impl Story {
             // Otherwise, if diverted location doesn't have valid content,
             // drop down and attempt to increment.
             // This can happen if the diverted path is intentionally jumping
-            // to the end of a container - e.g. a Conditional that's re-joining
+            // to the end of a container - e.g. a Conditional that's
+            // re-joining
         }
 
         let successful_pointer_increment = self.increment_content_pointer();
@@ -1669,7 +1327,7 @@ impl Story {
         Ok(())
     }
 
-    fn increment_content_pointer(&self) -> bool {
+    pub(crate) fn increment_content_pointer(&self) -> bool {
         let mut successful_increment = true;
 
         let mut pointer = self
@@ -1730,11 +1388,68 @@ impl Story {
         successful_increment
     }
 
-    /// The vector of [`Choice`](crate::choice::Choice) objects available at the current point in
-    /// the `Story`. This vector will be populated as the `Story` is stepped
-    /// through with the [`cont`](Story::cont) method. Once [`can_continue`](Story::can_continue) becomes
-    /// `false`, this vector will be populated, and is usually
-    /// (but not always) on the final [`cont`](Story::cont) step.
+    pub(crate) fn calculate_newline_output_state_change(
+        prev_text: &str,
+        curr_text: &str,
+        prev_tag_count: i32,
+        curr_tag_count: i32,
+    ) -> OutputStateChange {
+        // Simple case: nothing's changed, and we still have a newline
+        // at the end of the current content
+        let newline_still_exists = curr_text.len() >= prev_text.len()
+            && !prev_text.is_empty()
+            && curr_text.chars().nth(prev_text.len() - 1) == Some('\n');
+        if prev_tag_count == curr_tag_count
+            && prev_text.len() == curr_text.len()
+            && newline_still_exists
+        {
+            return OutputStateChange::NoChange;
+        }
+
+        // Old newline has been removed, it wasn't the end of the line after all
+        if !newline_still_exists {
+            return OutputStateChange::NewlineRemoved;
+        }
+
+        // Tag added - definitely the start of a new line
+        if curr_tag_count > prev_tag_count {
+            return OutputStateChange::ExtendedBeyondNewline;
+        }
+
+        // There must be new content - check whether it's just whitespace
+        for c in curr_text.chars().skip(prev_text.len()) {
+            if c != ' ' && c != '\t' {
+                return OutputStateChange::ExtendedBeyondNewline;
+            }
+        }
+
+        // There's new text but it's just spaces and tabs, so there's still the
+        // potential
+        // for glue to kill the newline.
+        OutputStateChange::NoChange
+    }
+
+    pub(crate) fn visit_container(&mut self, container: &Rc<Container>, at_start: bool) {
+        if !container.counting_at_start_only || at_start {
+            if container.visits_should_be_counted {
+                self.get_state_mut()
+                    .increment_visit_count_for_container(container);
+            }
+
+            if container.turn_index_should_be_counted {
+                self.get_state_mut()
+                    .record_turn_index_visit_to_container(container);
+            }
+        }
+    }
+
+    /// The vector of [`Choice`](crate::choice::Choice) objects available at
+    /// the current point in the `Story`. This vector will be
+    /// populated as the `Story` is stepped through with the
+    /// [`cont`](Story::cont) method.
+    /// Once [`can_continue`](Story::can_continue) becomes `false`, this
+    /// vector will be populated, and is usually (but not always) on the
+    /// final [`cont`](Story::cont) step.
     pub fn get_current_choices(&self) -> Vec<Rc<Choice>> {
         // Don't include invisible choices for external usage.
         let mut choices = Vec::new();
@@ -1751,637 +1466,11 @@ impl Story {
         choices
     }
 
-    /// Whether the `currentErrors` list contains any errors.
-    ///
-    /// THIS METHOD MAY BE REMOVED IN FUTURE -- you should be setting an error handler directly
-    /// using Story.onError.
-    pub fn has_error(&self) -> bool {
-        self.get_state().has_error()
-    }
-
-    /// Any critical errors generated during evaluation of the `Story`.
-    pub fn get_current_errors(&self) -> &Vec<String> {
-        self.get_state().get_current_errors()
-    }
-
-    /// Any warnings generated during evaluation of the `Story`.
-    pub fn get_current_warnings(&self) -> &Vec<String> {
-        self.get_state().get_current_warnings()
-    }
-
-    /// Chooses the [`Choice`](crate::choice::Choice) from the `currentChoices` list with the given
-    /// index. Internally, this sets the current content path to what
-    /// the [`Choice`](crate::choice::Choice) points to, ready to continue story evaluation.
-    pub fn choose_choice_index(&mut self, choice_index: usize) -> Result<(), StoryError> {
-        let choices = self.get_current_choices();
-        if choice_index >= choices.len() {
-            return Err(StoryError::BadArgument("choice out of range".to_owned()));
-        }
-
-        // Replace callstack with the one from the thread at the choosing point,
-        // so that we can jump into the right place in the flow.
-        // This is important in case the flow was forked by a new thread, which
-        // can create multiple leading edges for the story, each of
-        // which has its own context.
-        let choice_to_choose = choices.get(choice_index).unwrap();
-        self.get_state()
-            .get_callstack()
-            .borrow_mut()
-            .set_current_thread(choice_to_choose.get_thread_at_generation().unwrap());
-
-        self.choose_path(&choice_to_choose.target_path, true)?;
-
-        Ok(())
-    }
-
-    fn choose_path(&mut self, p: &Path, incrementing_turn_index: bool) -> Result<(), StoryError> {
-        self.get_state_mut()
-            .set_chosen_path(p, incrementing_turn_index)?;
-
-        // Take a note of newly visited containers for read counts etc
-        self.visit_changed_containers_due_to_divert();
-
-        Ok(())
-    }
-
-    fn is_truthy(&self, obj: Rc<dyn RTObject>) -> Result<bool, StoryError> {
-        let truthy = false;
-
-        if let Some(val) = obj.as_ref().as_any().downcast_ref::<Value>() {
-            if let Some(target_path) = Value::get_divert_target_value(obj.as_ref()) {
-                return Err(StoryError::InvalidStoryState(format!("Shouldn't use a divert target (to {}) as a conditional value. Did you intend a function call 'likeThis()' or a read count check 'likeThis'? (no arrows)", target_path)));
-            }
-
-            return val.is_truthy();
-        }
-
-        Ok(truthy)
-    }
-
-    fn process_choice(
-        &mut self,
-        choice_point: &Rc<ChoicePoint>,
-    ) -> Result<Option<Rc<Choice>>, StoryError> {
-        let mut show_choice = true;
-
-        // Don't create choice if choice point doesn't pass conditional
-        if choice_point.has_condition() {
-            let condition_value = self.get_state_mut().pop_evaluation_stack();
-            if !self.is_truthy(condition_value)? {
-                show_choice = false;
-            }
-        }
-
-        let mut start_text = String::new();
-        let mut choice_only_text = String::new();
-        let mut tags: Vec<String> = Vec::with_capacity(0);
-
-        if choice_point.has_choice_only_content() {
-            choice_only_text = self.pop_choice_string_and_tags(&mut tags);
-        }
-
-        if choice_point.has_start_content() {
-            start_text = self.pop_choice_string_and_tags(&mut tags);
-        }
-
-        // Don't create choice if player has already read this content
-        if choice_point.once_only() {
-            let visit_count = self
-                .get_state_mut()
-                .visit_count_for_container(choice_point.get_choice_target().as_ref().unwrap());
-            if visit_count > 0 {
-                show_choice = false;
-            }
-        }
-
-        // We go through the full process of creating the choice above so
-        // that we consume the content for it, since otherwise it'll
-        // be shown on the output stream.
-        if !show_choice {
-            return Ok(None);
-        }
-
-        start_text.push_str(&choice_only_text);
-
-        let choice = Rc::new(Choice::new(
-            choice_point.get_path_on_choice(),
-            Object::get_path(choice_point.as_ref()).to_string(),
-            choice_point.is_invisible_default(),
-            tags,
-            self.get_state().get_callstack().borrow_mut().fork_thread(),
-            start_text.trim().to_string(),
-        ));
-
-        Ok(Some(choice))
-    }
-
-    fn pop_choice_string_and_tags(&mut self, tags: &mut Vec<String>) -> String {
-        let obj = self.get_state_mut().pop_evaluation_stack();
-        let choice_only_str_val = Value::get_string_value(obj.as_ref()).unwrap();
-
-        while !self.get_state().evaluation_stack.is_empty()
-            && self
-                .get_state()
-                .peek_evaluation_stack()
-                .unwrap()
-                .as_any()
-                .is::<Tag>()
-        {
-            let tag = self
-                .get_state_mut()
-                .pop_evaluation_stack()
-                .into_any()
-                .downcast::<Tag>()
-                .unwrap();
-            tags.insert(0, tag.get_text().clone()); // popped in reverse order
-        }
-
-        choice_only_str_val.string.to_string()
-    }
-
-    pub(crate) fn pointer_at_path(
-        main_content_container: &Rc<Container>,
-        path: &Path,
-    ) -> Result<Pointer, StoryError> {
-        if path.len() == 0 {
-            return Ok(pointer::NULL.clone());
-        }
-
-        let mut p = Pointer::default();
-        let mut path_length_to_use = path.len() as i32;
-
-        let result: SearchResult =
-            if path.get_last_component().unwrap().is_index() {
-                path_length_to_use -= 1;
-                let result = SearchResult::from_search_result(
-                    &main_content_container.content_at_path(path, 0, path_length_to_use),
-                );
-                p.container = result.container();
-                p.index = path.get_last_component().unwrap().index.unwrap() as i32;
-
-                result
-            } else {
-                let result = SearchResult::from_search_result(
-                    &main_content_container.content_at_path(path, 0, -1),
-                );
-                p.container = result.container();
-                p.index = -1;
-
-                result
-            };
-
-        let main_container: Rc<dyn RTObject> = main_content_container.clone();
-
-        if Rc::ptr_eq(&result.obj, &main_container) && path_length_to_use > 0 {
-            return Err(StoryError::InvalidStoryState(format!(
-                "Failed to find content at path '{}', and no approximation of it was possible.",
-                path
-            )));
-        } else if result.approximate {
-            // TODO
-            // self.add_error(&format!("Failed to find content at path '{}', so it was approximated to: '{}'.", path
-            //                         , result.obj.unwrap().get_path()), true);
-        }
-
-        Ok(p)
-    }
-
-    fn visit_changed_containers_due_to_divert(&mut self) {
-        let previous_pointer = self.get_state().get_previous_pointer();
-        let pointer = self.get_state().get_current_pointer();
-
-        // Unless we're pointing *directly* at a piece of content, we don't do counting here.
-        // Otherwise, the main stepping function will do the counting.
-        if pointer.is_null() || pointer.index == -1 {
-            return;
-        }
-
-        // First, find the previously open set of containers
-        self.prev_containers.clear();
-
-        if !previous_pointer.is_null() {
-            let mut prev_ancestor = None;
-
-            if let Some(container) = previous_pointer
-                .resolve()
-                .and_then(|res| res.into_any().downcast::<Container>().ok())
-            {
-                prev_ancestor = Some(container);
-            } else if previous_pointer.container.is_some() {
-                prev_ancestor = previous_pointer.container.clone();
-            }
-
-            while let Some(prev_anc) = prev_ancestor {
-                self.prev_containers.push(prev_anc.clone());
-                prev_ancestor = prev_anc.get_object().get_parent();
-            }
-        }
-
-        // If the new Object is a container itself, it will be visited
-        // automatically at the next actual content step. However, we need to walk up the new ancestry to see if there
-        // are more new containers
-        let current_child_of_container = pointer.resolve();
-
-        if current_child_of_container.is_none() {
-            return;
-        }
-
-        let mut current_child_of_container = current_child_of_container.unwrap();
-
-        let mut current_container_ancestor = current_child_of_container.get_object().get_parent();
-
-        let mut all_children_entered_at_start = true;
-
-        while let Some(current_container) = current_container_ancestor {
-            if !self
-                .prev_containers
-                .iter()
-                .any(|e| Rc::ptr_eq(e, &current_container))
-                || current_container.counting_at_start_only
-            {
-                // Check whether this ancestor container is being entered at the start,
-                // by checking whether the child Object is the first.
-                let entering_at_start = current_container
-                    .content
-                    .first()
-                    .map(|first_child| {
-                        Rc::ptr_eq(first_child, &current_child_of_container)
-                            && all_children_entered_at_start
-                    })
-                    .unwrap_or(false);
-
-                // Don't count it as entering at start if we're entering randomly somewhere within
-                // a container B that happens to be nested at index 0 of container A. It only
-                // counts
-                // if we're diverting directly to the first leaf node.
-                if !entering_at_start {
-                    all_children_entered_at_start = false;
-                }
-
-                // Mark a visit to this container
-                self.visit_container(&current_container, entering_at_start);
-
-                current_child_of_container = current_container.clone();
-                current_container_ancestor = current_container.get_object().get_parent();
-            } else {
-                break;
-            }
-        }
-    }
-
-    /// Evaluates a function defined in ink, and gathers the (possibly multi-line) text the function produces while executing.
-    /// This output text is any text written as normal content within the function,
-    /// as opposed to the ink function's return value, which is specified by `~ return` in the ink.
-    pub fn evaluate_function(
-        &mut self,
-        func_name: &str,
-        args: Option<&Vec<ValueType>>,
-        text_output: &mut String,
-    ) -> Result<Option<ValueType>, StoryError> {
-        self.if_async_we_cant("evaluate a function")?;
-
-        if func_name.trim().is_empty() {
-            return Err(StoryError::InvalidStoryState(
-                "Function is empty or white space.".to_owned(),
-            ));
-        }
-
-        // Get the content that we need to run
-        let func_container = self.knot_container_with_name(func_name);
-        if func_container.is_none() {
-            let mut e = "Function doesn't exist: '".to_owned();
-            e.push_str(func_name);
-            e.push('\'');
-
-            return Err(StoryError::BadArgument(e));
-        }
-
-        // Snapshot the output stream
-        let output_stream_before = self.get_state().get_output_stream().clone();
-        self.get_state_mut().reset_output(None);
-
-        // State will temporarily replace the callstack in order to evaluate
-        self.get_state_mut()
-            .start_function_evaluation_from_game(func_container.unwrap(), args)?;
-
-        // Evaluate the function, and collect the string output
-        while self.can_continue() {
-            let text = self.cont()?;
-
-            text_output.push_str(&text);
-        }
-
-        // Restore the output stream in case this was called
-        // during main story evaluation.
-        self.get_state_mut()
-            .reset_output(Some(output_stream_before));
-
-        // Finish evaluation, and see whether anything was produced
-        self.get_state_mut()
-            .complete_function_evaluation_from_game()
-    }
-
-    pub(crate) fn knot_container_with_name(&self, name: &str) -> Option<Rc<Container>> {
-        let named_container = self.main_content_container.named_content.get(name);
-
-        named_container.cloned()
-    }
-
-    fn next_sequence_shuffle_index(&mut self) -> Result<i32, StoryError> {
-        let pop_evaluation_stack = self.get_state_mut().pop_evaluation_stack();
-        let num_elements = if let Some(v) = Value::get_int_value(pop_evaluation_stack.as_ref()) {
-            v
-        } else {
-            return Err(StoryError::InvalidStoryState(
-                "Expected number of elements in sequence for shuffle index".to_owned(),
-            ));
-        };
-
-        let seq_container = self.get_state().get_current_pointer().container.unwrap();
-
-        let seq_count = if let Some(v) = Value::get_int_value(pop_evaluation_stack.as_ref()) {
-            v
-        } else {
-            return Err(StoryError::InvalidStoryState(
-                "Expected sequence count value for shuffle index".to_owned(),
-            ));
-        };
-
-        let loop_index = seq_count / num_elements;
-        let iteration_index = seq_count % num_elements;
-
-        // Generate the same shuffle based on:
-        // - The hash of this container, to make sure it's consistent
-        //   each time the runtime returns to the sequence
-        // - How many times the runtime has looped around this full shuffle
-        let seq_path_str = Object::get_path(seq_container.as_ref()).to_string();
-        let sequence_hash: i32 = seq_path_str.chars().map(|c| c as i32).sum();
-        let random_seed = sequence_hash + loop_index + self.get_state().story_seed;
-
-        let mut rng = StdRng::seed_from_u64(random_seed as u64);
-
-        let mut unpicked_indices: Vec<i32> = (0..num_elements).collect();
-
-        for i in 0..=iteration_index {
-            let chosen = rng.gen::<i32>().rem_euclid(unpicked_indices.len() as i32);
-            let chosen_index = unpicked_indices[chosen as usize];
-            unpicked_indices.retain(|&x| x != chosen_index);
-
-            if i == iteration_index {
-                return Ok(chosen_index);
-            }
-        }
-
-        Err(StoryError::InvalidStoryState(
-            "Should never reach here".to_owned(),
-        ))
-    }
-
-    /// Get any global tags associated with the story. These are defined as
-    /// hash tags defined at the very top of the story.
-    pub fn get_global_tags(&self) -> Result<Vec<String>, StoryError> {
-        self.tags_at_start_of_flow_container_with_path_string("")
-    }
-
-    /// Gets any tags associated with a particular knot or knot.stitch.
-    /// These are defined as hash tags defined at the very top of a
-    /// knot or stitch.
-    pub fn tags_for_content_at_path(&self, path: &str) -> Result<Vec<String>, StoryError> {
-        self.tags_at_start_of_flow_container_with_path_string(path)
-    }
-
-    fn tags_at_start_of_flow_container_with_path_string(
-        &self,
-        path_string: &str,
-    ) -> Result<Vec<String>, StoryError> {
-        let path = Path::new_with_components_string(Some(path_string));
-
-        // Expected to be global story, knot, or stitch
-        let mut flow_container = self.content_at_path(&path).container().unwrap();
-
-        while let Some(first_content) = flow_container.content.get(0) {
-            if let Ok(container) = first_content.clone().into_any().downcast::<Container>() {
-                flow_container = container;
-            } else {
-                break;
-            }
-        }
-
-        // Any initial tag objects count as the "main tags" associated with that
-        // story/knot/stitch
-        let mut in_tag = false;
-        let mut tags = Vec::new();
-
-        for content in &flow_container.content {
-            match content.as_ref().as_any().downcast_ref::<ControlCommand>() {
-                Some(command) => match command.command_type {
-                    CommandType::BeginTag => in_tag = true,
-                    CommandType::EndTag => in_tag = false,
-                    _ => {}
-                },
-                _ => {
-                    if in_tag {
-                        if let Some(string_value) = Value::get_string_value(content.as_ref()) {
-                            tags.push(string_value.string.clone());
-                        } else {
-                            return Err(
-                                StoryError::InvalidStoryState("Tag contained non-text content. Only plain text is allowed when using globalTags or TagsAtContentPath. If you want to evaluate dynamic content, you need to use story.Continue()".to_owned()),
-                            );
-                        }
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
-
-        Ok(tags)
-    }
-
-    fn content_at_path(&self, path: &Path) -> SearchResult {
-        self.main_content_container.content_at_path(path, 0, -1)
-    }
-
-    /// Gets a list of tags defined with '#' in the ink source that were seen
-    /// during the most recent [`cont`](Story::cont) call.
-    pub fn get_current_tags(&mut self) -> Result<Vec<String>, StoryError> {
-        self.if_async_we_cant("call currentTags since it's a work in progress")?;
-        Ok(self.get_state_mut().get_current_tags())
-    }
-
-    /// Change the current position of the story to the given path. From here you can
-    /// call [`cont()`](Story::cont) to evaluate the next line.
-    ///
-    /// The path string is a dot-separated path as used internally by the engine.
-    /// These examples should work:
-    ///
-    ///```ink
-    ///    myKnot
-    ///    myKnot.myStitch
-    ///```
-    ///
-    /// Note however that this won't necessarily work:
-    ///
-    ///```ink
-    ///    myKnot.myStitch.myLabelledChoice
-    ///```
-    ///
-    /// ...because of the way that content is nested within a weave structure.
-    ///
-    /// Usually you would reset the callstack beforehand, which means that any
-    /// tunnels, threads or functions you were in at the time of calling will be
-    /// discarded. This is different from the behaviour of [`choose_choice_index`](Story::choose_choice_index), which
-    /// will always keep the callstack, since the choices are known to come from a
-    /// correct state, and their source thread is known.
-    ///
-    /// You have the option of passing `false` to the `reset_callstack` parameter if you
-    /// don't want this behaviour, leaving any active threads, tunnels or
-    /// function calls intact.
-    ///
-    /// Not reseting the call stack is potentially dangerous! If you're in the middle of a tunnel,
-    /// it'll redirect only the inner-most tunnel, meaning that when you tunnel-return
-    /// using `->->`, it'll return to where you were before. This may be what you
-    /// want though. However, if you're in the middle of a function, `choose_path_string`
-    /// will throw an error.
-    pub fn choose_path_string(
-        &mut self,
-        path: &str,
-        reset_call_stack: bool,
-        args: Option<&Vec<ValueType>>,
-    ) -> Result<(), StoryError> {
-        self.if_async_we_cant("call ChoosePathString right now")?;
-
-        if reset_call_stack {
-            self.reset_callstack()?;
-        } else {
-            // ChoosePathString is potentially dangerous since you can call it when the
-            // stack is
-            // pretty much in any state. Let's catch one of the worst offenders.
-            if self
-                .get_state()
-                .get_callstack()
-                .borrow()
-                .get_current_element()
-                .push_pop_type
-                == PushPopType::Function
-            {
-                let mut func_detail = "".to_owned();
-                let container = self
-                    .get_state()
-                    .get_callstack()
-                    .borrow()
-                    .get_current_element()
-                    .current_pointer
-                    .container
-                    .clone();
-                if let Some(container) = container {
-                    func_detail = format!("({})", Object::get_path(container.as_ref()));
-                }
-
-                return Err(StoryError::InvalidStoryState(format!("Story was running a function {func_detail} when you called ChoosePathString({}) - this is almost certainly not what you want! Full stack trace: \n{}", path, self.get_state().get_callstack().borrow().get_callstack_trace())));
-            }
-        }
-
-        self.get_state_mut()
-            .pass_arguments_to_evaluation_stack(args)?;
-        self.choose_path(&Path::new_with_components_string(Some(path)), true)?;
-
-        Ok(())
-    }
-
-    fn reset_callstack(&mut self) -> Result<(), StoryError> {
-        self.if_async_we_cant("ResetCallstack")?;
-
-        self.get_state_mut().force_end();
-
-        Ok(())
-    }
-
-    /// Changes from the current flow to the specified one.
-    pub fn switch_flow(&mut self, flow_name: &str) -> Result<(), StoryError> {
-        self.if_async_we_cant("switch flow")?;
-
-        if self.async_saving {
-            return Err(StoryError::InvalidStoryState(format!(
-                "Story is already in background saving mode, can't switch flow to {}",
-                flow_name
-            )));
-        }
-
-        self.get_state_mut().switch_flow_internal(flow_name);
-
-        Ok(())
-    }
-
-    /// Removes the specified flow from the story.
-    pub fn remove_flow(&mut self, flow_name: &str) -> Result<(), StoryError> {
-        self.get_state_mut().remove_flow_internal(flow_name)
-    }
-
-    /// Switches to the default flow, keeping the current flow around for later.
-    pub fn switch_to_default_flow(&mut self) {
-        self.get_state_mut().switch_to_default_flow_internal();
-    }
-
-    pub(crate) fn if_async_we_cant(&self, activity_str: &str) -> Result<(), StoryError> {
-        if self.async_continue_active {
-            return Err(StoryError::InvalidStoryState(format!("Can't {}. Story is in the middle of a continue_async(). Make more continue_async() calls or a single cont() call beforehand.", activity_str)));
-        }
-
-        Ok(())
-    }
-
-    /// Set the value of a named global ink variable.
-    /// The types available are the standard ink types.
-    pub fn set_variable(
-        &mut self,
-        variable_name: &str,
-        value_type: &ValueType,
-    ) -> Result<(), StoryError> {
-        let notify_observers = self
-            .get_state_mut()
-            .variables_state
-            .set(variable_name, value_type.clone())?;
-
-        if notify_observers {
-            self.notify_variable_changed(variable_name, value_type);
-        }
-
-        Ok(())
-    }
-
-    /// Get the value of a named global ink variable.
-    /// The types available are the standard ink types.
-    pub fn get_variable(&self, variable_name: &str) -> Option<ValueType> {
-        self.get_state().variables_state.get(variable_name)
-    }
-
-    /// Exports the current state to JSON format, in order to save the game.
-    pub fn save_state(&self) -> Result<String, StoryError> {
-        self.get_state().to_json()
-    }
-
-    /// Loads a previously saved state in JSON format.
-    pub fn load_state(&mut self, json_state: &str) -> Result<(), StoryError> {
-        self.get_state_mut().load_json(json_state)
-    }
-
-    /// Gets the visit/read count of a particular `Container` at the given path.
-    /// For a knot or stitch, that path string will be in the form:
-    ///
-    ///```ink
-    ///     knot
-    ///     knot.stitch
-    ///```
-    pub fn get_visit_count_at_path_string(&self, path_string: &str) -> Result<i32, StoryError> {
-        self.get_state().visit_count_at_path_string(path_string)
-    }
-
-    /// An ink file can provide a fallback function for when when an `EXTERNAL` has been left
-    /// unbound by the client, in which case the fallback will be called instead. Useful when
-    /// testing a story in play-mode, when it's not possible to write a client-side external
-    /// function, but when you don't want it to completely fail to run.
-    pub fn set_allow_external_function_fallbacks(&mut self, v: bool) {
-        self.allow_external_function_fallbacks = v;
+    /// The string of output text available at the current point in
+    /// the `Story`. This string will be built as the `Story` is stepped
+    /// through with the [`cont`](Story::cont) method.
+    pub fn get_current_text(&mut self) -> Result<String, StoryError> {
+        self.if_async_we_cant("call currentText since it's a work in progress")?;
+        Ok(self.get_state_mut().get_current_text())
     }
 }

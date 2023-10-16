@@ -36,6 +36,7 @@ pub enum ErrorType {
     Error,
 }
 
+/// # Callbacks
 /// Methods dealing with callback handlers.
 impl Story {
     /// Assign the error handler for all runtime errors in ink -- i.e. problems
@@ -137,6 +138,15 @@ impl Story {
                 o.borrow_mut().changed(variable_name, value);
             }
         }
+    }
+
+
+    /// An ink file can provide a fallback function for when when an `EXTERNAL` has been left
+    /// unbound by the client, in which case the fallback will be called instead. Useful when
+    /// testing a story in play-mode, when it's not possible to write a client-side external
+    /// function, but when you don't want it to completely fail to run.
+    pub fn set_allow_external_function_fallbacks(&mut self, v: bool) {
+        self.allow_external_function_fallbacks = v;
     }
 
     /// Bind a Rust function to an ink `EXTERNAL` function declaration.
