@@ -134,6 +134,7 @@ impl ValueType {
     }
 }
 
+/// Ink runtime representation of a string.
 #[derive(Clone)]
 pub struct StringValue {
     /// The internal string value.
@@ -148,6 +149,7 @@ impl StringValue {
     }
 }
 
+/// Ink runtime representation of a reference to a variable.
 #[derive(Clone, PartialEq)]
 pub struct VariablePointerValue {
     pub(crate) variable_name: String,
