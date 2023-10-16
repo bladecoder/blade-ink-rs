@@ -1,4 +1,4 @@
-//! This is the entry point to load and run an Ink story.
+//! [`Story`] is the entry point to load and run an Ink story.
 use std::{
     cell::RefCell,
     collections::{HashMap, VecDeque},

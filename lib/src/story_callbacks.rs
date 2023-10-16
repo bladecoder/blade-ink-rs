@@ -1,4 +1,4 @@
-//! For setting the callbacks functions that will be called while the story is processing.
+//! For setting the callbacks functions that will be called while the [`Story`] is processing.
 use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
 use crate::{
