@@ -204,10 +204,6 @@ impl CallStack {
         cs
     }
 
-    pub fn new_from(to_copy: &CallStack) -> CallStack {
-        to_copy.clone()
-    }
-
     pub fn get_current_element(&self) -> &Element {
         let thread = self.threads.last().unwrap();
         let cs = &thread.callstack;
