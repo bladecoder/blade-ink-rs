@@ -752,7 +752,7 @@ impl Story {
             .get_callstack()
             .as_ref()
             .borrow_mut()
-            .set_current_thread(choice.get_thread_at_generation().unwrap().copy());
+            .set_current_thread(choice.get_thread_at_generation().unwrap().clone());
 
         // If there's a chance that this state will be rolled back to before
         // the invisible choice then make sure that the choice thread is
