@@ -758,15 +758,15 @@ impl StoryState {
             self.list_definitions.clone(),
         );
 
-        copy.patch = Some(StatePatch::new(self.patch.as_ref()));
+        copy.patch = Some(self.patch.clone().unwrap_or_else(StatePatch::new));
 
         // Hijack the new default flow to become a copy of our current one
         // If the patch is applied, then this new flow will replace the old one in
         // _namedFlows
         copy.current_flow.name = self.current_flow.name.clone();
-        copy.current_flow.callstack = Rc::new(RefCell::new(CallStack::new_from(
-            &self.current_flow.callstack.as_ref().borrow(),
-        )));
+        copy.current_flow.callstack = Rc::new(RefCell::new(
+            self.current_flow.callstack.as_ref().borrow().clone(),
+        ));
         copy.current_flow.current_choices = self.current_flow.current_choices.clone();
         copy.current_flow.output_stream = self.current_flow.output_stream.clone();
         copy.output_stream_dirty();

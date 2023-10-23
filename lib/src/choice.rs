@@ -76,7 +76,7 @@ impl Choice {
         self.thread_at_generation
             .borrow()
             .as_ref()
-            .map(|t| t.copy())
+            .map(|t| t.clone())
     }
 }
 

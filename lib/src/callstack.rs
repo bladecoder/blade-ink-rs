@@ -14,6 +14,7 @@ use crate::{
     value::Value,
 };
 
+#[derive(Clone)]
 pub struct Element {
     pub current_pointer: Pointer,
     pub in_expression_evaluation: bool,
@@ -38,21 +39,9 @@ impl Element {
             function_start_in_output_stream: 0,
         }
     }
-
-    fn copy(&self) -> Element {
-        let mut copy = Element::new(
-            self.push_pop_type,
-            self.current_pointer.clone(),
-            self.in_expression_evaluation,
-        );
-        copy.temporary_variables = self.temporary_variables.clone();
-        copy.evaluation_stack_height_when_pushed = self.evaluation_stack_height_when_pushed;
-        copy.function_start_in_output_stream = self.function_start_in_output_stream;
-
-        copy
-    }
 }
 
+#[derive(Clone)]
 pub struct Thread {
     pub callstack: Vec<Element>,
     pub previous_pointer: Pointer,
@@ -148,19 +137,6 @@ impl Thread {
         Ok(thread)
     }
 
-    pub fn copy(&self) -> Thread {
-        let mut copy = Thread::new();
-        copy.thread_index = self.thread_index;
-
-        for e in self.callstack.iter() {
-            copy.callstack.push(e.copy());
-        }
-
-        copy.previous_pointer = self.previous_pointer.clone();
-
-        copy
-    }
-
     pub(crate) fn write_json(&self) -> Result<serde_json::Value, StoryError> {
         let mut thread: Map<String, serde_json::Value> = Map::new();
 
@@ -208,6 +184,7 @@ impl Thread {
     }
 }
 
+#[derive(Clone)]
 pub struct CallStack {
     thread_counter: usize,
     start_of_root: Pointer,
@@ -223,20 +200,6 @@ impl CallStack {
         };
 
         cs.reset();
-
-        cs
-    }
-
-    pub fn new_from(to_copy: &CallStack) -> CallStack {
-        let mut cs = CallStack {
-            thread_counter: to_copy.thread_counter,
-            start_of_root: to_copy.start_of_root.clone(),
-            threads: Vec::new(),
-        };
-
-        for other_thread in &to_copy.threads {
-            cs.threads.push(other_thread.copy());
-        }
 
         cs
     }
@@ -281,7 +244,7 @@ impl CallStack {
     }
 
     pub fn push_thread(&mut self) {
-        let mut new_thread = self.get_current_thread().copy();
+        let mut new_thread = self.get_current_thread().clone();
         self.thread_counter += 1;
         new_thread.thread_index = self.thread_counter;
         self.threads.push(new_thread);
@@ -348,7 +311,7 @@ impl CallStack {
     }
 
     pub fn fork_thread(&mut self) -> Thread {
-        let mut forked_thread = self.get_current_thread().copy();
+        let mut forked_thread = self.get_current_thread().clone();
         self.thread_counter += 1;
         forked_thread.thread_index = self.thread_counter;
         forked_thread
