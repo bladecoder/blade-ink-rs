@@ -227,6 +227,10 @@ impl Value {
     pub fn get_cast_ordinal(&self) -> u8 {
         let v = &self.value;
 
+        // SAFETY: `ValueType` is `repr(u8)` so every variant has the layout
+        // of a struct with its first field being the `u8` discriminant,
+        // ensuring the `u8` can be read from a pointer to the enum.
+        // See e.g. https://doc.rust-lang.org/std/mem/fn.discriminant.html#accessing-the-numeric-value-of-the-discriminant
         let ptr_to_option = (v as *const ValueType) as *const u8;
         unsafe { *ptr_to_option }
     }

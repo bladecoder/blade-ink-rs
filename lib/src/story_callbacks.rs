@@ -1,4 +1,4 @@
-//! For setting the callbacks functions that will be called while the story is processing.
+//! For setting the callbacks functions that will be called while the [`Story`] is processing.
 use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
 use crate::{
@@ -7,12 +7,12 @@ use crate::{
     value_type::ValueType, void::Void,
 };
 
-/// Defines the method that will be called when a observed global variable changes.
+/// Defines the method that will be called when an observed global variable changes.
 pub trait VariableObserver {
     fn changed(&mut self, variable_name: &str, value: &ValueType);
 }
 
-/// Defines the method callback that implements the external function.
+/// Defines the method callback implementing an external function.
 pub trait ExternalFunction {
     fn call(&mut self, func_name: &str, args: Vec<ValueType>) -> Option<ValueType>;
 }
@@ -27,32 +27,34 @@ pub trait ErrorHandler {
     fn error(&mut self, message: &str, error_type: ErrorType);
 }
 
+/// Types of errors an Ink story might throw.
 #[derive(PartialEq, Clone, Copy)]
 pub enum ErrorType {
-    // You should probably fix this, but it's not critical
+    /// Problem that is not critical, but should be fixed.
     Warning,
-    // Critical error that can't be recovered from
+    /// Critical error that can't be recovered from.
     Error,
 }
 
+/// Methods dealing with callback handlers.
 impl Story {
-    /// Assing the error handler for all runtime errors in ink - i.e. problems
+    /// Assign the error handler for all runtime errors in ink -- i.e. problems
     /// with the source ink itself that are only discovered when playing
     /// the story.
     /// It's strongly recommended that you assign an error handler to your
-    /// story instance to avoid getting exceptions for ink errors.
+    /// story instance, to avoid getting panics for ink errors.
     pub fn set_error_handler(&mut self, err_handler: Rc<RefCell<dyn ErrorHandler>>) {
         self.on_error = Some(err_handler);
     }
 
-    /// When the named global variable changes it's value, the observer will be
+    /// When the specified global variable changes it's value, the observer will be
     /// called to notify it of the change. Note that if the value changes multiple
     /// times within the ink, the observer will only be called once, at the end
     /// of the ink's evaluation. If, during the evaluation, it changes and then
     /// changes back again to its original value, it will still be called.
     /// Note that the observer will also be fired if the value of the variable
     /// is changed externally to the ink, by directly setting a value in
-    /// `story.set_variable`.
+    /// [`story.set_variable`](Story::set_variable).
     pub fn observe_variable(
         &mut self,
         variable_name: &str,
@@ -82,7 +84,7 @@ impl Story {
         Ok(())
     }
 
-    /// Removes the variable observer, to stop getting variable change notifications.
+    /// Removes a variable observer, to stop getting variable change notifications.
     /// If you pass a specific variable name, it will stop observing that particular one. If you
     /// pass None, then the observer will be removed
     /// from all variables that it's subscribed to.
@@ -137,16 +139,21 @@ impl Story {
         }
     }
 
-    /// Bind a Rust function to an ink EXTERNAL function declaration.
+    /// Bind a Rust function to an ink `EXTERNAL` function declaration.
     ///
+    /// Arguments:
+    /// * `func_name` - The name of the function you're binding the handler to.
+    /// * `function` - The handler that will be called whenever Ink runs that
+    /// `EXTERNAL` function.
     /// * `lookahead_safe` - The ink engine often evaluates further
     /// than you might expect beyond the current line just in case it sees
-    /// glue that will cause the two lines to become one. In this case it's
-    /// possible that a function can appear to be called twice instead of
-    /// just once, and earlier than you expect. If it's safe for your
+    /// glue that will the current line with the next. It's
+    /// possible that a function can appear to be called twice,
+    /// and earlier than expected. If it's safe for your
     /// function to be called in this way (since the result and side effect
-    /// of the function will not change), then you can pass 'true'.
-    /// Usually, you want to pass 'false', especially if you want some action
+    /// of the function will not change), then you can pass `true`.
+    /// If your function might have side effects or return different results each time it's called,
+    /// pass `false` to avoid these extra calls, especially if you want some action
     /// to be performed in game code when this function is called.
     pub fn bind_external_function(
         &mut self,
@@ -173,7 +180,7 @@ impl Story {
         Ok(())
     }
 
-    /// Remove a binding for a named EXTERNAL ink function.
+    /// Remove the binding for a named EXTERNAL ink function.
     pub fn unbind_external_function(&mut self, func_name: &str) -> Result<(), StoryError> {
         self.if_async_we_cant("unbind an external a function")?;
 

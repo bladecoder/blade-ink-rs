@@ -1,22 +1,20 @@
 # Blade Ink
-This is a Rust port of Inkle's [Ink](https://github.com/inkle/ink), a scripting language for writing interactive narrative.
+This is a Rust port of Inkle's [Ink](https://github.com/inkle/ink), a scripting language for writing interactive narratives.
 
-`bladeink` is fully compatible with the reference version and supports all the language features.
+`bladeink` is fully compatible with the reference version and supports all its language features.
 
-To know more about the Ink language, you can check [the oficial documentation](https://github.com/inkle/ink/blob/master/Documentation/WritingWithInk.md).
+To learn more about the Ink language, you can check [the official documentation](https://github.com/inkle/ink/blob/master/Documentation/WritingWithInk.md).
 
 ## Using the bladeink library crate
 
-Here it is a quick example that uses the basic features to play an Ink story using the `bladeink` crate.
+Here is a quick example that uses basic features to play an Ink story using the `bladeink` crate.
 
 ```rust
 // story is the entry point of the `bladeink` lib.
 // json_string is a string with all the contents of the .ink.json file.
 let mut story = Story::new(json_string)?;
 
-let mut end = false;
-
-while !end {
+loop {
     while story.can_continue() {
         let line = story.cont()?;
 
@@ -31,7 +29,7 @@ while !end {
         // set the option selected by the user
         story.choose_choice_index(choice_idx)?;
     } else {
-        end = true;
+        break;
     }
 }
 ```
@@ -52,7 +50,7 @@ $ binkplayer <your_story.ink.json>
 
 Or, if you download the source code repository, you can run `cargo build` in the workspace root folder, the `binkplayer` binary will be compiled and found in `target/debug`. You can play any `.ink.json` (Ink compiled files).
 
-In the `inkfiles` folder we can found many Ink test stories to test the Ink language capabilities. And also we have **The Intercept**, a full featured story created by **Inkle**, also included in the `inkfiles` folder. You can run **The Intercept** running the next command in your console.
+In the `inkfiles` folder you can find many Ink test stories to test the Ink language capabilities. And also we have **The Intercept**, a full featured story created by **Inkle**, also included in the `inkfiles` folder. You can run **The Intercept** running the next command in your console.
 
 ```bash
 $ target/debug/binkplayer inkfiles/TheIntercept.ink.json
@@ -60,4 +58,4 @@ $ target/debug/binkplayer inkfiles/TheIntercept.ink.json
 
 ## Using Blade Ink in C
 
-There are available C bindings to use Blade Ink in your C projects. Check it out [here](https://github.com/bladecoder/blade-ink-ffi).
+There are C bindings available to use Blade Ink in your C projects. Check it out [here](https://github.com/bladecoder/blade-ink-ffi).

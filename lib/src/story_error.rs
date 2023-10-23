@@ -1,12 +1,16 @@
-//! Error that represents an error when running a Story at runtime.
-//! An error being returned of this type is typically when there's
-//! a bug in your ink, rather than in the ink engine itself!
+//! Errors that happen at runtime, when running a [`Story`](crate::story::Story).
 use core::fmt;
 
+/// Error that represents an error when running a [`Story`](crate::story::Story) at runtime.
+/// An error of this type typically means there's
+/// a bug in your ink, rather than in the ink engine itself!
 #[derive(Debug)]
 pub enum StoryError {
+    /// Story is in an invalid state.
     InvalidStoryState(String),
+    /// JSON for the ink was not valid.
     BadJson(String),
+    /// A method was called with an inappropriate argument.
     BadArgument(String),
 }
 
