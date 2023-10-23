@@ -39,7 +39,11 @@
 //! The `bladeink` library supports all the **Ink** language features, including threads, multi-flows, variable set/get from code, variable observing, external functions,
 //! tags on choices, etc. Examples of uses of all these features will be added to this documentation in the future, but meanwhile, all the examples can be found in the `lib/tests` folder in the source code of this crate.
 
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{Arc, RwLock},
+};
 
 mod callstack;
 pub mod choice;
@@ -84,4 +88,4 @@ pub type BrCell<T> = RefCell<T>;
 pub type Brc<T> = Arc<T>;
 
 #[cfg(feature = "threadsafe")]
-pub type BrCell<T> = Mutex<T>;
+pub type BrCell<T> = RwLock<T>;
