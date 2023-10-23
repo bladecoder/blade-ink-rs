@@ -758,7 +758,7 @@ impl StoryState {
             self.list_definitions.clone(),
         );
 
-        copy.patch = Some(StatePatch::new(self.patch.as_ref()));
+        copy.patch = Some(self.patch.clone().unwrap_or_else(StatePatch::new));
 
         // Hijack the new default flow to become a copy of our current one
         // If the patch is applied, then this new flow will replace the old one in

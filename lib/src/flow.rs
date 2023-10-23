@@ -137,7 +137,7 @@ impl Flow {
             self.callstack
                 .borrow()
                 .get_thread_with_index(*choice.original_thread_index.borrow())
-                .map(|o| choice.set_thread_at_generation(o.copy()))
+                .map(|o| choice.set_thread_at_generation(o.clone()))
                 .or_else(|| {
                     let j_saved_choice_thread = j_choice_threads
                         .and_then(|c| c.get(choice.original_thread_index.borrow().to_string()))
