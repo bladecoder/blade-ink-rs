@@ -1,12 +1,11 @@
 //! Console player that can runs compiled `.ink.json` story files writen in the **Ink** language.
-use std::cell::RefCell;
-
 use std::io::Write;
-use std::{error::Error, fs, io, path::Path, rc::Rc};
+use std::{error::Error, fs, io, path::Path};
 
 use anyhow::Context;
 use bladeink::story_callbacks::{ErrorHandler, ErrorType};
 use bladeink::{choice::Choice, story::Story};
+use bladeink::{BrCell, Brc};
 use clap::Parser;
 use rand::Rng;
 
@@ -35,8 +34,8 @@ struct EHandler {
 }
 
 impl EHandler {
-    pub fn new() -> Rc<RefCell<EHandler>> {
-        Rc::new(RefCell::new(EHandler {
+    pub fn new() -> Brc<BrCell<EHandler>> {
+        Brc::new(BrCell::new(EHandler {
             should_terminate: false,
         }))
     }
@@ -128,13 +127,13 @@ fn process_command(command: Command, story: &mut Story) -> Result<bool, Box<dyn 
     Ok(false)
 }
 
-fn print_choices(choices: &[Rc<Choice>]) {
+fn print_choices(choices: &[Brc<Choice>]) {
     for (i, c) in choices.iter().enumerate() {
         println!("{}. {}", i + 1, c.text);
     }
 }
 
-fn read_input(choices: &Vec<Rc<Choice>>) -> Result<Command, Box<dyn Error>> {
+fn read_input(choices: &Vec<Brc<Choice>>) -> Result<Command, Box<dyn Error>> {
     let mut line = String::new();
 
     loop {

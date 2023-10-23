@@ -1,8 +1,6 @@
 //! [`Story`] is the entry point to load and run an Ink story.
 use std::{
-    cell::RefCell,
     collections::{HashMap, VecDeque},
-    rc::Rc,
     time::Instant,
 };
 
@@ -33,6 +31,7 @@ use crate::{
     variable_assigment::VariableAssignment,
     variable_reference::VariableReference,
     void::Void,
+    BrCell, Brc,
 };
 
 /// The current version of the Ink story file format.
@@ -50,17 +49,17 @@ enum OutputStateChange {
 /// A `Story` is the core struct representing a complete Ink narrative,
 /// managing evaluation and state.
 pub struct Story {
-    main_content_container: Rc<Container>,
+    main_content_container: Brc<Container>,
     state: StoryState,
-    temporary_evaluation_container: Option<Rc<Container>>,
+    temporary_evaluation_container: Option<Brc<Container>>,
     recursive_continue_count: usize,
     async_continue_active: bool,
     async_saving: bool,
-    prev_containers: Vec<Rc<Container>>,
-    list_definitions: Rc<ListDefinitionsOrigin>,
-    pub(crate) on_error: Option<Rc<RefCell<dyn ErrorHandler>>>,
+    prev_containers: Vec<Brc<Container>>,
+    list_definitions: Brc<ListDefinitionsOrigin>,
+    pub(crate) on_error: Option<Brc<BrCell<dyn ErrorHandler>>>,
     pub(crate) state_snapshot_at_last_new_line: Option<StoryState>,
-    pub(crate) variable_observers: HashMap<String, Vec<Rc<RefCell<dyn VariableObserver>>>>,
+    pub(crate) variable_observers: HashMap<String, Vec<Brc<BrCell<dyn VariableObserver>>>>,
     pub(crate) has_validated_externals: bool,
     pub(crate) allow_external_function_fallbacks: bool,
     pub(crate) saw_lookahead_unsafe_function_after_new_line: bool,
@@ -103,7 +102,7 @@ impl Story {
         };
 
         let list_definitions = match json.get("listDefs") {
-            Some(def) => Rc::new(json_read::jtoken_to_list_definitions(def)?),
+            Some(def) => Brc::new(json_read::jtoken_to_list_definitions(def)?),
             None => {
                 return Err(
                     StoryError::BadJson("List Definitions node for ink not found. Are you sure it's a valid .ink.json file?"
@@ -524,7 +523,7 @@ impl Story {
         Ok(self.get_state_mut().get_current_text())
     }
 
-    pub(crate) fn get_main_content_container(&self) -> Rc<Container> {
+    pub(crate) fn get_main_content_container(&self) -> Brc<Container> {
         match self.temporary_evaluation_container.as_ref() {
             Some(c) => c.clone(),
             None => self.main_content_container.clone(),
@@ -682,7 +681,7 @@ impl Story {
                         .get_callstack()
                         .borrow()
                         .context_for_variable_named(&var_pointer.variable_name);
-                    current_content_obj = Some(Rc::new(Value::new_variable_pointer(
+                    current_content_obj = Some(Brc::new(Value::new_variable_pointer(
                         &var_pointer.variable_name,
                         context_idx as i32,
                     )));
@@ -733,7 +732,7 @@ impl Story {
         // Is a default invisible choice the ONLY choice?
         // var invisibleChoices = allChoices.Where (c =>
         // c.choicePoint.isInvisibleDefault).ToList();
-        let mut invisible_choices: Vec<Rc<Choice>> = Vec::new();
+        let mut invisible_choices: Vec<Brc<Choice>> = Vec::new();
         for c in all_choices {
             if c.is_invisible_default {
                 invisible_choices.push(c.clone());
@@ -837,7 +836,7 @@ impl Story {
         self.state_snapshot_at_last_new_line = None;
     }
 
-    fn visit_container(&mut self, container: &Rc<Container>, at_start: bool) {
+    fn visit_container(&mut self, container: &Brc<Container>, at_start: bool) {
         if !container.counting_at_start_only || at_start {
             if container.visits_should_be_counted {
                 self.get_state_mut()
@@ -853,7 +852,7 @@ impl Story {
 
     fn perform_logic_and_flow_control(
         &mut self,
-        content_obj: &Option<Rc<dyn RTObject>>,
+        content_obj: &Option<Brc<dyn RTObject>>,
     ) -> Result<bool, StoryError> {
         let content_obj = match content_obj {
             Some(content_obj) => content_obj.clone(),
@@ -957,8 +956,8 @@ impl Story {
                             // the
                             // only problem is when exporting text for viewing, it
                             // skips over numbers etc.
-                            let text: Rc<dyn RTObject> =
-                                Rc::new(Value::new_string(&output.to_string()));
+                            let text: Brc<dyn RTObject> =
+                                Brc::new(Value::new_string(&output.to_string()));
 
                             self.get_state_mut().push_to_output_stream(text);
                         }
@@ -1078,8 +1077,8 @@ impl Story {
                     // Since we're iterating backward through the content,
                     // build a stack so that when we build the string,
                     // it's in the right order
-                    let mut content_stack_for_string: VecDeque<Rc<dyn RTObject>> = VecDeque::new();
-                    let mut content_to_retain: VecDeque<Rc<dyn RTObject>> = VecDeque::new();
+                    let mut content_stack_for_string: VecDeque<Brc<dyn RTObject>> = VecDeque::new();
+                    let mut content_to_retain: VecDeque<Brc<dyn RTObject>> = VecDeque::new();
 
                     let mut output_count_consumed = 0;
 
@@ -1127,18 +1126,18 @@ impl Story {
                     // Return to expression evaluation (from content mode)
                     self.get_state().set_in_expression_evaluation(true);
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Value::new_string(&sb)));
+                        .push_evaluation_stack(Brc::new(Value::new_string(&sb)));
                 }
                 CommandType::NoOp => {}
                 CommandType::ChoiceCount => {
                     let choice_count = self.get_state().get_generated_choices().len();
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Value::new_int(choice_count as i32)));
+                        .push_evaluation_stack(Brc::new(Value::new_int(choice_count as i32)));
                 }
                 CommandType::Turns => {
                     let current_turn = self.get_state().current_turn_index;
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Value::new_int(current_turn + 1)));
+                        .push_evaluation_stack(Brc::new(Value::new_int(current_turn + 1)));
                 }
                 CommandType::TurnsSince | CommandType::ReadCount => {
                     let target = self.get_state_mut().pop_evaluation_stack();
@@ -1192,7 +1191,7 @@ impl Story {
                     }
 
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Value::new_int(either_count)));
+                        .push_evaluation_stack(Brc::new(Value::new_int(either_count)));
                 }
                 CommandType::Random => {
                     let mut max_int = None;
@@ -1244,7 +1243,7 @@ impl Story {
                     let chosen_value = (next_random % random_range as u32) as i32 + min_value;
 
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Value::new_int(chosen_value)));
+                        .push_evaluation_stack(Brc::new(Value::new_int(chosen_value)));
 
                     self.get_state_mut().previous_random = self.get_state().previous_random + 1;
                 }
@@ -1269,18 +1268,18 @@ impl Story {
 
                     // SEED_RANDOM returns nothing.
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Void::new()));
+                        .push_evaluation_stack(Brc::new(Void::new()));
                 }
                 CommandType::VisitIndex => {
                     let cpc = self.get_state().get_current_pointer().container.unwrap();
                     let count = self.get_state_mut().visit_count_for_container(&cpc) - 1; // index
                                                                                           // not count
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Value::new_int(count)));
+                        .push_evaluation_stack(Brc::new(Value::new_int(count)));
                 }
                 CommandType::SequenceShuffleIndex => {
                     let shuffle_index = self.next_sequence_shuffle_index()?;
-                    let v = Rc::new(Value::new_int(shuffle_index));
+                    let v = Brc::new(Value::new_int(shuffle_index));
                     self.get_state_mut().push_evaluation_stack(v);
                 }
                 CommandType::StartThread => {
@@ -1354,7 +1353,7 @@ impl Story {
                     }
 
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(generated_list_value.unwrap()));
+                        .push_evaluation_stack(Brc::new(generated_list_value.unwrap()));
                 }
                 CommandType::ListRange => {
                     let mut p = self.get_state_mut().pop_evaluation_stack();
@@ -1377,7 +1376,7 @@ impl Story {
                         .list_with_sub_range(&min.unwrap().value, &max.unwrap().value);
 
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Value::new_list(result)));
+                        .push_evaluation_stack(Brc::new(Value::new_list(result)));
                 }
                 CommandType::ListRandom => {
                     let o = self.get_state_mut().pop_evaluation_stack();
@@ -1424,7 +1423,7 @@ impl Story {
                     };
 
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Value::new_list(new_list)));
+                        .push_evaluation_stack(Brc::new(Value::new_list(new_list)));
                 }
                 CommandType::BeginTag => self
                     .get_state_mut()
@@ -1491,7 +1490,7 @@ impl Story {
                         }
 
                         let choice_tag =
-                            Rc::new(Tag::new(&StoryState::clean_output_whitespace(&sb)));
+                            Brc::new(Tag::new(&StoryState::clean_output_whitespace(&sb)));
                         // Pushing to the evaluation stack means it gets picked up
                         // when a Choice is generated from the next Choice Point.
                         self.get_state_mut().push_evaluation_stack(choice_tag);
@@ -1535,7 +1534,7 @@ impl Story {
             .into_any()
             .downcast::<VariableReference>()
         {
-            let found_value: Rc<Value>;
+            let found_value: Brc<Value>;
 
             // Explicit read count value
             if var_ref.path_for_count.is_some() {
@@ -1543,7 +1542,7 @@ impl Story {
                 let count = self
                     .get_state_mut()
                     .visit_count_for_container(container.as_ref().unwrap());
-                found_value = Rc::new(Value::new_int(count));
+                found_value = Brc::new(Value::new_int(count));
             }
             // Normal variable reference
             else {
@@ -1556,7 +1555,7 @@ impl Story {
                     None => {
                         self.add_error(&format!("Variable not found: '{}'. Using default value of 0 (false). This can happen with temporary variables if the declaration hasn't yet been hit. Globals are always given a default value on load if a value doesn't exist in the save state.", var_ref.name), true);
 
-                        found_value = Rc::new(Value::new_int(0));
+                        found_value = Brc::new(Value::new_int(0));
                     }
                 }
             }
@@ -1637,7 +1636,7 @@ impl Story {
                 // something to chomp on if it needs it
                 if self.get_state().get_in_expression_evaluation() {
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Void::new()));
+                        .push_evaluation_stack(Brc::new(Void::new()));
                 }
 
                 did_pop = true;
@@ -1696,13 +1695,13 @@ impl Story {
                 break;
             }
 
-            let rto: Rc<dyn RTObject> = container;
+            let rto: Brc<dyn RTObject> = container;
             let index_in_ancestor = next_ancestor
                 .as_ref()
                 .unwrap()
                 .content
                 .iter()
-                .position(|s| Rc::ptr_eq(s, &rto));
+                .position(|s| Brc::ptr_eq(s, &rto));
             if index_in_ancestor.is_none() {
                 break;
             }
@@ -1735,7 +1734,7 @@ impl Story {
     /// through with the [`cont`](Story::cont) method. Once [`can_continue`](Story::can_continue) becomes
     /// `false`, this vector will be populated, and is usually
     /// (but not always) on the final [`cont`](Story::cont) step.
-    pub fn get_current_choices(&self) -> Vec<Rc<Choice>> {
+    pub fn get_current_choices(&self) -> Vec<Brc<Choice>> {
         // Don't include invisible choices for external usage.
         let mut choices = Vec::new();
 
@@ -1804,7 +1803,7 @@ impl Story {
         Ok(())
     }
 
-    fn is_truthy(&self, obj: Rc<dyn RTObject>) -> Result<bool, StoryError> {
+    fn is_truthy(&self, obj: Brc<dyn RTObject>) -> Result<bool, StoryError> {
         let truthy = false;
 
         if let Some(val) = obj.as_ref().as_any().downcast_ref::<Value>() {
@@ -1820,8 +1819,8 @@ impl Story {
 
     fn process_choice(
         &mut self,
-        choice_point: &Rc<ChoicePoint>,
-    ) -> Result<Option<Rc<Choice>>, StoryError> {
+        choice_point: &Brc<ChoicePoint>,
+    ) -> Result<Option<Brc<Choice>>, StoryError> {
         let mut show_choice = true;
 
         // Don't create choice if choice point doesn't pass conditional
@@ -1863,7 +1862,7 @@ impl Story {
 
         start_text.push_str(&choice_only_text);
 
-        let choice = Rc::new(Choice::new(
+        let choice = Brc::new(Choice::new(
             choice_point.get_path_on_choice(),
             Object::get_path(choice_point.as_ref()).to_string(),
             choice_point.is_invisible_default(),
@@ -1900,7 +1899,7 @@ impl Story {
     }
 
     pub(crate) fn pointer_at_path(
-        main_content_container: &Rc<Container>,
+        main_content_container: &Brc<Container>,
         path: &Path,
     ) -> Result<Pointer, StoryError> {
         if path.len() == 0 {
@@ -1930,9 +1929,9 @@ impl Story {
                 result
             };
 
-        let main_container: Rc<dyn RTObject> = main_content_container.clone();
+        let main_container: Brc<dyn RTObject> = main_content_container.clone();
 
-        if Rc::ptr_eq(&result.obj, &main_container) && path_length_to_use > 0 {
+        if Brc::ptr_eq(&result.obj, &main_container) && path_length_to_use > 0 {
             return Err(StoryError::InvalidStoryState(format!(
                 "Failed to find content at path '{}', and no approximation of it was possible.",
                 path
@@ -1996,7 +1995,7 @@ impl Story {
             if !self
                 .prev_containers
                 .iter()
-                .any(|e| Rc::ptr_eq(e, &current_container))
+                .any(|e| Brc::ptr_eq(e, &current_container))
                 || current_container.counting_at_start_only
             {
                 // Check whether this ancestor container is being entered at the start,
@@ -2005,7 +2004,7 @@ impl Story {
                     .content
                     .first()
                     .map(|first_child| {
-                        Rc::ptr_eq(first_child, &current_child_of_container)
+                        Brc::ptr_eq(first_child, &current_child_of_container)
                             && all_children_entered_at_start
                     })
                     .unwrap_or(false);
@@ -2081,7 +2080,7 @@ impl Story {
             .complete_function_evaluation_from_game()
     }
 
-    pub(crate) fn knot_container_with_name(&self, name: &str) -> Option<Rc<Container>> {
+    pub(crate) fn knot_container_with_name(&self, name: &str) -> Option<Brc<Container>> {
         let named_container = self.main_content_container.named_content.get(name);
 
         named_container.cloned()

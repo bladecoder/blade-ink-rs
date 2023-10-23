@@ -1,15 +1,13 @@
-use std::rc::Rc;
-
-use crate::{container::Container, object::RTObject};
+use crate::{container::Container, object::RTObject, Brc};
 
 #[derive(Clone)]
 pub struct SearchResult {
-    pub obj: Rc<dyn RTObject>,
+    pub obj: Brc<dyn RTObject>,
     pub approximate: bool,
 }
 
 impl SearchResult {
-    pub fn new(obj: Rc<dyn RTObject>, approximate: bool) -> Self {
+    pub fn new(obj: Brc<dyn RTObject>, approximate: bool) -> Self {
         SearchResult { obj, approximate }
     }
 
@@ -20,7 +18,7 @@ impl SearchResult {
         }
     }
 
-    pub fn correct_obj(&self) -> Option<Rc<dyn RTObject>> {
+    pub fn correct_obj(&self) -> Option<Brc<dyn RTObject>> {
         if self.approximate {
             None
         } else {
@@ -28,7 +26,7 @@ impl SearchResult {
         }
     }
 
-    pub fn container(&self) -> Option<Rc<Container>> {
+    pub fn container(&self) -> Option<Brc<Container>> {
         let c = self.obj.clone().into_any().downcast::<Container>();
 
         match c {

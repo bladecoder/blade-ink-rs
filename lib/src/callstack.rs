@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
 use serde_json::{json, Map};
 
@@ -12,12 +12,13 @@ use crate::{
     story::Story,
     story_error::StoryError,
     value::Value,
+    Brc,
 };
 
 pub struct Element {
     pub current_pointer: Pointer,
     pub in_expression_evaluation: bool,
-    pub temporary_variables: HashMap<String, Rc<Value>>,
+    pub temporary_variables: HashMap<String, Brc<Value>>,
     pub push_pop_type: PushPopType,
     pub evaluation_stack_height_when_pushed: usize,
     pub function_start_in_output_stream: i32,
@@ -69,7 +70,7 @@ impl Thread {
     }
 
     pub fn from_json(
-        main_content_container: &Rc<Container>,
+        main_content_container: &Brc<Container>,
         j_obj: &Map<String, serde_json::Value>,
     ) -> Result<Thread, StoryError> {
         let mut thread = Thread::new();
@@ -215,7 +216,7 @@ pub struct CallStack {
 }
 
 impl CallStack {
-    pub fn new(main_content_container: Rc<Container>) -> CallStack {
+    pub fn new(main_content_container: Brc<Container>) -> CallStack {
         let mut cs = CallStack {
             thread_counter: 0,
             start_of_root: Pointer::start_of(main_content_container),
@@ -357,7 +358,7 @@ impl CallStack {
     pub fn set_temporary_variable(
         &mut self,
         name: String,
-        value: Rc<Value>,
+        value: Brc<Value>,
         declare_new: bool,
         mut context_index: i32,
     ) -> Result<(), StoryError> {
@@ -406,7 +407,7 @@ impl CallStack {
         &self,
         name: &str,
         context_index: i32,
-    ) -> Option<Rc<Value>> {
+    ) -> Option<Brc<Value>> {
         let mut context_index = context_index;
         if context_index == -1 {
             context_index = self.get_current_element_index() + 1;
@@ -457,7 +458,7 @@ impl CallStack {
 
     pub fn load_json(
         &mut self,
-        main_content_container: &Rc<Container>,
+        main_content_container: &Brc<Container>,
         j_obj: &Map<String, serde_json::Value>,
     ) -> Result<(), StoryError> {
         self.threads.clear();

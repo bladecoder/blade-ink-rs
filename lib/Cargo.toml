@@ -16,6 +16,9 @@ edition = "2021"
 name = "bladeink"
 path = "src/lib.rs"
 
+[features]
+threadsafe = []
+
 [dependencies]
 serde = { version = "1.0.152", features = ["derive"] }
 serde_json = "1.0.93"

@@ -1,9 +1,4 @@
-use std::{
-    any::Any,
-    cell::RefCell,
-    fmt::Display,
-    rc::{Rc, Weak},
-};
+use std::{any::Any, fmt::Display, rc::Weak};
 
 use as_any::{AsAny, Downcast};
 
@@ -11,19 +6,20 @@ use crate::{
     container::Container,
     path::{Component, Path},
     search_result::SearchResult,
+    BrCell, Brc,
 };
 
 pub struct Object {
-    parent: RefCell<Weak<Container>>,
-    path: RefCell<Option<Path>>,
+    parent: BrCell<Weak<Container>>,
+    path: BrCell<Option<Path>>,
     //debug_metadata: DebugMetadata,
 }
 
 impl Object {
     pub fn new() -> Object {
         Object {
-            parent: RefCell::new(Weak::new()),
-            path: RefCell::new(None),
+            parent: BrCell::new(Weak::new()),
+            path: BrCell::new(None),
         }
     }
 
@@ -31,12 +27,12 @@ impl Object {
         self.parent.borrow().upgrade().is_none()
     }
 
-    pub fn get_parent(&self) -> Option<Rc<Container>> {
+    pub fn get_parent(&self) -> Option<Brc<Container>> {
         self.parent.borrow().upgrade()
     }
 
-    pub fn set_parent(&self, parent: &Rc<Container>) {
-        self.parent.replace(Rc::downgrade(parent));
+    pub fn set_parent(&self, parent: &Brc<Container>) {
+        self.parent.replace(Brc::downgrade(parent));
     }
 
     pub fn get_path(rtobject: &dyn RTObject) -> Path {
@@ -105,7 +101,7 @@ impl Object {
             .clone()
     }
 
-    pub fn resolve_path(rtobject: Rc<dyn RTObject>, path: &Path) -> SearchResult {
+    pub fn resolve_path(rtobject: Brc<dyn RTObject>, path: &Path) -> SearchResult {
         if path.is_relative() {
             let mut p = path.clone();
             let mut nearest_container = rtobject.clone().into_any().downcast::<Container>().ok();
@@ -121,7 +117,7 @@ impl Object {
         }
     }
 
-    pub fn convert_path_to_relative(rtobject: &Rc<dyn RTObject>, global_path: &Path) -> Path {
+    pub fn convert_path_to_relative(rtobject: &Brc<dyn RTObject>, global_path: &Path) -> Path {
         // 1. Find last shared ancestor
         // 2. Drill up using ".." style (actually represented as "^")
         // 3. Re-build downward chain from common ancestor
@@ -160,7 +156,7 @@ impl Object {
         Path::new(&new_path_comps, true)
     }
 
-    pub fn compact_path_string(rtobject: Rc<dyn RTObject>, other_path: &Path) -> String {
+    pub fn compact_path_string(rtobject: Brc<dyn RTObject>, other_path: &Path) -> String {
         let global_path_str: String;
         let relative_path_str: String;
 
@@ -182,7 +178,7 @@ impl Object {
         }
     }
 
-    pub fn get_root_container(rtobject: Rc<dyn RTObject>) -> Rc<Container> {
+    pub fn get_root_container(rtobject: Brc<dyn RTObject>) -> Brc<Container> {
         let mut ancestor = rtobject;
 
         while let Some(p) = ancestor.get_object().get_parent() {
@@ -203,12 +199,12 @@ impl Default for Object {
 }
 
 pub trait IntoAny: AsAny {
-    fn into_any(self: Rc<Self>) -> Rc<dyn Any>;
+    fn into_any(self: Brc<Self>) -> Brc<dyn Any>;
 }
 
 impl<T: Any> IntoAny for T {
     #[inline(always)]
-    fn into_any(self: Rc<Self>) -> Rc<dyn Any> {
+    fn into_any(self: Brc<Self>) -> Brc<dyn Any> {
         self
     }
 }

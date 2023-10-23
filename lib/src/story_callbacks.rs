@@ -1,10 +1,10 @@
 //! For setting the callbacks functions that will be called while the [`Story`] is processing.
-use std::{cell::RefCell, collections::HashSet, rc::Rc};
+use std::collections::HashSet;
 
 use crate::{
     container::Container, divert::Divert, object::RTObject, pointer::Pointer,
     push_pop::PushPopType, story::Story, story_error::StoryError, value::Value,
-    value_type::ValueType, void::Void,
+    value_type::ValueType, void::Void, BrCell, Brc,
 };
 
 /// Defines the method that will be called when an observed global variable changes.
@@ -18,7 +18,7 @@ pub trait ExternalFunction {
 }
 
 pub(crate) struct ExternalFunctionDef {
-    function: Rc<RefCell<dyn ExternalFunction>>,
+    function: Brc<BrCell<dyn ExternalFunction>>,
     lookahead_safe: bool,
 }
 
@@ -43,7 +43,7 @@ impl Story {
     /// the story.
     /// It's strongly recommended that you assign an error handler to your
     /// story instance, to avoid getting panics for ink errors.
-    pub fn set_error_handler(&mut self, err_handler: Rc<RefCell<dyn ErrorHandler>>) {
+    pub fn set_error_handler(&mut self, err_handler: Brc<BrCell<dyn ErrorHandler>>) {
         self.on_error = Some(err_handler);
     }
 
@@ -58,7 +58,7 @@ impl Story {
     pub fn observe_variable(
         &mut self,
         variable_name: &str,
-        observer: Rc<RefCell<dyn VariableObserver>>,
+        observer: Brc<BrCell<dyn VariableObserver>>,
     ) -> Result<(), StoryError> {
         self.if_async_we_cant("observe a new variable")?;
 
@@ -76,7 +76,7 @@ impl Story {
                 v.push(observer);
             }
             None => {
-                let v: Vec<Rc<RefCell<dyn VariableObserver>>> = vec![observer];
+                let v: Vec<Brc<BrCell<dyn VariableObserver>>> = vec![observer];
                 self.variable_observers.insert(variable_name.to_string(), v);
             }
         }
@@ -90,7 +90,7 @@ impl Story {
     /// from all variables that it's subscribed to.
     pub fn remove_variable_observer(
         &mut self,
-        observer: &Rc<RefCell<dyn VariableObserver>>,
+        observer: &Brc<BrCell<dyn VariableObserver>>,
         specific_variable_name: Option<&str>,
     ) -> Result<(), StoryError> {
         self.if_async_we_cant("remove a variable observer")?;
@@ -99,7 +99,7 @@ impl Story {
         match specific_variable_name {
             Some(specific_variable_name) => {
                 if let Some(v) = self.variable_observers.get_mut(specific_variable_name) {
-                    let index = v.iter().position(|x| Rc::ptr_eq(x, observer)).unwrap();
+                    let index = v.iter().position(|x| Brc::ptr_eq(x, observer)).unwrap();
                     v.remove(index);
 
                     if v.is_empty() {
@@ -112,7 +112,7 @@ impl Story {
                 let mut keys_to_remove = Vec::new();
 
                 for (k, v) in self.variable_observers.iter_mut() {
-                    let index = v.iter().position(|x| Rc::ptr_eq(x, observer)).unwrap();
+                    let index = v.iter().position(|x| Brc::ptr_eq(x, observer)).unwrap();
                     v.remove(index);
 
                     if v.is_empty() {
@@ -158,7 +158,7 @@ impl Story {
     pub fn bind_external_function(
         &mut self,
         func_name: &str,
-        function: Rc<RefCell<dyn ExternalFunction>>,
+        function: Brc<BrCell<dyn ExternalFunction>>,
         lookahead_safe: bool,
     ) -> Result<(), StoryError> {
         self.if_async_we_cant("bind an external function")?;
@@ -264,9 +264,9 @@ impl Story {
             .call(func_name, arguments);
 
         // Convert return value (if any) to a type that the ink engine can use
-        let return_obj: Rc<dyn RTObject> = match func_result {
-            Some(func_result) => Rc::new(Value::new(func_result)),
-            None => Rc::new(Void::new()),
+        let return_obj: Brc<dyn RTObject> = match func_result {
+            Some(func_result) => Brc::new(Value::new(func_result)),
+            None => Brc::new(Void::new()),
         };
 
         self.get_state_mut().push_evaluation_stack(return_obj);
@@ -309,7 +309,7 @@ impl Story {
 
     fn validate_external_bindings_container(
         &self,
-        c: &Rc<Container>,
+        c: &Brc<Container>,
         missing_externals: &mut std::collections::HashSet<String>,
     ) -> Result<(), StoryError> {
         for inner_content in c.content.iter() {
@@ -344,7 +344,7 @@ impl Story {
 
     fn validate_external_bindings_rtobject(
         &self,
-        o: &Rc<dyn RTObject>,
+        o: &Brc<dyn RTObject>,
         missing_externals: &mut std::collections::HashSet<String>,
     ) -> Result<(), StoryError> {
         let divert = o.clone().into_any().downcast::<Divert>().ok();

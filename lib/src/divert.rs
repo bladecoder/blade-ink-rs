@@ -1,4 +1,4 @@
-use std::{cell::RefCell, fmt, rc::Rc};
+use std::fmt;
 
 use crate::{
     container::Container,
@@ -6,12 +6,13 @@ use crate::{
     path::{Component, Path},
     pointer::{self, Pointer},
     push_pop::PushPopType,
+    BrCell, Brc,
 };
 
 pub struct Divert {
     obj: Object,
-    target_pointer: RefCell<Pointer>,
-    target_path: RefCell<Option<Path>>,
+    target_pointer: BrCell<Pointer>,
+    target_path: BrCell<Option<Path>>,
     pub external_args: usize,
     pub is_conditional: bool,
     pub is_external: bool,
@@ -37,8 +38,8 @@ impl Divert {
             stack_push_type,
             is_external,
             external_args,
-            target_pointer: RefCell::new(pointer::NULL.clone()),
-            target_path: RefCell::new(Self::target_path_string(target_path)),
+            target_pointer: BrCell::new(pointer::NULL.clone()),
+            target_path: BrCell::new(Self::target_path_string(target_path)),
             variable_divert_name: var_divert_name,
         }
     }
@@ -47,7 +48,7 @@ impl Divert {
         value.map(|value| Path::new_with_components_string(Some(value)))
     }
 
-    pub fn get_target_path_string(self: &Rc<Self>) -> Option<String> {
+    pub fn get_target_path_string(self: &Brc<Self>) -> Option<String> {
         self.get_target_path()
             .as_ref()
             .map(|p| self.compact_path_string(p))
@@ -79,7 +80,7 @@ impl Divert {
         }
     }
 
-    pub fn get_target_pointer(self: &Rc<Self>) -> Pointer {
+    pub fn get_target_pointer(self: &Brc<Self>) -> Pointer {
         let target_pointer_null = self.target_pointer.borrow().is_null();
         if target_pointer_null {
             let target_obj =
@@ -115,7 +116,7 @@ impl Divert {
         self.target_pointer.borrow().clone()
     }
 
-    pub fn get_target_path(self: &Rc<Self>) -> Option<Path> {
+    pub fn get_target_path(self: &Brc<Self>) -> Option<Path> {
         // Resolve any relative paths to global ones as we come across them
         let target_path = self.target_path.borrow();
 

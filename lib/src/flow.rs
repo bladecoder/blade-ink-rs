@@ -1,5 +1,3 @@
-use std::{cell::RefCell, rc::Rc};
-
 use serde_json::Map;
 
 use crate::{
@@ -9,21 +7,22 @@ use crate::{
     json_read, json_write,
     object::RTObject,
     story_error::StoryError,
+    BrCell, Brc,
 };
 
 #[derive(Clone)]
 pub(crate) struct Flow {
     pub name: String,
-    pub callstack: Rc<RefCell<CallStack>>,
-    pub output_stream: Vec<Rc<dyn RTObject>>,
-    pub current_choices: Vec<Rc<Choice>>,
+    pub callstack: Brc<BrCell<CallStack>>,
+    pub output_stream: Vec<Brc<dyn RTObject>>,
+    pub current_choices: Vec<Brc<Choice>>,
 }
 
 impl Flow {
-    pub fn new(name: &str, main_content_container: Rc<Container>) -> Flow {
+    pub fn new(name: &str, main_content_container: Brc<Container>) -> Flow {
         Flow {
             name: name.to_string(),
-            callstack: Rc::new(RefCell::new(CallStack::new(main_content_container))),
+            callstack: Brc::new(BrCell::new(CallStack::new(main_content_container))),
             output_stream: Vec::new(),
             current_choices: Vec::new(),
         }
@@ -31,12 +30,12 @@ impl Flow {
 
     pub fn from_json(
         name: &str,
-        main_content_container: Rc<Container>,
+        main_content_container: Brc<Container>,
         j_obj: &Map<String, serde_json::Value>,
     ) -> Result<Flow, StoryError> {
         let mut flow = Self {
             name: name.to_string(),
-            callstack: Rc::new(RefCell::new(CallStack::new(main_content_container.clone()))),
+            callstack: Brc::new(BrCell::new(CallStack::new(main_content_container.clone()))),
             output_stream: json_read::jarray_to_runtime_obj_list(
                 j_obj
                     .get("outputStream")
@@ -55,7 +54,7 @@ impl Flow {
             )?
             .iter()
             .map(|o| o.clone().into_any().downcast::<Choice>().unwrap())
-            .collect::<Vec<Rc<Choice>>>(),
+            .collect::<Vec<Brc<Choice>>>(),
         };
 
         flow.callstack.borrow_mut().load_json(
@@ -131,7 +130,7 @@ impl Flow {
     pub fn load_flow_choice_threads(
         &mut self,
         j_choice_threads: Option<&serde_json::Value>,
-        main_content_container: Rc<Container>,
+        main_content_container: Brc<Container>,
     ) -> Result<(), StoryError> {
         for choice in self.current_choices.iter_mut() {
             self.callstack

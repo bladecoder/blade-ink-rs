@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
 use serde_json::Map;
 
@@ -9,26 +9,26 @@ use crate::{
     list_definitions_origin::ListDefinitionsOrigin, native_function_call::NativeFunctionCall,
     object::RTObject, path::Path, push_pop::PushPopType, story_error::StoryError, tag::Tag,
     value::Value, variable_assigment::VariableAssignment, variable_reference::VariableReference,
-    void::Void,
+    void::Void, Brc,
 };
 
 pub fn jtoken_to_runtime_object(
     token: &serde_json::Value,
     name: Option<String>,
-) -> Result<Rc<dyn RTObject>, StoryError> {
+) -> Result<Brc<dyn RTObject>, StoryError> {
     match token {
         serde_json::Value::Null => Err(StoryError::BadJson(format!(
             "Failed to convert token to runtime RTObject: {}",
             token
         ))),
-        serde_json::Value::Bool(value) => Ok(Rc::new(Value::new_bool(value.to_owned()))),
+        serde_json::Value::Bool(value) => Ok(Brc::new(Value::new_bool(value.to_owned()))),
         serde_json::Value::Number(_) => {
             if token.is_i64() {
                 let val: i32 = token.as_i64().unwrap().try_into().unwrap();
-                Ok(Rc::new(Value::new_int(val)))
+                Ok(Brc::new(Value::new_int(val)))
             } else {
                 let val: f32 = token.as_f64().unwrap() as f32;
-                Ok(Rc::new(Value::new_float(val)))
+                Ok(Brc::new(Value::new_float(val)))
             }
         }
 
@@ -38,18 +38,18 @@ pub fn jtoken_to_runtime_object(
             // String value
             let first_char = str.chars().next().unwrap();
             if first_char == '^' {
-                return Ok(Rc::new(Value::new_string(&str[1..])));
+                return Ok(Brc::new(Value::new_string(&str[1..])));
             } else if first_char == '\n' && str.len() == 1 {
-                return Ok(Rc::new(Value::new_string("\n")));
+                return Ok(Brc::new(Value::new_string("\n")));
             }
 
             // Glue
             if "<>".eq(str) {
-                return Ok(Rc::new(Glue::new()));
+                return Ok(Brc::new(Glue::new()));
             }
 
             if let Some(control_command) = ControlCommand::new_from_name(str) {
-                return Ok(Rc::new(control_command));
+                return Ok(Brc::new(control_command));
             }
 
             // Native functions
@@ -61,12 +61,12 @@ pub fn jtoken_to_runtime_object(
                 call_str = "^";
             }
             if let Some(native_function_call) = NativeFunctionCall::new_from_name(call_str) {
-                return Ok(Rc::new(native_function_call));
+                return Ok(Brc::new(native_function_call));
             }
 
             // Void
             if "void".eq(str) {
-                return Ok(Rc::new(Void::new()));
+                return Ok(Brc::new(Void::new()));
             }
 
             Err(StoryError::BadJson(format!(
@@ -80,7 +80,7 @@ pub fn jtoken_to_runtime_object(
             let prop_value = obj.get("^->");
 
             if let Some(prop_value) = prop_value {
-                return Ok(Rc::new(Value::new_divert_target(
+                return Ok(Brc::new(Value::new_divert_target(
                     Path::new_with_components_string(prop_value.as_str()),
                 )));
             }
@@ -97,7 +97,7 @@ pub fn jtoken_to_runtime_object(
                     contex_index = v.as_i64().unwrap() as i32;
                 }
 
-                let var_ptr = Rc::new(Value::new_variable_pointer(variable_name, contex_index));
+                let var_ptr = Brc::new(Value::new_variable_pointer(variable_name, contex_index));
 
                 return Ok(var_ptr);
             }
@@ -160,7 +160,7 @@ pub fn jtoken_to_runtime_object(
                     }
                 }
 
-                return Ok(Rc::new(Divert::new(
+                return Ok(Brc::new(Divert::new(
                     pushes_to_stack,
                     div_push_type,
                     external,
@@ -181,7 +181,7 @@ pub fn jtoken_to_runtime_object(
                     flags = f.as_u64().unwrap();
                 }
 
-                return Ok(Rc::new(ChoicePoint::new(
+                return Ok(Brc::new(ChoicePoint::new(
                     flags as i32,
                     path_string_on_choice,
                 )));
@@ -190,12 +190,12 @@ pub fn jtoken_to_runtime_object(
             // // Variable reference
             let prop_value = obj.get("VAR?");
             if let Some(name) = prop_value {
-                return Ok(Rc::new(VariableReference::new(name.as_str().unwrap())));
+                return Ok(Brc::new(VariableReference::new(name.as_str().unwrap())));
             }
 
             let prop_value = obj.get("CNT?");
             if let Some(v) = prop_value {
-                return Ok(Rc::new(VariableReference::from_path_for_count(
+                return Ok(Brc::new(VariableReference::from_path_for_count(
                     v.as_str().unwrap(),
                 )));
             }
@@ -224,7 +224,7 @@ pub fn jtoken_to_runtime_object(
                 let prop_value = obj.get("re");
                 let is_new_decl = prop_value.is_none();
 
-                let var_ass = Rc::new(VariableAssignment::new(
+                let var_ass = Brc::new(VariableAssignment::new(
                     var_name,
                     is_new_decl,
                     is_global_var,
@@ -235,7 +235,7 @@ pub fn jtoken_to_runtime_object(
             // Legacy Tag
             prop_value = obj.get("#");
             if let Some(prop_value) = prop_value {
-                return Ok(Rc::new(Tag::new(prop_value.as_str().unwrap())));
+                return Ok(Brc::new(Tag::new(prop_value.as_str().unwrap())));
             }
 
             // List value
@@ -263,7 +263,7 @@ pub fn jtoken_to_runtime_object(
                     raw_list.items.insert(item, v.as_i64().unwrap() as i32);
                 }
 
-                return Ok(Rc::new(Value::new_list(raw_list)));
+                return Ok(Brc::new(Value::new_list(raw_list)));
             }
 
             // Used when serialising save state only
@@ -282,7 +282,7 @@ pub fn jtoken_to_runtime_object(
 fn jarray_to_container(
     jarray: &Vec<serde_json::Value>,
     name: Option<String>,
-) -> Result<Rc<dyn RTObject>, StoryError> {
+) -> Result<Brc<dyn RTObject>, StoryError> {
     // Final object in the array is always a combination of
     //  - named content
     //  - a "#f" key with the countFlags
@@ -291,7 +291,7 @@ fn jarray_to_container(
     let mut name: Option<String> = name;
     let mut flags = 0;
 
-    let mut named_only_content: HashMap<String, Rc<Container>> = HashMap::new();
+    let mut named_only_content: HashMap<String, Brc<Container>> = HashMap::new();
 
     if let Some(terminating_obj) = terminating_obj {
         for (k, v) in terminating_obj {
@@ -325,14 +325,14 @@ fn jarray_to_container(
 pub fn jarray_to_runtime_obj_list(
     jarray: &Vec<serde_json::Value>,
     skip_last: bool,
-) -> Result<Vec<Rc<dyn RTObject>>, StoryError> {
+) -> Result<Vec<Brc<dyn RTObject>>, StoryError> {
     let mut count = jarray.len();
 
     if skip_last {
         count -= 1;
     }
 
-    let mut list: Vec<Rc<dyn RTObject>> = Vec::with_capacity(jarray.len());
+    let mut list: Vec<Brc<dyn RTObject>> = Vec::with_capacity(jarray.len());
 
     for jtok in jarray.iter().take(count) {
         let runtime_obj = jtoken_to_runtime_object(jtok, None);
@@ -342,14 +342,16 @@ pub fn jarray_to_runtime_obj_list(
     Ok(list)
 }
 
-fn jobject_to_choice(obj: &Map<String, serde_json::Value>) -> Result<Rc<dyn RTObject>, StoryError> {
+fn jobject_to_choice(
+    obj: &Map<String, serde_json::Value>,
+) -> Result<Brc<dyn RTObject>, StoryError> {
     let text = obj.get("text").unwrap().as_str().unwrap();
     let index = obj.get("index").unwrap().as_u64().unwrap() as usize;
     let source_path = obj.get("originalChoicePath").unwrap().as_str().unwrap();
     let original_thread_index = obj.get("originalThreadIndex").unwrap().as_i64().unwrap() as usize;
     let path_string_on_choice = obj.get("targetPath").unwrap().as_str().unwrap();
 
-    Ok(Rc::new(Choice::new_from_json(
+    Ok(Brc::new(Choice::new_from_json(
         path_string_on_choice,
         source_path.to_string(),
         text,
@@ -379,8 +381,8 @@ pub fn jtoken_to_list_definitions(
 
 pub(crate) fn jobject_to_hashmap_values(
     jobj: &Map<String, serde_json::Value>,
-) -> Result<HashMap<String, Rc<Value>>, StoryError> {
-    let mut dict: HashMap<String, Rc<Value>> = HashMap::new();
+) -> Result<HashMap<String, Brc<Value>>, StoryError> {
+    let mut dict: HashMap<String, Brc<Value>> = HashMap::new();
 
     for (k, v) in jobj.iter() {
         dict.insert(

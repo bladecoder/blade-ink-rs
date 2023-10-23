@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
 use serde_json::{json, Map};
 
@@ -7,11 +7,11 @@ use crate::{
     control_command::ControlCommand, divert::Divert, glue::Glue, ink_list::InkList,
     native_function_call::NativeFunctionCall, object::RTObject, push_pop::PushPopType,
     story_error::StoryError, tag::Tag, value::Value, variable_assigment::VariableAssignment,
-    variable_reference::VariableReference, void::Void,
+    variable_reference::VariableReference, void::Void, Brc,
 };
 
 pub fn write_dictionary_values(
-    objs: &HashMap<String, Rc<Value>>,
+    objs: &HashMap<String, Brc<Value>>,
 ) -> Result<serde_json::Value, StoryError> {
     let mut jobjs: Map<String, serde_json::Value> = Map::new();
 
@@ -22,7 +22,7 @@ pub fn write_dictionary_values(
     Ok(serde_json::Value::Object(jobjs))
 }
 
-pub fn write_rtobject(o: Rc<dyn RTObject>) -> Result<serde_json::Value, StoryError> {
+pub fn write_rtobject(o: Brc<dyn RTObject>) -> Result<serde_json::Value, StoryError> {
     if let Some(c) = o.as_any().downcast_ref::<Container>() {
         return write_rt_container(c, false);
     }
@@ -275,7 +275,7 @@ pub fn write_choice(choice: &Choice) -> serde_json::Value {
 }
 
 pub(crate) fn write_list_rt_objs(
-    objs: &[Rc<dyn RTObject>],
+    objs: &[Brc<dyn RTObject>],
 ) -> Result<serde_json::Value, StoryError> {
     let mut c_array: Vec<serde_json::Value> = Vec::new();
 

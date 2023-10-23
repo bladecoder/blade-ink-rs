@@ -1,10 +1,10 @@
 use core::fmt;
-use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     container::Container,
     object::{Object, RTObject},
     path::Path,
+    BrCell, Brc,
 };
 
 pub struct ChoicePoint {
@@ -14,7 +14,7 @@ pub struct ChoicePoint {
     is_invisible_default: bool,
     once_only: bool,
     has_condition: bool,
-    path_on_choice: RefCell<Path>,
+    path_on_choice: BrCell<Path>,
 }
 
 impl ChoicePoint {
@@ -26,13 +26,13 @@ impl ChoicePoint {
             is_invisible_default: (flags & 8) > 0,
             once_only: (flags & 16) > 0,
             has_condition: (flags & 1) > 0,
-            path_on_choice: RefCell::new(Path::new_with_components_string(Some(
+            path_on_choice: BrCell::new(Path::new_with_components_string(Some(
                 path_string_on_choice,
             ))),
         }
     }
 
-    pub fn get_choice_target(self: &Rc<Self>) -> Option<Rc<Container>> {
+    pub fn get_choice_target(self: &Brc<Self>) -> Option<Brc<Container>> {
         Object::resolve_path(self.clone(), &self.path_on_choice.borrow()).container()
     }
 
@@ -76,7 +76,7 @@ impl ChoicePoint {
         self.once_only
     }
 
-    pub fn get_path_on_choice(self: &Rc<Self>) -> Path {
+    pub fn get_path_on_choice(self: &Brc<Self>) -> Path {
         // Resolve any relative paths to global ones as we come across them
         if self.path_on_choice.borrow().is_relative() {
             if let Some(choice_target_obj) = self.get_choice_target() {
@@ -87,7 +87,7 @@ impl ChoicePoint {
         self.path_on_choice.borrow().clone()
     }
 
-    pub fn get_path_string_on_choice(self: &Rc<Self>) -> String {
+    pub fn get_path_string_on_choice(self: &Brc<Self>) -> String {
         Object::compact_path_string(self.clone(), &self.get_path_on_choice())
     }
 }
