@@ -4,7 +4,7 @@ use crate::{
     container::Container,
     object::{Object, RTObject},
     path::Path,
-    Brc,
+    threadsafe::Brc,
 };
 
 pub struct VariableReference {

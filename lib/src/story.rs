@@ -26,12 +26,13 @@ use crate::{
     story_error::StoryError,
     story_state::StoryState,
     tag::Tag,
+    threadsafe::BrCell,
+    threadsafe::Brc,
     value::Value,
     value_type::ValueType,
     variable_assigment::VariableAssignment,
     variable_reference::VariableReference,
     void::Void,
-    BrCell, Brc,
 };
 
 /// The current version of the Ink story file format.

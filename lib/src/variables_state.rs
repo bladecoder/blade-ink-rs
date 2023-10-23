@@ -8,10 +8,11 @@ use crate::{
     list_definitions_origin::ListDefinitionsOrigin,
     state_patch::StatePatch,
     story_error::StoryError,
+    threadsafe::BrCell,
+    threadsafe::Brc,
     value::Value,
     value_type::{ValueType, VariablePointerValue},
     variable_assigment::VariableAssignment,
-    BrCell, Brc,
 };
 
 #[derive(Clone)]

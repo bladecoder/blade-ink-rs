@@ -6,9 +6,9 @@ use crate::{
     object::{Object, RTObject},
     path::{Component, Path},
     search_result::SearchResult,
+    threadsafe::Brc,
     value::Value,
     value_type::ValueType,
-    Brc,
 };
 
 const COUNTFLAGS_VISITS: i32 = 1;

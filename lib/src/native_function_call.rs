@@ -4,10 +4,11 @@ use crate::{
     ink_list::InkList,
     object::{Object, RTObject},
     story_error::StoryError,
+    threadsafe::brcell_borrow,
+    threadsafe::Brc,
     value::Value,
     value_type::ValueType,
     void::Void,
-    Brc,
 };
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -301,7 +302,7 @@ impl NativeFunctionCall {
                 }
             };
 
-            let origins = list_val.origins.borrow();
+            let origins = brcell_borrow(&list_val.origins);
 
             let item_origin = origins.iter().find(|origin| {
                 origin.get_name() == list_item.get_origin_name().unwrap_or(&"".to_owned())

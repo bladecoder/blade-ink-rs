@@ -4,8 +4,9 @@ use std::error::Error;
 use bladeink::{
     story::Story,
     story_callbacks::{ExternalFunction, VariableObserver},
+    threadsafe::BrCell,
+    threadsafe::Brc,
     value_type::ValueType,
-    BrCell, Brc,
 };
 
 mod common;

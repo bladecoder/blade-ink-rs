@@ -17,6 +17,8 @@ name = "bladeink"
 path = "src/lib.rs"
 
 [features]
+# Uncomment the line below while developing the threadsafe feature
+# default = ["threadsafe"]
 threadsafe = []
 
 [dependencies]

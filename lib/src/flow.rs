@@ -7,7 +7,8 @@ use crate::{
     json_read, json_write,
     object::RTObject,
     story_error::StoryError,
-    BrCell, Brc,
+    threadsafe::BrCell,
+    threadsafe::Brc,
 };
 
 #[derive(Clone)]

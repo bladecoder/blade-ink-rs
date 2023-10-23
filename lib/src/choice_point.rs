@@ -4,7 +4,8 @@ use crate::{
     container::Container,
     object::{Object, RTObject},
     path::Path,
-    BrCell, Brc,
+    threadsafe::BrCell,
+    threadsafe::Brc,
 };
 
 pub struct ChoicePoint {

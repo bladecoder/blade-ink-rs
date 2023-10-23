@@ -8,8 +8,8 @@ use crate::{
     ink_list_item::InkListItem, list_definition::ListDefinition,
     list_definitions_origin::ListDefinitionsOrigin, native_function_call::NativeFunctionCall,
     object::RTObject, path::Path, push_pop::PushPopType, story_error::StoryError, tag::Tag,
-    value::Value, variable_assigment::VariableAssignment, variable_reference::VariableReference,
-    void::Void, Brc,
+    threadsafe::Brc, value::Value, variable_assigment::VariableAssignment,
+    variable_reference::VariableReference, void::Void,
 };
 
 pub fn jtoken_to_runtime_object(

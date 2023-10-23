@@ -4,7 +4,7 @@ use crate::{
     container::Container,
     object::RTObject,
     path::{Component, Path},
-    Brc,
+    threadsafe::Brc,
 };
 
 pub const NULL: Pointer = Pointer::new(None, -1);

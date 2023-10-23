@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{ink_list::InkList, list_definition::ListDefinition, value::Value, Brc};
+use crate::{ink_list::InkList, list_definition::ListDefinition, threadsafe::Brc, value::Value};
 
 #[derive(Clone)]
 pub struct ListDefinitionsOrigin {

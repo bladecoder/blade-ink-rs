@@ -3,8 +3,8 @@ use std::collections::HashSet;
 
 use crate::{
     container::Container, divert::Divert, object::RTObject, pointer::Pointer,
-    push_pop::PushPopType, story::Story, story_error::StoryError, value::Value,
-    value_type::ValueType, void::Void, BrCell, Brc,
+    push_pop::PushPopType, story::Story, story_error::StoryError, threadsafe::BrCell,
+    threadsafe::Brc, value::Value, value_type::ValueType, void::Void,
 };
 
 /// Defines the method that will be called when an observed global variable changes.

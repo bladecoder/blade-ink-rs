@@ -3,8 +3,8 @@ use std::collections::HashMap;
 
 use crate::{
     ink_list_item::InkListItem, list_definition::ListDefinition,
-    list_definitions_origin::ListDefinitionsOrigin, story_error::StoryError, value_type::ValueType,
-    BrCell,
+    list_definitions_origin::ListDefinitionsOrigin, story_error::StoryError, threadsafe::BrCell,
+    value_type::ValueType,
 };
 
 #[derive(Clone)]

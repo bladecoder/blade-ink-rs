@@ -17,11 +17,12 @@ use crate::{
     story::{Story, INK_VERSION_CURRENT},
     story_error::StoryError,
     tag::Tag,
+    threadsafe::BrCell,
+    threadsafe::Brc,
     value::Value,
     value_type::ValueType,
     variables_state::VariablesState,
     void::Void,
-    BrCell, Brc,
 };
 
 use rand::Rng;

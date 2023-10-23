@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{container::Container, object::Object, value::Value, Brc};
+use crate::{container::Container, object::Object, threadsafe::Brc, value::Value};
 
 #[derive(Clone)]
 pub struct StatePatch {

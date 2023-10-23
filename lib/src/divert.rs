@@ -6,7 +6,8 @@ use crate::{
     path::{Component, Path},
     pointer::{self, Pointer},
     push_pop::PushPopType,
-    BrCell, Brc,
+    threadsafe::BrCell,
+    threadsafe::Brc,
 };
 
 pub struct Divert {

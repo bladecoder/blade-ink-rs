@@ -6,7 +6,8 @@ use crate::{
     container::Container,
     path::{Component, Path},
     search_result::SearchResult,
-    BrCell, Brc,
+    threadsafe::BrCell,
+    threadsafe::Brc,
 };
 
 pub struct Object {

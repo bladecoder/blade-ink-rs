@@ -11,8 +11,8 @@ use crate::{
     push_pop::PushPopType,
     story::Story,
     story_error::StoryError,
+    threadsafe::Brc,
     value::Value,
-    Brc,
 };
 
 pub struct Element {

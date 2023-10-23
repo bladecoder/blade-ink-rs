@@ -6,8 +6,8 @@ use crate::{
     choice::Choice, choice_point::ChoicePoint, container::Container,
     control_command::ControlCommand, divert::Divert, glue::Glue, ink_list::InkList,
     native_function_call::NativeFunctionCall, object::RTObject, push_pop::PushPopType,
-    story_error::StoryError, tag::Tag, value::Value, variable_assigment::VariableAssignment,
-    variable_reference::VariableReference, void::Void, Brc,
+    story_error::StoryError, tag::Tag, threadsafe::Brc, value::Value,
+    variable_assigment::VariableAssignment, variable_reference::VariableReference, void::Void,
 };
 
 pub fn write_dictionary_values(

@@ -5,7 +5,7 @@ use std::{error::Error, fs, io, path::Path};
 use anyhow::Context;
 use bladeink::story_callbacks::{ErrorHandler, ErrorType};
 use bladeink::{choice::Choice, story::Story};
-use bladeink::{BrCell, Brc};
+use bladeink::{threadsafe::BrCell, threadsafe::Brc};
 use clap::Parser;
 use rand::Rng;
 

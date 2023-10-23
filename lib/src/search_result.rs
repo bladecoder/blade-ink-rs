@@ -1,4 +1,4 @@
-use crate::{container::Container, object::RTObject, Brc};
+use crate::{container::Container, object::RTObject, threadsafe::Brc};
 
 #[derive(Clone)]
 pub struct SearchResult {
