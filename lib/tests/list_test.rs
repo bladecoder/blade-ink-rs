@@ -113,3 +113,13 @@ fn more_list_operations2_test() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+#[test]
+fn list_all_bug_test() -> Result<(), Box<dyn Error>> {
+    let json_string = common::get_json_string("inkfiles/lists/list-all.ink.json")?;
+    let mut story = Story::new(&json_string)?;
+
+    assert_eq!("A, B\n", &story.continue_maximally()?);
+
+    Ok(())
+}
