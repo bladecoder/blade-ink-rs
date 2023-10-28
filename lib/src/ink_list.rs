@@ -182,7 +182,9 @@ impl InkList {
         let mut list = InkList::new();
 
         for origin in self.origins.borrow_mut().iter_mut() {
-            list.items = origin.get_items().clone()
+            for (k, v) in origin.get_items().iter() {
+                list.items.insert(k.clone(), *v);
+            }
         }
 
         list
