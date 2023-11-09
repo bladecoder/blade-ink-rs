@@ -1,12 +1,15 @@
-//! Console player that can runs compiled `.ink.json` story files writen in the **Ink** language.
+//! Console player that can runs compiled `.ink.json` story files writen in the
+//! **Ink** language.
 use std::cell::RefCell;
 
-use std::io::Write;
-use std::{error::Error, fs, io, path::Path, rc::Rc};
+use std::{error::Error, fs, io, io::Write, path::Path, rc::Rc};
 
 use anyhow::Context;
-use bladeink::story_callbacks::{ErrorHandler, ErrorType};
-use bladeink::{choice::Choice, story::Story};
+use bladeink::{
+    choice::Choice,
+    story::Story,
+    story_callbacks::{ErrorHandler, ErrorType},
+};
 use clap::Parser;
 use rand::Rng;
 
@@ -44,7 +47,7 @@ impl EHandler {
 
 impl ErrorHandler for EHandler {
     fn error(&mut self, message: &str, error_type: ErrorType) {
-        println!("{}", message);
+        eprintln!("{}", message);
 
         if error_type == ErrorType::Error {
             self.should_terminate = true;
@@ -71,7 +74,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let trimmed = line.trim();
 
-            println!("{}", trimmed);
+            if !trimmed.is_empty() {
+                println!("{}", trimmed);
+            }
         }
 
         let choices = story.get_current_choices();
@@ -81,8 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 println!();
                 print_choices(&choices);
-                println!();
-                println!("?>{i}");
+                println!("?> {i}");
 
                 Command::Choose(i)
             } else {
@@ -130,7 +134,7 @@ fn process_command(command: Command, story: &mut Story) -> Result<bool, Box<dyn 
 
 fn print_choices(choices: &[Rc<Choice>]) {
     for (i, c) in choices.iter().enumerate() {
-        println!("{}. {}", i + 1, c.text);
+        println!("{}: {}", i + 1, c.text);
     }
 }
 
@@ -140,8 +144,7 @@ fn read_input(choices: &Vec<Rc<Choice>>) -> Result<Command, Box<dyn Error>> {
     loop {
         println!();
         print_choices(choices);
-        println!();
-        print!("?>");
+        print!("?> ");
         io::stdout().flush()?;
 
         line.clear();
@@ -203,7 +206,7 @@ fn read_input(choices: &Vec<Rc<Choice>>) -> Result<Command, Box<dyn Error>> {
 }
 
 fn print_error(error: &str) {
-    println!("<{error}>");
+    eprintln!("<{error}>");
 }
 
 fn get_json_string(filename: &str) -> Result<String, Box<dyn Error>> {
