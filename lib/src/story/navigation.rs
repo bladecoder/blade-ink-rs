@@ -2,7 +2,7 @@ use crate::{
     container::Container,
     object::{Object, RTObject},
     path::Path,
-    pointer::{Pointer, self},
+    pointer::{self, Pointer},
     push_pop::PushPopType,
     search_result::SearchResult,
     story::Story,
@@ -202,8 +202,7 @@ impl Story {
 
         let mut current_child_of_container = current_child_of_container.unwrap();
 
-        let mut current_container_ancestor =
-            current_child_of_container.get_object().get_parent();
+        let mut current_container_ancestor = current_child_of_container.get_object().get_parent();
 
         let mut all_children_entered_at_start = true;
 
@@ -255,24 +254,25 @@ impl Story {
         let mut p = Pointer::default();
         let mut path_length_to_use = path.len() as i32;
 
-        let result: SearchResult = if path.get_last_component().unwrap().is_index() {
-            path_length_to_use -= 1;
-            let result = SearchResult::from_search_result(
-                &main_content_container.content_at_path(path, 0, path_length_to_use),
-            );
-            p.container = result.container();
-            p.index = path.get_last_component().unwrap().index.unwrap() as i32;
+        let result: SearchResult =
+            if path.get_last_component().unwrap().is_index() {
+                path_length_to_use -= 1;
+                let result = SearchResult::from_search_result(
+                    &main_content_container.content_at_path(path, 0, path_length_to_use),
+                );
+                p.container = result.container();
+                p.index = path.get_last_component().unwrap().index.unwrap() as i32;
 
-            result
-        } else {
-            let result = SearchResult::from_search_result(
-                &main_content_container.content_at_path(path, 0, -1),
-            );
-            p.container = result.container();
-            p.index = -1;
+                result
+            } else {
+                let result = SearchResult::from_search_result(
+                    &main_content_container.content_at_path(path, 0, -1),
+                );
+                p.container = result.container();
+                p.index = -1;
 
-            result
-        };
+                result
+            };
 
         let main_container: Rc<dyn RTObject> = main_content_container.clone();
 

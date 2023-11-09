@@ -8,7 +8,7 @@ use crate::{
     ink_list_item::InkListItem,
     native_function_call::NativeFunctionCall,
     object::RTObject,
-    pointer::{Pointer, self},
+    pointer::{self, Pointer},
     push_pop::PushPopType,
     story::{OutputStateChange, Story},
     story_callbacks::ErrorType,
@@ -21,7 +21,7 @@ use crate::{
     variable_reference::VariableReference,
     void::Void,
 };
-use rand::{rngs::StdRng, SeedableRng, Rng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use std::{
     collections::{HashMap, VecDeque},
     rc::Rc,
@@ -82,8 +82,7 @@ impl Story {
             self.async_continue_active = is_async_time_limited;
             if !self.can_continue() {
                 return Err(StoryError::InvalidStoryState(
-                    "Can't continue - should check can_continue before calling Continue"
-                        .to_owned(),
+                    "Can't continue - should check can_continue before calling Continue".to_owned(),
                 ));
             }
 
@@ -405,8 +404,7 @@ impl Story {
         // that was diverted to rather than called as a function)
         let mut current_content_obj = pointer.resolve();
 
-        let is_logic_or_flow_control =
-            self.perform_logic_and_flow_control(&current_content_obj)?;
+        let is_logic_or_flow_control = self.perform_logic_and_flow_control(&current_content_obj)?;
 
         // Has flow been forced to end by flow control above?
         if self.get_state().get_current_pointer().is_null() {
@@ -445,9 +443,8 @@ impl Story {
             // to our current (possibly temporary) context index. And make a
             // copy of the pointer
             // so that we're not editing the original runtime Object.
-            let var_pointer = Value::get_variable_pointer_value(
-                current_content_obj.as_ref().unwrap().as_ref(),
-            );
+            let var_pointer =
+                Value::get_variable_pointer_value(current_content_obj.as_ref().unwrap().as_ref());
 
             if let Some(var_pointer) = var_pointer {
                 if var_pointer.context_index == -1 {
@@ -525,8 +522,7 @@ impl Story {
                     .variables_state
                     .get_variable_with_name(var_name.as_ref().unwrap(), -1)
                 {
-                    if let Some(target) = Value::get_divert_target_value(var_contents.as_ref())
-                    {
+                    if let Some(target) = Value::get_divert_target_value(var_contents.as_ref()) {
                         let p = Self::pointer_at_path(&self.main_content_container, target)?;
                         self.get_state_mut().set_diverted_pointer(p);
                     } else {
@@ -535,16 +531,16 @@ impl Story {
                             var_name.as_ref().unwrap()
                         );
 
-                        let error_message =
-                            if let ValueType::Int(int_content) = var_contents.value {
-                                if int_content == 0 {
-                                    format!("{}was empty/null (the value 0).", error_message)
-                                } else {
-                                    format!("{}contained '{}'.", error_message, var_contents)
-                                }
+                        let error_message = if let ValueType::Int(int_content) = var_contents.value
+                        {
+                            if int_content == 0 {
+                                format!("{}was empty/null (the value 0).", error_message)
                             } else {
-                                error_message
-                            };
+                                format!("{}contained '{}'.", error_message, var_contents)
+                            }
+                        } else {
+                            error_message
+                        };
 
                         return Err(StoryError::InvalidStoryState(error_message));
                     }
@@ -704,9 +700,7 @@ impl Story {
 
                         // Does tunnel onwards override by diverting to a new ->->
                         // target?
-                        if let Some(override_tunnel_return_target) =
-                            override_tunnel_return_target
-                        {
+                        if let Some(override_tunnel_return_target) = override_tunnel_return_target {
                             let p = Self::pointer_at_path(
                                 &self.main_content_container,
                                 &override_tunnel_return_target,
@@ -721,8 +715,7 @@ impl Story {
 
                     if !self.get_state().get_in_expression_evaluation() {
                         return Err(StoryError::InvalidStoryState(
-                            "Expected to be in an expression when evaluating a string"
-                                .to_owned(),
+                            "Expected to be in an expression when evaluating a string".to_owned(),
                         ));
                     }
 
@@ -732,8 +725,7 @@ impl Story {
                     // Since we're iterating backward through the content,
                     // build a stack so that when we build the string,
                     // it's in the right order
-                    let mut content_stack_for_string: VecDeque<Rc<dyn RTObject>> =
-                        VecDeque::new();
+                    let mut content_stack_for_string: VecDeque<Rc<dyn RTObject>> = VecDeque::new();
                     let mut content_to_retain: VecDeque<Rc<dyn RTObject>> = VecDeque::new();
 
                     let mut output_count_consumed = 0;
@@ -1063,8 +1055,7 @@ impl Story {
 
                             // Iterate through to get the random element, sorted for
                             // predictibility
-                            let mut sorted: Vec<(&InkListItem, &i32)> =
-                                list.items.iter().collect();
+                            let mut sorted: Vec<(&InkListItem, &i32)> = list.items.iter().collect();
                             sorted.sort_by(|a, b| b.1.cmp(a.1));
                             let random_item = sorted[list_item_index];
 
@@ -1099,9 +1090,9 @@ impl Story {
                     //   + choice # tag
                     //
                     // In the above case, the ink will be run twice:
-                    //  - First, to generate the choice text. String evaluation will be on, and
-                    //    the final string will be pushed to the evaluation stack, ready to be
-                    //    popped to make a Choice object.
+                    //  - First, to generate the choice text. String evaluation will be on, and the
+                    //    final string will be pushed to the evaluation stack, ready to be popped to
+                    //    make a Choice object.
                     //  - Second, when ink generates text after choosing the choice. On this
                     //    ocassion, it's not in string evaluation mode.
                     //
