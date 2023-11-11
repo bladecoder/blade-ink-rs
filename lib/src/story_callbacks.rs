@@ -1,4 +1,5 @@
-//! For setting the callbacks functions that will be called while the [`Story`] is processing.
+//! For setting the callbacks functions that will be called while the [`Story`]
+//! is processing.
 use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
 use crate::{
@@ -7,7 +8,8 @@ use crate::{
     value_type::ValueType, void::Void,
 };
 
-/// Defines the method that will be called when an observed global variable changes.
+/// Defines the method that will be called when an observed global variable
+/// changes.
 pub trait VariableObserver {
     fn changed(&mut self, variable_name: &str, value: &ValueType);
 }
@@ -22,7 +24,8 @@ pub(crate) struct ExternalFunctionDef {
     lookahead_safe: bool,
 }
 
-/// Defines the method that will be called when an error occurs while executing the story.
+/// Defines the method that will be called when an error occurs while executing
+/// the story.
 pub trait ErrorHandler {
     fn error(&mut self, message: &str, error_type: ErrorType);
 }
@@ -48,13 +51,14 @@ impl Story {
         self.on_error = Some(err_handler);
     }
 
-    /// When the specified global variable changes it's value, the observer will be
-    /// called to notify it of the change. Note that if the value changes multiple
-    /// times within the ink, the observer will only be called once, at the end
-    /// of the ink's evaluation. If, during the evaluation, it changes and then
-    /// changes back again to its original value, it will still be called.
-    /// Note that the observer will also be fired if the value of the variable
-    /// is changed externally to the ink, by directly setting a value in
+    /// When the specified global variable changes it's value, the observer will
+    /// be called to notify it of the change. Note that if the value changes
+    /// multiple times within the ink, the observer will only be called
+    /// once, at the end of the ink's evaluation. If, during the evaluation,
+    /// it changes and then changes back again to its original value, it
+    /// will still be called. Note that the observer will also be fired if
+    /// the value of the variable is changed externally to the ink, by
+    /// directly setting a value in
     /// [`story.set_variable`](Story::set_variable).
     pub fn observe_variable(
         &mut self,
@@ -85,10 +89,10 @@ impl Story {
         Ok(())
     }
 
-    /// Removes a variable observer, to stop getting variable change notifications.
-    /// If you pass a specific variable name, it will stop observing that particular one. If you
-    /// pass None, then the observer will be removed
-    /// from all variables that it's subscribed to.
+    /// Removes a variable observer, to stop getting variable change
+    /// notifications. If you pass a specific variable name, it will stop
+    /// observing that particular one. If you pass None, then the observer
+    /// will be removed from all variables that it's subscribed to.
     pub fn remove_variable_observer(
         &mut self,
         observer: &Rc<RefCell<dyn VariableObserver>>,
@@ -140,11 +144,11 @@ impl Story {
         }
     }
 
-
-    /// An ink file can provide a fallback function for when when an `EXTERNAL` has been left
-    /// unbound by the client, in which case the fallback will be called instead. Useful when
-    /// testing a story in play-mode, when it's not possible to write a client-side external
-    /// function, but when you don't want it to completely fail to run.
+    /// An ink file can provide a fallback function for when when an `EXTERNAL`
+    /// has been left unbound by the client, in which case the fallback will
+    /// be called instead. Useful when testing a story in play-mode, when
+    /// it's not possible to write a client-side external function, but when
+    /// you don't want it to completely fail to run.
     pub fn set_allow_external_function_fallbacks(&mut self, v: bool) {
         self.allow_external_function_fallbacks = v;
     }
@@ -162,9 +166,10 @@ impl Story {
     /// and earlier than expected. If it's safe for your
     /// function to be called in this way (since the result and side effect
     /// of the function will not change), then you can pass `true`.
-    /// If your function might have side effects or return different results each time it's called,
-    /// pass `false` to avoid these extra calls, especially if you want some action
-    /// to be performed in game code when this function is called.
+    /// If your function might have side effects or return different results
+    /// each time it's called, pass `false` to avoid these extra calls,
+    /// especially if you want some action to be performed in game code when
+    /// this function is called.
     pub fn bind_external_function(
         &mut self,
         func_name: &str,
