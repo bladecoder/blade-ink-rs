@@ -183,13 +183,7 @@ impl StoryState {
             let mut in_tag = false;
 
             for output_obj in self.get_output_stream() {
-                let text_content = match output_obj.as_ref().as_any().downcast_ref::<Value>() {
-                    Some(v) => match &v.value {
-                        ValueType::String(s) => Some(s),
-                        _ => None,
-                    },
-                    None => None,
-                };
+                let text_content = Value::get_string_value(output_obj.as_ref());
 
                 if let (false, Some(text_content)) = (in_tag, text_content) {
                     sb.push_str(&text_content.string);

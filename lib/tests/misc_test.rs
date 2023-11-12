@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use bladeink::{story::Story, story_error::StoryError, value_type::ValueType};
 
 mod common;
@@ -60,6 +62,16 @@ fn issue15_test() -> Result<(), StoryError> {
             assert_eq!("X is set\n", line);
         }
     }
+
+    Ok(())
+}
+
+#[test]
+fn list_comparison_test() -> Result<(), Box<dyn Error>> {
+    let json_string = common::get_json_string("inkfiles/misc/newlines_with_string_eval.ink.json")?;
+    let mut story = Story::new(&json_string)?;
+
+    assert_eq!("A\nB\nA\n3\nB\n", &story.continue_maximally()?);
 
     Ok(())
 }
