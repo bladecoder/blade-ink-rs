@@ -360,16 +360,7 @@ impl StoryState {
     }
 
     pub fn push_to_output_stream(&mut self, obj: Rc<dyn RTObject>) {
-        let text = {
-            let obj = obj.clone();
-            match obj.into_any().downcast::<Value>() {
-                Ok(v) => match &v.value {
-                    ValueType::String(s) => Some(s.clone()),
-                    _ => None,
-                },
-                Err(_) => None,
-            }
-        };
+        let text = Value::get_string_value(obj.as_ref());
 
         if let Some(s) = text {
             let list_text = StoryState::try_splitting_head_tail_whitespace(&s.string);
@@ -549,6 +540,7 @@ impl StoryState {
 
             let mut glue_trim_index = -1;
             for (i, o) in self.get_output_stream().iter().rev().enumerate() {
+                let i = self.get_output_stream().len() - i - 1;
                 if let Some(c) = o.as_ref().as_any().downcast_ref::<ControlCommand>() {
                     if c.command_type == CommandType::BeginString {
                         if i as i32 >= function_trim_index {

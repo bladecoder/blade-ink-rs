@@ -1,6 +1,6 @@
-//A
-//~temp someTemp = string()
-//B
+A
+~temp someTemp = string()
+B
 A
 {string()}
 B

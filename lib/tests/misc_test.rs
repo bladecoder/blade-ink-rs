@@ -67,7 +67,7 @@ fn issue15_test() -> Result<(), StoryError> {
 }
 
 #[test]
-fn list_comparison_test() -> Result<(), Box<dyn Error>> {
+fn newlines_with_string_eval_test() -> Result<(), Box<dyn Error>> {
     let json_string = common::get_json_string("inkfiles/misc/newlines_with_string_eval.ink.json")?;
     let mut story = Story::new(&json_string)?;
 
