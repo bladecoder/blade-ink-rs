@@ -1,7 +1,9 @@
 use assert_cmd::prelude::*;
-use std::io::Write;
-use std::path::Path;
-use std::process::{Command, Stdio};
+use std::{
+    io::Write,
+    path::Path,
+    process::{Command, Stdio},
+};
 
 #[test]
 fn the_intercept_test() -> Result<(), Box<dyn std::error::Error>> {
@@ -9,7 +11,8 @@ fn the_intercept_test() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut path = Path::new("inkfiles/TheIntercept.ink.json").to_path_buf();
 
-    // Due to a bug with Cargo workspaces, for Release mode the current folder is the crate folder and for Debug mode the current folder is the root folder.
+    // Due to a bug with Cargo workspaces, for Release mode the current folder is
+    // the crate folder and for Debug mode the current folder is the root folder.
     if !path.exists() {
         path = Path::new("../").join(path);
     }
@@ -28,9 +31,9 @@ fn the_intercept_test() -> Result<(), Box<dyn std::error::Error>> {
 
     assert!(output.status.success());
     assert!(output_str.starts_with("They are keeping me waiting."));
-    assert!(output_str.contains("1. Hut 14"));
-    assert!(output_str.contains("3. Wait"));
-    assert!(output_str.contains("3. Divert"));
+    assert!(output_str.contains("1: Hut 14"));
+    assert!(output_str.contains("3: Wait"));
+    assert!(output_str.contains("3: Divert"));
 
     Ok(())
 }
