@@ -49,7 +49,7 @@ impl Object {
                 let mut comps: Vec<Component> = Vec::new();
 
                 let mut container = rtobject.get_object().get_parent();
-                let mut child = rtobject.clone();
+                let mut child = rtobject;
                 let mut child_rc;
 
                 while let Some(c) = container {
