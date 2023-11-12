@@ -72,10 +72,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         while story.can_continue() {
             let line = story.cont()?;
 
-            let trimmed = line.trim();
+            print!("{}", line);
 
-            if !trimmed.is_empty() {
-                println!("{}", trimmed);
+            let tags = story.get_current_tags()?;
+
+            if !tags.is_empty() {
+                println!("# tags: {}", tags.join(", "));
             }
         }
 
