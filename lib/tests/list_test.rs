@@ -123,3 +123,13 @@ fn list_all_bug_test() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+#[test]
+fn list_comparison_test() -> Result<(), Box<dyn Error>> {
+    let json_string = common::get_json_string("inkfiles/lists/list-comparison.ink.json")?;
+    let mut story = Story::new(&json_string)?;
+
+    assert_eq!("Hey, my name is Philippe. What about yours?\nI am Andre and I need my rheumatism pills!\nWould you like me, Philippe, to get some more for you?\n", &story.continue_maximally()?);
+
+    Ok(())
+}
