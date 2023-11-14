@@ -1,8 +1,34 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crate::story::Story;
+
+/// Defines the method that will be called when an error occurs while executing
+/// the story.
+pub trait ErrorHandler {
+    fn error(&mut self, message: &str, error_type: ErrorType);
+}
+
+/// Types of errors an Ink story might throw.
+#[derive(PartialEq, Clone, Copy)]
+pub enum ErrorType {
+    /// Problem that is not critical, but should be fixed.
+    Warning,
+    /// Critical error that can't be recovered from.
+    Error,
+}
 
 /// # Errors
 /// Methods to check for errors.
 impl Story {
+    /// Assign the error handler for all runtime errors in ink -- i.e. problems
+    /// with the source ink itself that are only discovered when playing
+    /// the story.
+    /// It's strongly recommended that you assign an error handler to your
+    /// story instance, to avoid getting panics for ink errors.
+    pub fn set_error_handler(&mut self, err_handler: Rc<RefCell<dyn ErrorHandler>>) {
+        self.on_error = Some(err_handler);
+    }
+
     pub(crate) fn add_error(&mut self, message: &str, is_warning: bool) {
         let error_type_str = if is_warning { "WARNING" } else { "ERROR" };
 

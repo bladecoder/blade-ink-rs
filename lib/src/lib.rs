@@ -1,9 +1,11 @@
 //! This is a Rust port of inkle's [Ink](https://github.com/inkle/ink), a scripting language for writing interactive narratives.
-//! `bladeink` is fully compatible with the reference version and supports all its language features.
+//! `bladeink` is fully compatible with the reference version and supports all
+//! its language features.
 //!
 //! To learn more about the Ink language, you can check [the official documentation](https://github.com/inkle/ink/blob/master/Documentation/WritingWithInk.md).
 //!
-//! Here is a quick example that uses basic features to play an Ink story using the `bladeink` crate.
+//! Here is a quick example that uses basic features to play an Ink story using
+//! the `bladeink` crate.
 //!
 //! ```
 //! # use bladeink::{story::Story, story_error::StoryError};
@@ -29,15 +31,19 @@
 //!         // set the option selected by the user
 //!         story.choose_choice_index(choice_idx)?;
 //!     } else {
-//!        break;
+//!         break;
 //!     }
 //! }
 //! # Ok(())
 //! # }
 //! ```
 //!
-//! The `bladeink` library supports all the **Ink** language features, including threads, multi-flows, variable set/get from code, variable observing, external functions,
-//! tags on choices, etc. Examples of uses of all these features will be added to this documentation in the future, but meanwhile, all the examples can be found in the `lib/tests` folder in the source code of this crate.
+//! The `bladeink` library supports all the **Ink** language features, including
+//! threads, multi-flows, variable set/get from code, variable observing,
+//! external functions, tags on choices, etc. Examples of uses of all these
+//! features will be added to this documentation in the future, but meanwhile,
+//! all the examples can be found in the `lib/tests` folder in the source code
+//! of this crate.
 
 mod callstack;
 pub mod choice;
@@ -61,7 +67,6 @@ mod push_pop;
 mod search_result;
 mod state_patch;
 pub mod story;
-pub mod story_callbacks;
 pub mod story_error;
 mod story_state;
 mod tag;

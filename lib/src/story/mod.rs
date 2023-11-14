@@ -2,7 +2,10 @@
 use crate::{
     container::Container,
     list_definitions_origin::ListDefinitionsOrigin,
-    story_callbacks::{ErrorHandler, ExternalFunctionDef, VariableObserver},
+    story::{
+        errors::ErrorHandler, external_functions::ExternalFunctionDef,
+        variable_observer::VariableObserver,
+    },
     story_state::StoryState,
 };
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
@@ -219,9 +222,11 @@ mod misc {
 }
 
 mod choices;
-mod errors;
+pub mod errors;
+pub mod external_functions;
 mod flow;
 mod navigation;
 mod progress;
 mod state;
 mod tags;
+pub mod variable_observer;
