@@ -66,6 +66,14 @@ impl Story {
         self.continue_internal(millisecs_limit_async)
     }
 
+    pub(crate) fn if_async_we_cant(&self, activity_str: &str) -> Result<(), StoryError> {
+        if self.async_continue_active {
+            return Err(StoryError::InvalidStoryState(format!("Can't {}. Story is in the middle of a continue_async(). Make more continue_async() calls or a single cont() call beforehand.", activity_str)));
+        }
+
+        Ok(())
+    }
+
     pub(crate) fn continue_internal(
         &mut self,
         millisecs_limit_async: f32,

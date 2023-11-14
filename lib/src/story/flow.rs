@@ -37,12 +37,4 @@ impl Story {
     pub fn switch_to_default_flow(&mut self) {
         self.get_state_mut().switch_to_default_flow_internal();
     }
-
-    pub(crate) fn if_async_we_cant(&self, activity_str: &str) -> Result<(), StoryError> {
-        if self.async_continue_active {
-            return Err(StoryError::InvalidStoryState(format!("Can't {}. Story is in the middle of a continue_async(). Make more continue_async() calls or a single cont() call beforehand.", activity_str)));
-        }
-
-        Ok(())
-    }
 }
