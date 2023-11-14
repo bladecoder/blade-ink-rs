@@ -1,5 +1,3 @@
-//! For setting the variable observer function callbacks that will be called
-//! while the [`Story`] is processing.
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{story::Story, story_error::StoryError, value_type::ValueType};
@@ -10,8 +8,9 @@ pub trait VariableObserver {
     fn changed(&mut self, variable_name: &str, value: &ValueType);
 }
 
-/// # Callbacks
-/// Methods dealing with callback handlers.
+/// # Variable Observers
+/// Methods dealing with variable observer callbacks that will be called while
+/// the [`Story`] is processing.
 impl Story {
     /// When the specified global variable changes it's value, the observer will
     /// be called to notify it of the change. Note that if the value changes

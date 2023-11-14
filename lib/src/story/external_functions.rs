@@ -1,5 +1,3 @@
-//! For setting the external function callbacks that will be called while the
-//! [`Story`] is processing.
 use std::{cell::RefCell, collections::HashSet, rc::Rc};
 
 use crate::{
@@ -18,8 +16,9 @@ pub(crate) struct ExternalFunctionDef {
     lookahead_safe: bool,
 }
 
-/// # Callbacks
-/// Methods dealing with callback handlers.
+/// # External Functions
+/// Methods dealing with external function call handlers that will be called
+/// while [`Story`] is processing.
 impl Story {
     /// An ink file can provide a fallback function for when when an `EXTERNAL`
     /// has been left unbound by the client, in which case the fallback will
