@@ -7,8 +7,10 @@ use std::{error::Error, fs, io, io::Write, path::Path, rc::Rc};
 use anyhow::Context;
 use bladeink::{
     choice::Choice,
-    story::Story,
-    story_callbacks::{ErrorHandler, ErrorType},
+    story::{
+        errors::{ErrorHandler, ErrorType},
+        Story,
+    },
 };
 use clap::Parser;
 use rand::Rng;
