@@ -154,7 +154,7 @@ impl Story {
         self.choose_path(&choice.target_path, false)
     }
 
-    pub(crate) fn pop_choice_string_and_tags(&mut self, tags: &mut Vec<String>) -> String {
+    fn pop_choice_string_and_tags(&mut self, tags: &mut Vec<String>) -> String {
         let obj = self.get_state_mut().pop_evaluation_stack();
         let choice_only_str_val = Value::get_string_value(obj.as_ref()).unwrap();
 
