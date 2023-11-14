@@ -2,8 +2,7 @@ use core::panic;
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use bladeink::{
-    story::Story,
-    story_callbacks::{ExternalFunction, VariableObserver},
+    story::{external_functions::ExternalFunction, variable_observer::VariableObserver, Story},
     value_type::ValueType,
 };
 
