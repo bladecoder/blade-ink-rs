@@ -181,7 +181,9 @@ mod misc {
 
             let seq_container = self.get_state().get_current_pointer().container.unwrap();
 
-            let seq_count = if let Some(v) = Value::get_int_value(pop_evaluation_stack.as_ref()) {
+            let seq_count = if let Some(v) =
+                Value::get_int_value(self.get_state_mut().pop_evaluation_stack().as_ref())
+            {
                 v
             } else {
                 return Err(StoryError::InvalidStoryState(
