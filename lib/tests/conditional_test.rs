@@ -324,6 +324,16 @@ fn shuffle_test() -> Result<(), StoryError> {
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
+    story.choose_choice_index(0)?;
+
+    text.clear();
+    common::next_all(&mut story, &mut text)?;
+    assert_eq!(1, text.len());
+    story.choose_choice_index(0)?;
+
+    text.clear();
+    common::next_all(&mut story, &mut text)?;
+    assert_eq!(1, text.len());
 
     // No check of the result, as that is random
 
