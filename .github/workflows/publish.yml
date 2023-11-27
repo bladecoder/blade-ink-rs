@@ -56,9 +56,10 @@ jobs:
       shell: bash
     
   publish:
-    name: Publish package in crates.io
+    name: Publish packages in crates.io
     runs-on: ubuntu-latest
     steps:
+    - name: Publish
       run: |
         cargo publish -p bladeink --token ${CRATES_TOKEN}
         cargo publish -p binkplayer --token ${CRATES_TOKEN}
