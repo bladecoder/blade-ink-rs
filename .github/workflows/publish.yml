@@ -55,19 +55,19 @@ jobs:
         GITHUB_TOKEN: ${{ github.TOKEN }}
       shell: bash
     
-  publish:
-    name: Publish packages in crates.io
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Set up Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-    - name: Publish
-      run: |
-        cargo publish -p bladeink --token ${CRATES_TOKEN}
-        cargo publish -p binkplayer --token ${CRATES_TOKEN}
-      env:
-        CRATES_TOKEN: ${{ secrets.CRATES_TOKEN }}
+  # publish:
+  #   name: Publish packages in crates.io
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #   - uses: actions/checkout@v3
+  #   - name: Set up Rust
+  #     uses: actions-rs/toolchain@v1
+  #     with:
+  #       toolchain: stable
+  #       override: true
+  #   - name: Publish
+  #     run: |
+  #       cargo publish -p bladeink --token ${CRATES_TOKEN}
+  #       cargo publish -p binkplayer --token ${CRATES_TOKEN}
+  #     env:
+  #       CRATES_TOKEN: ${{ secrets.CRATES_TOKEN }}
