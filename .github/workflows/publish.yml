@@ -58,8 +58,9 @@ jobs:
   publish:
     name: Publish package in crates.io
     runs-on: ubuntu-latest
-    run: |
-      cargo publish -p bladeink --token ${CRATES_TOKEN}
-      cargo publish -p binkplayer --token ${CRATES_TOKEN}
-    env:
-      CRATES_TOKEN: ${{ secrets.CRATES_TOKEN }}
+    steps:
+      run: |
+        cargo publish -p bladeink --token ${CRATES_TOKEN}
+        cargo publish -p binkplayer --token ${CRATES_TOKEN}
+      env:
+        CRATES_TOKEN: ${{ secrets.CRATES_TOKEN }}
