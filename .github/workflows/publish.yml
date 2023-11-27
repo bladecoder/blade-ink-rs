@@ -35,7 +35,7 @@ jobs:
         override: true
     - name: Build package
       run: |
-        cargo build
+        cargo build --release
     - name: Upload binkplayer to Github release
       run: |
         staging="binkplayer-${{github.event.release.tag_name}}-${{ matrix.platform }}"
