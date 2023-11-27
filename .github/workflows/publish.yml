@@ -10,10 +10,9 @@ permissions:
 jobs:
   upload-binkplayer:
     runs-on: ${{ matrix.os }}
-  
     strategy:
       matrix:
-        build: [linux, windows, mac]
+        build: [linux, windows, macos]
         include:
         - build: linux
           os: ubuntu-latest
@@ -27,7 +26,6 @@ jobs:
           os: windows-latest
           exec: binkplayer.exe
           platform: x86_64-windows
-
     steps:
     - uses: actions/checkout@v3
     - name: Set up Rust
