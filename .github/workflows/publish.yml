@@ -37,23 +37,23 @@ jobs:
         override: true
     - name: Build package
       run: |
-          cargo build
+        cargo build
     - name: Upload binkplayer to Github release
       run: |
-          staging="binkplayer-${{github.event.release.tag_name}}-${{ matrix.platform }}"
-          mkdir "$staging"
-          cp target/release/${{ matrix.exec }} "$staging/"
-          
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            7z a "$staging.zip" "$staging"
-            gh release upload ${{github.event.release.tag_name}} "$staging.zip"
-          else
-            tar czf "$staging.tar.gz" "$staging"
-            gh release upload ${{github.event.release.tag_name}} "$staging.tar.gz"
-          fi
-        env:
-          GITHUB_TOKEN: ${{ github.TOKEN }}
-        shell: bash
+        staging="binkplayer-${{github.event.release.tag_name}}-${{ matrix.platform }}"
+        mkdir "$staging"
+        cp target/release/${{ matrix.exec }} "$staging/"
+        
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          7z a "$staging.zip" "$staging"
+          gh release upload ${{github.event.release.tag_name}} "$staging.zip"
+        else
+          tar czf "$staging.tar.gz" "$staging"
+          gh release upload ${{github.event.release.tag_name}} "$staging.tar.gz"
+        fi
+      env:
+        GITHUB_TOKEN: ${{ github.TOKEN }}
+      shell: bash
     
   publish:
     name: Publish package in crates.io
