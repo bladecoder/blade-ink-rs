@@ -646,7 +646,7 @@ impl Story {
         // at the end of the current content
         let newline_still_exists = curr_text.len() >= prev_text.len()
             && !prev_text.is_empty()
-            && curr_text.chars().nth(prev_text.len() - 1) == Some('\n');
+            && curr_text.as_bytes()[prev_text.len() - 1] == b'\n';
         if prev_tag_count == curr_tag_count
             && prev_text.len() == curr_text.len()
             && newline_still_exists
@@ -665,8 +665,8 @@ impl Story {
         }
 
         // There must be new content - check whether it's just whitespace
-        for c in curr_text.chars().skip(prev_text.len()) {
-            if c != ' ' && c != '\t' {
+        for c in curr_text.as_bytes().iter().skip(prev_text.len()) {
+            if *c != b' ' && *c != b'\t' {
                 return OutputStateChange::ExtendedBeyondNewline;
             }
         }

@@ -75,3 +75,18 @@ fn newlines_with_string_eval_test() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+#[test]
+fn i18n() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("inkfiles/misc/i18n.ink.json").unwrap();
+    let mut story = Story::new(&json_string)?;
+
+    assert_eq!("áéíóú ñ\n", story.cont()?);
+    assert_eq!("你好\n", story.cont()?);
+    let current_tags = story.get_current_tags()?;
+    assert_eq!(1, current_tags.len());
+    assert_eq!("áé", current_tags[0]);
+    assert_eq!("你好世界\n", story.cont()?);
+
+    Ok(())
+}
