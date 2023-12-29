@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.75"
-bladeink = { path = "../lib", "version" = "1.0.1" }
+bladeink = { path = "../lib", "version" = "1.0.2" }
 clap = { "version" = "4.4.6", features = ["derive"] }
 rand = "0.8.5"
 
