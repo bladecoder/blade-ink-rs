@@ -61,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let json_string = get_json_string(&args.json_filename)?;
 
-    // REMOVE BOM if exits
+    // REMOVE BOM if exists
     let json_string_without_bom = json_string.strip_prefix('\u{feff}').unwrap_or(&json_string);
 
     let mut story = Story::new(json_string_without_bom)?;

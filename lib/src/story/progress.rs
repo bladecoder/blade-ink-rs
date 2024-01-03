@@ -11,7 +11,7 @@ use crate::{
     value::Value,
     void::Void,
 };
-use std::{self, rc::Rc, time::Instant};
+use std::{self, rc::Rc};
 
 /// # Story Progress
 /// Methods to move the story forwards.
@@ -93,8 +93,11 @@ impl Story {
             }
         }
 
-        // Start timing
-        let duration_stopwatch = Instant::now();
+        // Start timing (only when necessary)
+        let duration_stopwatch = match self.async_continue_active {
+            true => Some(instant::Instant::now()),
+            false => None,
+        };
 
         let mut output_stream_ends_in_newline = false;
         self.saw_lookahead_unsafe_function_after_new_line = false;
@@ -114,7 +117,8 @@ impl Story {
 
             // Run out of async time?
             if self.async_continue_active
-                && duration_stopwatch.elapsed().as_millis() as f32 > millisecs_limit_async
+                && duration_stopwatch.as_ref().unwrap().elapsed().as_millis() as f32
+                    > millisecs_limit_async
             {
                 break;
             }
