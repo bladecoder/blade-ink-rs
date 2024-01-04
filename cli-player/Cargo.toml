@@ -1,6 +1,6 @@
 [package]
 name = "binkplayer"
-version = "1.0.2"
+version = "1.0.3"
 description = """
 Console player for compiled .json Ink story files.
 """
@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.75"
-bladeink = { path = "../lib", "version" = "1.0.2" }
+bladeink = { path = "../lib", "version" = "1.0.3" }
 clap = { "version" = "4.4.6", features = ["derive"] }
 rand = "0.8.5"
 
