@@ -26,4 +26,6 @@ jobs:
       run: cargo fmt -- --check
     
     - name: Test
-      run: cargo test 
+      run: |
+        cargo test
+        cargo test --features stream-json-parser

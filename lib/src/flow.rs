@@ -6,7 +6,7 @@ use crate::{
     callstack::{CallStack, Thread},
     choice::Choice,
     container::Container,
-    json_read, json_write,
+    json::{json_read, json_write},
     object::RTObject,
     story_error::StoryError,
 };
