@@ -26,6 +26,12 @@ impl StoryError {
 
 impl std::error::Error for StoryError {}
 
+impl std::convert::From<std::io::Error> for StoryError {
+    fn from(err: std::io::Error) -> StoryError {
+        StoryError::BadJson(err.to_string())
+    }
+}
+
 impl fmt::Display for StoryError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {

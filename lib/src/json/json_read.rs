@@ -3,14 +3,87 @@ use std::{collections::HashMap, rc::Rc};
 use serde_json::Map;
 
 use crate::{
-    choice::Choice, choice_point::ChoicePoint, container::Container,
-    control_command::ControlCommand, divert::Divert, glue::Glue, ink_list::InkList,
-    ink_list_item::InkListItem, list_definition::ListDefinition,
-    list_definitions_origin::ListDefinitionsOrigin, native_function_call::NativeFunctionCall,
-    object::RTObject, path::Path, push_pop::PushPopType, story_error::StoryError, tag::Tag,
-    value::Value, variable_assigment::VariableAssignment, variable_reference::VariableReference,
+    choice::Choice,
+    choice_point::ChoicePoint,
+    container::Container,
+    control_command::ControlCommand,
+    divert::Divert,
+    glue::Glue,
+    ink_list::InkList,
+    ink_list_item::InkListItem,
+    list_definition::ListDefinition,
+    list_definitions_origin::ListDefinitionsOrigin,
+    native_function_call::NativeFunctionCall,
+    object::RTObject,
+    path::Path,
+    push_pop::PushPopType,
+    story::{INK_VERSION_CURRENT, INK_VERSION_MINIMUM_COMPATIBLE},
+    story_error::StoryError,
+    tag::Tag,
+    value::Value,
+    variable_assigment::VariableAssignment,
+    variable_reference::VariableReference,
     void::Void,
 };
+
+pub fn load_from_string(
+    s: &str,
+) -> Result<(i32, Rc<Container>, Rc<ListDefinitionsOrigin>), StoryError> {
+    let json: serde_json::Value = match serde_json::from_str(s) {
+        Ok(value) => value,
+        Err(_) => return Err(StoryError::BadJson("Story not in JSON format.".to_owned())),
+    };
+
+    let version_opt = json.get("inkVersion");
+
+    if version_opt.is_none() || !version_opt.unwrap().is_number() {
+        return Err(StoryError::BadJson(
+            "ink version number not found. Are you sure it's a valid .ink.json file?".to_owned(),
+        ));
+    }
+
+    let version: i32 = version_opt.unwrap().as_i64().unwrap().try_into().unwrap();
+
+    if version > INK_VERSION_CURRENT {
+        return Err(StoryError::BadJson(
+            "Version of ink used to build story was newer than the current version of the engine"
+                .to_owned(),
+        ));
+    } else if version < INK_VERSION_MINIMUM_COMPATIBLE {
+        return Err(StoryError::BadJson("Version of ink used to build story is too old to be loaded by this version of the engine".to_owned()));
+    }
+
+    let root_token = match json.get("root") {
+        Some(value) => value,
+        None => {
+            return Err(StoryError::BadJson(
+                "Root node for ink not found. Are you sure it's a valid .ink.json file?".to_owned(),
+            ))
+        }
+    };
+
+    let list_definitions = match json.get("listDefs") {
+        Some(def) => Rc::new(jtoken_to_list_definitions(def)?),
+        None => return Err(StoryError::BadJson(
+            "List Definitions node for ink not found. Are you sure it's a valid .ink.json file?"
+                .to_owned(),
+        )),
+    };
+
+    let main_content_container = jtoken_to_runtime_object(root_token, None)?;
+
+    let main_content_container = main_content_container.into_any().downcast::<Container>();
+
+    if main_content_container.is_err() {
+        return Err(StoryError::BadJson(
+            "Root node for ink is not a container?".to_owned(),
+        ));
+    };
+
+    let main_content_container = main_content_container.unwrap(); // unwrap: checked for err above
+
+    Ok((version, main_content_container, list_definitions))
+}
 
 pub fn jtoken_to_runtime_object(
     token: &serde_json::Value,

@@ -4,7 +4,7 @@ use serde_json::{json, Map};
 
 use crate::{
     container::Container,
-    json_read, json_write,
+    json::{json_read, json_write},
     object::Object,
     path::Path,
     pointer::{self, Pointer},

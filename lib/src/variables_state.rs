@@ -8,7 +8,7 @@ use serde_json::Map;
 
 use crate::{
     callstack::CallStack,
-    json_read, json_write,
+    json::{json_read, json_write},
     list_definitions_origin::ListDefinitionsOrigin,
     state_patch::StatePatch,
     story_error::StoryError,
