@@ -33,6 +33,7 @@ enum Command {
     Load(String),
     Save(String),
     DivertPath(String),
+    Flow(String),
 }
 
 struct EHandler {
@@ -121,6 +122,13 @@ fn process_command(command: Command, story: &mut Story) -> Result<bool, Box<dyn 
             save_json(&filename, &json_string)?;
             println!("Ok.")
         }
+        Command::Flow(flow) => {
+            let result = story.switch_flow(&flow);
+
+            if let Err(desc) = result {
+                println!("<error switching to '{flow}': {desc}>")
+            }
+        }
         Command::DivertPath(path) => {
             let result = story.choose_path_string(&path, true, None);
 
@@ -129,7 +137,7 @@ fn process_command(command: Command, story: &mut Story) -> Result<bool, Box<dyn 
             }
         }
         Command::Help() => println!(
-            "Commands:\n\tload <filename>\n\tsave <filename>\n\t-> <divert_path>\n\tquit\n\t"
+            "Commands:\n\tload <filename>\n\tsave <filename>\n\t-> <divert_path>\n\tswitch <flow_name>\n\tquit\n\t"
         ),
     }
 
@@ -195,6 +203,14 @@ fn read_input(choices: &Vec<Rc<Choice>>) -> Result<Command, Box<dyn Error>> {
                 }
 
                 print_error("incorrect filename");
+            }
+
+            "switch" => {
+                if words.len() == 2 {
+                    return Ok(Command::Flow(words[1].trim().to_string()));
+                }
+
+                print_error("incorrect flow name");
             }
 
             "->" => {
