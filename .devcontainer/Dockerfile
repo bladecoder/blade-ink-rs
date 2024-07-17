@@ -3,7 +3,7 @@ FROM buildpack-deps:bookworm
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH \
-    RUST_VERSION=1.72.1
+    RUST_VERSION=1.79.0
 
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
     # Remove imagemagick due to https://security-tracker.debian.org/tracker/CVE-2019-10131
