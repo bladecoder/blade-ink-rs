@@ -103,7 +103,7 @@ impl Thread {
                         pointer.index = pointer_index;
 
                         if thread_pointer_result.approximate {
-                            // TODO
+                            // TODO warning not accessible from here
                             // story_context.warning(format!("When loading state, exact internal story location couldn't be found: '{}', so it was approximated to '{}' to recover. Has the story changed since this save data was created?", current_container_path_str, pointer_container.get_path().to_string()));
                         }
                     }
@@ -365,12 +365,14 @@ impl CallStack {
         0
     }
 
+    // Get variable value, dereferencing a variable pointer if necessary
     pub fn get_temporary_variable_with_name(
         &self,
         name: &str,
         context_index: i32,
     ) -> Option<Rc<Value>> {
         let mut context_index = context_index;
+        // contextIndex 0 means global, so index is actually 1-based
         if context_index == -1 {
             context_index = self.get_current_element_index() + 1;
         }

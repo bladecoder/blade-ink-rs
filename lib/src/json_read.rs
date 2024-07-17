@@ -348,6 +348,7 @@ fn jobject_to_choice(obj: &Map<String, serde_json::Value>) -> Result<Rc<dyn RTOb
     let source_path = obj.get("originalChoicePath").unwrap().as_str().unwrap();
     let original_thread_index = obj.get("originalThreadIndex").unwrap().as_i64().unwrap() as usize;
     let path_string_on_choice = obj.get("targetPath").unwrap().as_str().unwrap();
+    let choice_tags = jarray_to_tags(obj);
 
     Ok(Rc::new(Choice::new_from_json(
         path_string_on_choice,
@@ -355,7 +356,22 @@ fn jobject_to_choice(obj: &Map<String, serde_json::Value>) -> Result<Rc<dyn RTOb
         text,
         index,
         original_thread_index,
+        choice_tags,
     )))
+}
+
+fn jarray_to_tags(obj: &Map<String, serde_json::Value>) -> Vec<String> {
+    let mut tags: Vec<String> = Vec::new();
+
+    let prop_value = obj.get("tags");
+    if let Some(pv) = prop_value {
+        let tags_array = pv.as_array().unwrap();
+        for tag in tags_array {
+            tags.push(tag.as_str().unwrap().to_string());
+        }
+    }
+
+    tags
 }
 
 pub fn jtoken_to_list_definitions(

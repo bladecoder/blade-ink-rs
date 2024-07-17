@@ -19,11 +19,11 @@ path = "src/lib.rs"
 [dependencies]
 serde = { version = "1.0.152", features = ["derive"] }
 serde_json = "1.0.93"
-strum = { version = "0.25.0", features = ["derive"] }
+strum = { version = "0.26.3", features = ["derive"] }
 as-any = "0.3.0"
 rand = "0.8.5"
 instant = "0.1.12"
 
 [features]
-stdweb = [ "instant/stdweb" ]
-wasm-bindgen = [ "instant/wasm-bindgen" ]
+stdweb = ["instant/stdweb"]
+wasm-bindgen = ["instant/wasm-bindgen"]

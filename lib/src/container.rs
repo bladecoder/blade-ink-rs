@@ -206,13 +206,24 @@ impl Container {
                 break;
             }
 
-            current_obj = found_obj.unwrap().clone();
-            current_container =
-                if let Ok(container) = current_obj.clone().into_any().downcast::<Container>() {
-                    Some(container)
-                } else {
-                    None
-                };
+            let found_obj = found_obj.unwrap();
+
+            // Are we about to loop into another container?
+            // Is the object a container as expected? It might
+            // no longer be if the content has shuffled around, so what
+            // was originally a container no longer is.
+            let next_container = found_obj.clone().into_any().downcast::<Container>();
+            if (i as i32) < (partial_path_length - 1) && next_container.is_err() {
+                approximate = true;
+                break;
+            }
+
+            current_obj = found_obj;
+            current_container = if let Ok(container) = next_container {
+                Some(container)
+            } else {
+                None
+            };
         }
 
         SearchResult::new(current_obj, approximate)

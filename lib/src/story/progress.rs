@@ -87,10 +87,10 @@ impl Story {
             // In this case, we only want to batch observe variable changes
             // for the outermost call.
             if self.recursive_continue_count == 1 {
-                self.state
-                    .variables_state
-                    .start_batch_observing_variable_changes();
+                self.state.variables_state.start_variable_observation();
             }
+        } else if self.async_continue_active && !is_async_time_limited {
+            self.async_continue_active = false;
         }
 
         // Start timing (only when necessary)
@@ -127,6 +127,8 @@ impl Story {
                 break;
             }
         }
+
+        let mut changed_variables_to_observe = None;
 
         // 4 outcomes:
         // - got newline (so finished this line of text)
@@ -182,14 +184,8 @@ impl Story {
             self.saw_lookahead_unsafe_function_after_new_line = false;
 
             if self.recursive_continue_count == 1 {
-                let changed = self
-                    .state
-                    .variables_state
-                    .stop_batch_observing_variable_changes();
-
-                for (variable_name, value) in changed {
-                    self.notify_variable_changed(&variable_name, &value);
-                }
+                changed_variables_to_observe =
+                    Some(self.state.variables_state.complete_variable_observation());
             }
 
             self.async_continue_active = false;
@@ -261,6 +257,13 @@ impl Story {
                                 .to_string()
                                 .as_str(),
                         );
+                    }
+
+                    // Send out variable observation events at the last second, since it might trigger new ink to be run
+                    if let Some(changed) = changed_variables_to_observe {
+                        for (variable_name, value) in changed {
+                            self.notify_variable_changed(&variable_name, &value);
+                        }
                     }
 
                     return Err(StoryError::InvalidStoryState(sb));

@@ -91,7 +91,7 @@ impl Story {
 
     pub(crate) fn state_snapshot(&mut self) {
         // tmp_state contains the new state and current state is stored in snapshot
-        let mut tmp_state = self.state.copy_and_start_patching();
+        let mut tmp_state = self.state.copy_and_start_patching(false);
         std::mem::swap(&mut tmp_state, &mut self.state);
         self.state_snapshot_at_last_new_line = Some(tmp_state);
     }

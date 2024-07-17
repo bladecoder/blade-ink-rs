@@ -218,7 +218,7 @@ impl NativeFunctionCall {
 
         for p in &params {
             if p.as_ref().as_any().is::<Void>() {
-                return Err(StoryError::InvalidStoryState("Attempting to perform operation on a void value. Did you forget to 'return' a value from a function you called here?".to_owned()));
+                return Err(StoryError::InvalidStoryState(format!("Attempting to perform {} on a void value. Did you forget to 'return' a value from a function you called here?", Self::get_name(self.op))));
             }
 
             if Value::get_list_value(p.as_ref()).is_some() {
