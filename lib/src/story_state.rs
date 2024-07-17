@@ -103,6 +103,22 @@ impl StoryState {
         !self.current_errors.is_empty()
     }
 
+    /**
+     * Get the previous state of currentPathString, which can be helpful
+     * for finding out where the story was before it ended (when the path
+     * string becomes null)
+     *
+     * Marked as dead code by now.
+     */
+    #[allow(dead_code)]
+    pub fn previous_path_string(&self) -> Option<String> {
+        let pointer = self.get_previous_pointer();
+        match pointer.get_path() {
+            Some(path) => Some(path.to_string()),
+            None => None,
+        }
+    }
+
     pub fn get_current_pointer(&self) -> Pointer {
         self.get_callstack()
             .borrow()
@@ -738,7 +754,7 @@ impl StoryState {
         Some(&self.current_flow.current_choices)
     }
 
-    pub fn copy_and_start_patching(&self) -> StoryState {
+    pub fn copy_and_start_patching(&self, for_background_save: bool) -> StoryState {
         let mut copy = StoryState::new(
             self.main_content_container.clone(),
             self.list_definitions.clone(),
@@ -753,9 +769,25 @@ impl StoryState {
         copy.current_flow.callstack = Rc::new(RefCell::new(
             self.current_flow.callstack.as_ref().borrow().clone(),
         ));
-        copy.current_flow.current_choices = self.current_flow.current_choices.clone();
         copy.current_flow.output_stream = self.current_flow.output_stream.clone();
         copy.output_stream_dirty();
+
+        // When background saving we need to make copies of choices since they each have
+        // a snapshot of the thread at the time of generation since the game could progress
+        // significantly and threads modified during the save process.
+        // However, when doing internal saving and restoring of snapshots this isn't an issue,
+        // and we can simply ref-copy the choices with their existing threads.
+        if for_background_save {
+            copy.current_flow.current_choices =
+                Vec::with_capacity(self.current_flow.current_choices.len());
+
+            for choice in self.current_flow.current_choices.iter() {
+                let c = choice.as_ref().clone();
+                copy.current_flow.current_choices.push(Rc::new(c));
+            }
+        } else {
+            copy.current_flow.current_choices = self.current_flow.current_choices.clone();
+        }
 
         // The copy of the state has its own copy of the named flows dictionary,
         // except with the current flow replaced with the copy above

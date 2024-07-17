@@ -44,15 +44,15 @@ impl VariablesState {
         }
     }
 
-    pub fn start_batch_observing_variable_changes(&mut self) {
+    pub fn start_variable_observation(&mut self) {
         self.batch_observing_variable_changes = true;
         self.changed_variables_for_batch_obs = Some(HashSet::new());
     }
 
-    pub fn stop_batch_observing_variable_changes(&mut self) -> Vec<(String, ValueType)> {
+    pub fn complete_variable_observation(&mut self) -> HashMap<String, ValueType> {
         self.batch_observing_variable_changes = false;
 
-        let mut changed: Vec<(String, ValueType)> = Vec::with_capacity(0);
+        let mut changed_vars = HashMap::with_capacity(0);
 
         // Finished observing variables in a batch - now send
         // notifications for changed variables all in one go.
@@ -60,11 +60,20 @@ impl VariablesState {
             for variable_name in changed_variables_for_batch_obs {
                 let current_value = self.global_variables.get(&variable_name).unwrap();
 
-                changed.push((variable_name, current_value.value.clone()));
+                changed_vars.insert(variable_name, current_value.value.clone());
             }
         }
 
-        changed
+        // Patch may still be active - e.g. if we were in the middle of a background save
+        if let Some(patch) = &self.patch {
+            for variable_name in patch.changed_variables.iter() {
+                if let Some(patched_val) = patch.get_global(variable_name) {
+                    changed_vars.insert(variable_name.to_string(), patched_val.value.clone());
+                }
+            }
+        }
+
+        changed_vars
     }
 
     pub fn snapshot_default_globals(&mut self) {

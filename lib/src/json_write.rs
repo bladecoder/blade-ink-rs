@@ -271,7 +271,18 @@ pub fn write_choice(choice: &Choice) -> serde_json::Value {
         json!(choice.target_path.to_string()),
     );
 
+    jobj.insert("tags".to_owned(), write_choice_tags(choice));
+
     serde_json::Value::Object(jobj)
+}
+
+fn write_choice_tags(choice: &Choice) -> serde_json::Value {
+    let mut tags: Vec<serde_json::Value> = Vec::new();
+    for t in &choice.tags {
+        tags.push(json!(t));
+    }
+
+    serde_json::Value::Array(tags)
 }
 
 pub(crate) fn write_list_rt_objs(

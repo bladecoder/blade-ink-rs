@@ -13,6 +13,7 @@ use crate::{
     search_result::SearchResult,
 };
 
+#[derive(Clone)]
 pub struct Object {
     parent: RefCell<Weak<Container>>,
     path: RefCell<Option<Path>>,
