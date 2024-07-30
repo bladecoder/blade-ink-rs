@@ -95,7 +95,7 @@ impl Story {
 
         // Start timing (only when necessary)
         let duration_stopwatch = match self.async_continue_active {
-            true => Some(instant::Instant::now()),
+            true => Some(web_time::Instant::now()),
             false => None,
         };
 
