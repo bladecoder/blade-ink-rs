@@ -120,4 +120,18 @@ impl Story {
     pub fn load_state(&mut self, json_state: &str) -> Result<(), StoryError> {
         self.get_state_mut().load_json(json_state)
     }
+
+    /// Reset the Story back to its initial state as it was when it was first constructed.
+    pub fn reset_state(&mut self) -> Result<(), StoryError> {
+        self.if_async_we_cant("ResetState")?;
+
+        self.state = StoryState::new(
+            self.main_content_container.clone(),
+            self.list_definitions.clone(),
+        );
+
+        self.reset_globals()?;
+
+        Ok(())
+    }
 }
