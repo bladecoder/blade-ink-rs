@@ -14,7 +14,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 pub const INK_VERSION_CURRENT: i32 = 21;
 /// The minimum legacy version of ink that can be loaded by the current version
 /// of the code.
-const INK_VERSION_MINIMUM_COMPATIBLE: i32 = 18;
+pub const INK_VERSION_MINIMUM_COMPATIBLE: i32 = 18;
 
 #[derive(PartialEq)]
 pub(crate) enum OutputStateChange {
@@ -44,10 +44,9 @@ pub struct Story {
 }
 mod misc {
     use crate::{
-        container::Container,
-        json_read,
+        json::{json_read, json_read_stream},
         object::{Object, RTObject},
-        story::{Story, INK_VERSION_CURRENT, INK_VERSION_MINIMUM_COMPATIBLE},
+        story::{Story, INK_VERSION_CURRENT},
         story_error::StoryError,
         story_state::StoryState,
         value::Value,
@@ -59,58 +58,12 @@ mod misc {
         /// Construct a `Story` out of a JSON string that was compiled with
         /// `inklecate`.
         pub fn new(json_string: &str) -> Result<Self, StoryError> {
-            let json: serde_json::Value = match serde_json::from_str(json_string) {
-                Ok(value) => value,
-                Err(_) => return Err(StoryError::BadJson("Story not in JSON format.".to_owned())),
-            };
-
-            let version_opt = json.get("inkVersion");
-
-            if version_opt.is_none() || !version_opt.unwrap().is_number() {
-                return Err(StoryError::BadJson(
-                    "ink version number not found. Are you sure it's a valid .ink.json file?"
-                        .to_owned(),
-                ));
-            }
-
-            let version: i32 = version_opt.unwrap().as_i64().unwrap().try_into().unwrap();
-
-            if version > INK_VERSION_CURRENT {
-                return Err(StoryError::BadJson("Version of ink used to build story was newer than the current version of the engine".to_owned()));
-            } else if version < INK_VERSION_MINIMUM_COMPATIBLE {
-                return Err(StoryError::BadJson("Version of ink used to build story is too old to be loaded by this version of the engine".to_owned()));
-            }
-
-            let root_token =
-                match json.get("root") {
-                    Some(value) => value,
-                    None => return Err(StoryError::BadJson(
-                        "Root node for ink not found. Are you sure it's a valid .ink.json file?"
-                            .to_owned(),
-                    )),
+            let (version, main_content_container, list_definitions) =
+                if cfg!(feature = "stream-json-parser") {
+                    json_read_stream::load_from_string(json_string)?
+                } else {
+                    json_read::load_from_string(json_string)?
                 };
-
-            let list_definitions = match json.get("listDefs") {
-                Some(def) => Rc::new(json_read::jtoken_to_list_definitions(def)?),
-                None => {
-                    return Err(
-                        StoryError::BadJson("List Definitions node for ink not found. Are you sure it's a valid .ink.json file?"
-                            .to_owned()),
-                    )
-                }
-            };
-
-            let main_content_container = json_read::jtoken_to_runtime_object(root_token, None)?;
-
-            let main_content_container = main_content_container.into_any().downcast::<Container>();
-
-            if main_content_container.is_err() {
-                return Err(StoryError::BadJson(
-                    "Root node for ink is not a container?".to_owned(),
-                ));
-            };
-
-            let main_content_container = main_content_container.unwrap(); // unwrap: checked for err above
 
             let mut story = Story {
                 main_content_container: main_content_container.clone(),

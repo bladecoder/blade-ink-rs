@@ -10,8 +10,8 @@
 //! ```
 //! # use bladeink::{story::Story, story_error::StoryError};
 //! # fn main() -> Result<(), StoryError> {
-//! # let json_string = r##"{"root":["done",null],"listDefs":{},"inkVersion":21}"##;
-//! # let read_input = |_:&_| Ok(0);
+//! # let json_string = r##"{"inkVersion":21, "root":["done",null],"listDefs":{}}"##;
+//! # let read_input = |_:&_| 0;
 //! // story is the entry point of the `bladeink` lib.
 //! // json_string is a string with all the contents of the .ink.json file.
 //! let mut story = Story::new(json_string)?;
@@ -27,7 +27,7 @@
 //!     if !choices.is_empty() {
 //!         // read_input is a method that you should implement
 //!         // to get the choice selected by the user.
-//!         let choice_idx = read_input(&choices)?;
+//!         let choice_idx:usize = read_input(&choices);
 //!         // set the option selected by the user
 //!         story.choose_choice_index(choice_idx)?;
 //!     } else {
@@ -55,8 +55,7 @@ mod flow;
 mod glue;
 mod ink_list;
 mod ink_list_item;
-mod json_read;
-mod json_write;
+mod json;
 mod list_definition;
 mod list_definitions_origin;
 mod native_function_call;
