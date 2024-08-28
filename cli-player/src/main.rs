@@ -26,8 +26,8 @@ struct Args {
     pub auto_play: bool,
 
     /// Allow external function fallbacks
-    #[arg(short, default_value_t = false)]
-    pub external_fallbacks: bool,
+    #[arg(short='e', default_value_t = false)]
+    pub forbid_external_fallbacks: bool,
 }
 
 enum Command {
@@ -72,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut story = Story::new(json_string_without_bom)?;
     let err_handler = EHandler::new();
     story.set_error_handler(err_handler.clone());
-    story.set_allow_external_function_fallbacks(args.external_fallbacks);
+    story.set_allow_external_function_fallbacks(!args.forbid_external_fallbacks);
 
     let mut end = false;
 
