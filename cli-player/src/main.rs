@@ -91,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 println!();
                 print_choices(&choices);
-                println!("?> {i}");
+                println!("?> {}", i + 1);
 
                 Command::Choose(i)
             } else {
