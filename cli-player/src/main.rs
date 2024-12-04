@@ -25,7 +25,7 @@ struct Args {
     #[arg(short, default_value_t = false)]
     pub auto_play: bool,
 
-    /// Allow external function fallbacks
+    /// Forbid external function fallbacks
     #[arg(short = 'e', default_value_t = false)]
     pub forbid_external_fallbacks: bool,
 }
