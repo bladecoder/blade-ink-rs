@@ -27,3 +27,6 @@ stringreader = "0.1.1"
 
 [features]
 stream-json-parser = []
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.2.15", features = ["js"] }
