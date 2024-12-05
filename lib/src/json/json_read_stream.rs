@@ -375,7 +375,9 @@ fn jtoken_to_runtime_object(
                 }
 
                 tok.expect('}')?;
-                return Ok(ArrayElement::RTObject(Rc::new(Value::new::<InkList>(raw_list))));
+                return Ok(ArrayElement::RTObject(Rc::new(Value::new::<InkList>(
+                    raw_list,
+                ))));
             }
 
             // Used when serialising save state only

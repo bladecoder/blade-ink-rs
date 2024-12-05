@@ -178,7 +178,9 @@ impl VariablesState {
         // create
         // a chain of indirection by just returning the final target.
         if let Some(value_of_variable_pointed_to) = value_of_variable_pointed_to {
-            if Value::get_value::<&VariablePointerValue>(value_of_variable_pointed_to.as_ref()).is_some() {
+            if Value::get_value::<&VariablePointerValue>(value_of_variable_pointed_to.as_ref())
+                .is_some()
+            {
                 return value_of_variable_pointed_to;
             }
         }
