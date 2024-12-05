@@ -9,6 +9,7 @@ use crate::{
     story::{errors::ErrorType, OutputStateChange, Story},
     story_error::StoryError,
     value::Value,
+    value_type::VariablePointerValue,
     void::Void,
 };
 use std::{self, rc::Rc};
@@ -443,8 +444,9 @@ impl Story {
             // to our current (possibly temporary) context index. And make a
             // copy of the pointer
             // so that we're not editing the original runtime Object.
-            let var_pointer =
-                Value::get_variable_pointer_value(current_content_obj.as_ref().unwrap().as_ref());
+            let var_pointer = Value::get_value::<&VariablePointerValue>(
+                current_content_obj.as_ref().unwrap().as_ref(),
+            );
 
             if let Some(var_pointer) = var_pointer {
                 if var_pointer.context_index == -1 {

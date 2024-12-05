@@ -5,6 +5,7 @@ use crate::{
     story::Story,
     story_error::StoryError,
     value::Value,
+    value_type::StringValue,
 };
 
 /// # Tags
@@ -54,7 +55,9 @@ impl Story {
                 },
                 _ => {
                     if in_tag {
-                        if let Some(string_value) = Value::get_string_value(content.as_ref()) {
+                        if let Some(string_value) =
+                            Value::get_value::<&StringValue>(content.as_ref())
+                        {
                             tags.push(string_value.string.clone());
                         } else {
                             return Err(

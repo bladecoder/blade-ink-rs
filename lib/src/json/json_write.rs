@@ -3,11 +3,24 @@ use std::{collections::HashMap, rc::Rc};
 use serde_json::{json, Map};
 
 use crate::{
-    choice::Choice, choice_point::ChoicePoint, container::Container,
-    control_command::ControlCommand, divert::Divert, glue::Glue, ink_list::InkList,
-    native_function_call::NativeFunctionCall, object::RTObject, push_pop::PushPopType,
-    story_error::StoryError, tag::Tag, value::Value, variable_assigment::VariableAssignment,
-    variable_reference::VariableReference, void::Void,
+    choice::Choice,
+    choice_point::ChoicePoint,
+    container::Container,
+    control_command::ControlCommand,
+    divert::Divert,
+    glue::Glue,
+    ink_list::InkList,
+    native_function_call::NativeFunctionCall,
+    object::RTObject,
+    path::Path,
+    push_pop::PushPopType,
+    story_error::StoryError,
+    tag::Tag,
+    value::Value,
+    value_type::{StringValue, VariablePointerValue},
+    variable_assigment::VariableAssignment,
+    variable_reference::VariableReference,
+    void::Void,
 };
 
 pub fn write_dictionary_values(
@@ -79,15 +92,15 @@ pub fn write_rtobject(o: Rc<dyn RTObject>) -> Result<serde_json::Value, StoryErr
         return Ok(json!(v));
     }
 
-    if let Some(v) = Value::get_int_value(o.as_ref()) {
+    if let Some(v) = Value::get_value::<i32>(o.as_ref()) {
         return Ok(json!(v));
     }
 
-    if let Some(v) = Value::get_float_value(o.as_ref()) {
+    if let Some(v) = Value::get_value::<f32>(o.as_ref()) {
         return Ok(json!(v));
     }
 
-    if let Some(v) = Value::get_string_value(o.as_ref()) {
+    if let Some(v) = Value::get_value::<&StringValue>(o.as_ref()) {
         let mut s = String::new();
 
         if v.is_newline {
@@ -100,17 +113,17 @@ pub fn write_rtobject(o: Rc<dyn RTObject>) -> Result<serde_json::Value, StoryErr
         return Ok(json!(s));
     }
 
-    if let Some(v) = Value::get_list_value(o.as_ref()) {
+    if let Some(v) = Value::get_value::<&InkList>(o.as_ref()) {
         return Ok(write_ink_list(v));
     }
 
-    if let Some(v) = Value::get_divert_target_value(o.as_ref()) {
+    if let Some(v) = Value::get_value::<&Path>(o.as_ref()) {
         let mut jobj: Map<String, serde_json::Value> = Map::new();
         jobj.insert("^->".to_owned(), json!(v.get_components_string()));
         return Ok(serde_json::Value::Object(jobj));
     }
 
-    if let Some(v) = Value::get_variable_pointer_value(o.as_ref()) {
+    if let Some(v) = Value::get_value::<&VariablePointerValue>(o.as_ref()) {
         let mut jobj: Map<String, serde_json::Value> = Map::new();
         jobj.insert("^var".to_owned(), json!(v.variable_name));
         jobj.insert("ci".to_owned(), json!(v.context_index));

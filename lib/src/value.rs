@@ -47,11 +47,96 @@ impl<T: Into<ValueType>> From<T> for Value {
     }
 }
 
+impl<'val> TryFrom<&'val dyn RTObject> for &'val StringValue {
+    type Error = ();
+    fn try_from(o: &dyn RTObject) -> Result<&StringValue, Self::Error> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::String(v) => Ok(v),
+                _ => Err(()),
+            },
+            None => Err(()),
+        }
+    }
+}
+impl<'val> TryFrom<&'val dyn RTObject> for &'val VariablePointerValue {
+    type Error = ();
+    fn try_from(o: &dyn RTObject) -> Result<&VariablePointerValue, Self::Error> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::VariablePointer(v) => Ok(v),
+                _ => Err(()),
+            },
+            None => Err(()),
+        }
+    }
+}
+impl<'val> TryFrom<&'val dyn RTObject> for &'val Path {
+    type Error = ();
+    fn try_from(o: &dyn RTObject) -> Result<&Path, Self::Error> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::DivertTarget(p) => Ok(p),
+                _ => Err(()),
+            },
+            None => Err(()),
+        }
+    }
+}
+impl TryFrom<&dyn RTObject> for i32 {
+    type Error = ();
+    fn try_from(o: &dyn RTObject) -> Result<i32, Self::Error> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::Int(v) => Ok(*v),
+                _ => Err(()),
+            },
+            None => Err(()),
+        }
+    }
+}
+impl TryFrom<&dyn RTObject> for f32 {
+    type Error = ();
+    fn try_from(o: &dyn RTObject) -> Result<f32, Self::Error> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::Float(v) => Ok(*v),
+                _ => Err(()),
+            },
+            None => Err(()),
+        }
+    }
+}
+impl<'val> TryFrom<&'val mut dyn RTObject> for &'val mut InkList {
+    type Error = ();
+    fn try_from(o: &mut dyn RTObject) -> Result<&mut InkList, Self::Error> {
+        match o.as_any_mut().downcast_mut::<Value>() {
+            Some(v) => match &mut v.value {
+                ValueType::List(v) => Ok(v),
+                _ => Err(()),
+            },
+            None => Err(()),
+        }
+    }
+}
+impl<'val> TryFrom<&'val dyn RTObject> for &'val InkList {
+    type Error = ();
+    fn try_from(o: &dyn RTObject) -> Result<&InkList, Self::Error> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::List(v) => Ok(v),
+                _ => Err(()),
+            },
+            None => Err(()),
+        }
+    }
+}
+
 impl Value {
     pub fn new_value_type(valuetype: ValueType) -> Self {
         Self {
             obj: Object::new(),
-            value:valuetype,
+            value: valuetype,
         }
     }
 
@@ -66,6 +151,23 @@ impl Value {
                 variable_name: variable_name.to_string(),
                 context_index,
             }),
+        }
+    }
+
+    pub fn get_value<'val, T>(o: &'val dyn RTObject) -> Option<T>
+    where
+        &'val dyn RTObject: TryInto<T>,
+    {
+        o.try_into().ok()
+    }
+
+    pub(crate) fn get_bool_value(o: &dyn RTObject) -> Option<bool> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::Bool(v) => Some(*v),
+                _ => None,
+            },
+            None => None,
         }
     }
 
@@ -85,99 +187,9 @@ impl Value {
         }
     }
 
-    pub fn get_string_value(o: &dyn RTObject) -> Option<&StringValue> {
-        match o.as_any().downcast_ref::<Value>() {
-            Some(v) => match &v.value {
-                ValueType::String(v) => Some(v),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
-    pub fn get_variable_pointer_value(o: &dyn RTObject) -> Option<&VariablePointerValue> {
-        match o.as_any().downcast_ref::<Value>() {
-            Some(v) => match &v.value {
-                ValueType::VariablePointer(v) => Some(v),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
-    pub fn get_divert_target_value(o: &dyn RTObject) -> Option<&Path> {
-        match o.as_any().downcast_ref::<Value>() {
-            Some(v) => match &v.value {
-                ValueType::DivertTarget(p) => Some(p),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
-    pub(crate) fn get_bool_value(o: &dyn RTObject) -> Option<bool> {
-        match o.as_any().downcast_ref::<Value>() {
-            Some(v) => match &v.value {
-                ValueType::Bool(v) => Some(*v),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
-    pub fn get_int_value(o: &dyn RTObject) -> Option<i32> {
-        match o.as_any().downcast_ref::<Value>() {
-            Some(v) => match &v.value {
-                ValueType::Int(v) => Some(*v),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
-    pub fn get_float_value(o: &dyn RTObject) -> Option<f32> {
-        match o.as_any().downcast_ref::<Value>() {
-            Some(v) => match &v.value {
-                ValueType::Float(v) => Some(*v),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
-    pub fn get_list_value_mut(o: &mut dyn RTObject) -> Option<&mut InkList> {
-        match o.as_any_mut().downcast_mut::<Value>() {
-            Some(v) => match &mut v.value {
-                ValueType::List(v) => Some(v),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
-    pub fn get_list_value(o: &dyn RTObject) -> Option<&InkList> {
-        match o.as_any().downcast_ref::<Value>() {
-            Some(v) => match &v.value {
-                ValueType::List(v) => Some(v),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
-    pub fn get_divert_value(o: &dyn RTObject) -> Option<&Path> {
-        match o.as_any().downcast_ref::<Value>() {
-            Some(v) => match &v.value {
-                ValueType::DivertTarget(v) => Some(v),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
     pub fn retain_list_origins_for_assignment(old_value: &dyn RTObject, new_value: &dyn RTObject) {
-        if let Some(old_list) = Self::get_list_value(old_value) {
-            if let Some(new_list) = Self::get_list_value(new_value) {
+        if let Some(old_list) = Self::get_value::<&InkList>(old_value) {
+            if let Some(new_list) = Self::get_value::<&InkList>(new_value) {
                 if new_list.items.is_empty() {
                     new_list.set_initial_origin_names(old_list.get_origin_names());
                 }

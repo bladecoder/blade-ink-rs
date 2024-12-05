@@ -46,6 +46,7 @@ mod misc {
     use crate::{
         json::{json_read, json_read_stream},
         object::{Object, RTObject},
+        path::Path,
         story::{Story, INK_VERSION_CURRENT},
         story_error::StoryError,
         story_state::StoryState,
@@ -111,7 +112,7 @@ mod misc {
             let truthy = false;
 
             if let Some(val) = obj.as_ref().as_any().downcast_ref::<Value>() {
-                if let Some(target_path) = Value::get_divert_target_value(obj.as_ref()) {
+                if let Some(target_path) = Value::get_value::<&Path>(obj.as_ref()) {
                     return Err(StoryError::InvalidStoryState(format!("Shouldn't use a divert target (to {}) as a conditional value. Did you intend a function call 'likeThis()' or a read count check 'likeThis'? (no arrows)", target_path)));
                 }
 
@@ -123,19 +124,19 @@ mod misc {
 
         pub(crate) fn next_sequence_shuffle_index(&mut self) -> Result<i32, StoryError> {
             let pop_evaluation_stack = self.get_state_mut().pop_evaluation_stack();
-            let num_elements = if let Some(v) = Value::get_int_value(pop_evaluation_stack.as_ref())
-            {
-                v
-            } else {
-                return Err(StoryError::InvalidStoryState(
-                    "Expected number of elements in sequence for shuffle index".to_owned(),
-                ));
-            };
+            let num_elements =
+                if let Some(v) = Value::get_value::<i32>(pop_evaluation_stack.as_ref()) {
+                    v
+                } else {
+                    return Err(StoryError::InvalidStoryState(
+                        "Expected number of elements in sequence for shuffle index".to_owned(),
+                    ));
+                };
 
             let seq_container = self.get_state().get_current_pointer().container.unwrap();
 
             let seq_count = if let Some(v) =
-                Value::get_int_value(self.get_state_mut().pop_evaluation_stack().as_ref())
+                Value::get_value::<i32>(self.get_state_mut().pop_evaluation_stack().as_ref())
             {
                 v
             } else {

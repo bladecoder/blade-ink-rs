@@ -6,6 +6,7 @@ use crate::{
     ink_list_item::InkListItem,
     native_function_call::NativeFunctionCall,
     object::RTObject,
+    path::Path,
     pointer,
     push_pop::PushPopType,
     story::Story,
@@ -13,7 +14,7 @@ use crate::{
     story_state::StoryState,
     tag::Tag,
     value::Value,
-    value_type::ValueType,
+    value_type::{StringValue, ValueType},
     variable_assigment::VariableAssignment,
     variable_reference::VariableReference,
     void::Void,
@@ -50,7 +51,7 @@ impl Story {
                     .variables_state
                     .get_variable_with_name(var_name.as_ref().unwrap(), -1)
                 {
-                    if let Some(target) = Value::get_divert_target_value(var_contents.as_ref()) {
+                    if let Some(target) = Value::get_value::<&Path>(var_contents.as_ref()) {
                         let p = Self::pointer_at_path(&self.main_content_container, target)?;
                         self.get_state_mut().set_diverted_pointer(p);
                     } else {
@@ -159,7 +160,7 @@ impl Story {
                     let mut override_tunnel_return_target = None;
                     if pop_type == PushPopType::Tunnel {
                         let popped = self.get_state_mut().pop_evaluation_stack();
-                        if let Some(v) = Value::get_divert_target_value(popped.as_ref()) {
+                        if let Some(v) = Value::get_value::<&Path>(popped.as_ref()) {
                             override_tunnel_return_target = Some(v.clone());
                         }
 
@@ -259,7 +260,7 @@ impl Story {
                             content_to_retain.push_back(obj.clone());
                         }
 
-                        if Value::get_string_value(obj.as_ref()).is_some() {
+                        if Value::get_value::<&StringValue>(obj.as_ref()).is_some() {
                             content_stack_for_string.push_back(obj.clone());
                         }
                     }
@@ -299,9 +300,9 @@ impl Story {
                 }
                 CommandType::TurnsSince | CommandType::ReadCount => {
                     let target = self.get_state_mut().pop_evaluation_stack();
-                    if Value::get_divert_target_value(target.as_ref()).is_none() {
+                    if Value::get_value::<&Path>(target.as_ref()).is_none() {
                         let mut extra_note = "".to_owned();
-                        if Value::get_int_value(target.as_ref()).is_some() {
+                        if Value::get_value::<i32>(target.as_ref()).is_some() {
                             extra_note = format!(". Did you accidentally pass a read count ('knot_name') instead of a target {}",
                                     "('-> knot_name')?").to_owned();
                         }
@@ -310,7 +311,7 @@ impl Story {
                                 , extra_note)));
                     }
 
-                    let target = Value::get_divert_target_value(target.as_ref()).unwrap();
+                    let target = Value::get_value::<&Path>(target.as_ref()).unwrap();
                     let otmp = self.content_at_path(target).correct_obj();
                     let container = match &otmp {
                         Some(o) => o.clone().into_any().downcast::<Container>().ok(),
@@ -352,13 +353,13 @@ impl Story {
                 CommandType::Random => {
                     let mut max_int = None;
                     let o = self.get_state_mut().pop_evaluation_stack();
-                    if let Some(v) = Value::get_int_value(o.as_ref()) {
+                    if let Some(v) = Value::get_value::<i32>(o.as_ref()) {
                         max_int = Some(v);
                     }
 
                     let o = self.get_state_mut().pop_evaluation_stack();
                     let mut min_int = None;
-                    if let Some(v) = Value::get_int_value(o.as_ref()) {
+                    if let Some(v) = Value::get_value::<i32>(o.as_ref()) {
                         min_int = Some(v);
                     }
 
@@ -398,7 +399,7 @@ impl Story {
                 CommandType::SeedRandom => {
                     let mut seed: Option<i32> = None;
                     let o = self.get_state_mut().pop_evaluation_stack();
-                    if let Some(v) = Value::get_int_value(o.as_ref()) {
+                    if let Some(v) = Value::get_value::<i32>(o.as_ref()) {
                         seed = Some(v);
                     }
 
@@ -451,12 +452,12 @@ impl Story {
                     let mut int_val: Option<i32> = None;
                     let mut list_name_val: Option<&String> = None;
                     let o = self.get_state_mut().pop_evaluation_stack();
-                    if let Some(v) = Value::get_int_value(o.as_ref()) {
+                    if let Some(v) = Value::get_value::<i32>(o.as_ref()) {
                         int_val = Some(v);
                     }
 
                     let o = self.get_state_mut().pop_evaluation_stack();
-                    if let Some(s) = Value::get_string_value(o.as_ref()) {
+                    if let Some(s) = Value::get_value::<&StringValue>(o.as_ref()) {
                         list_name_val = Some(&s.string);
                     }
 
@@ -499,7 +500,7 @@ impl Story {
                     p = self.get_state_mut().pop_evaluation_stack();
                     let min = p.into_any().downcast::<Value>();
                     p = self.get_state_mut().pop_evaluation_stack();
-                    let target_list = Value::get_list_value(p.as_ref());
+                    let target_list = Value::get_value::<&InkList>(p.as_ref());
                     if target_list.is_none() || min.is_err() || max.is_err() {
                         return Err(StoryError::InvalidStoryState(
                             "Expected List, minimum and maximum for LIST_RANGE".to_owned(),
@@ -514,7 +515,7 @@ impl Story {
                 }
                 CommandType::ListRandom => {
                     let o = self.get_state_mut().pop_evaluation_stack();
-                    let list = Value::get_list_value(o.as_ref());
+                    let list = Value::get_value::<&InkList>(o.as_ref());
                     if list.is_none() {
                         return Err(StoryError::InvalidStoryState(
                             "Expected list for LIST_RANDOM".to_owned(),
@@ -597,7 +598,7 @@ impl Story {
                                 }
                             }
 
-                            if let Some(sv) = Value::get_string_value(obj.as_ref()) {
+                            if let Some(sv) = Value::get_value::<&StringValue>(obj.as_ref()) {
                                 content_stack_for_tag.push(sv.string.clone());
                             }
                         }

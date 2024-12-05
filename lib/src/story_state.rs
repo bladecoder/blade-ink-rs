@@ -19,7 +19,7 @@ use crate::{
     story_error::StoryError,
     tag::Tag,
     value::Value,
-    value_type::ValueType,
+    value_type::{StringValue, ValueType},
     variables_state::VariablesState,
     void::Void,
 };
@@ -200,7 +200,7 @@ impl StoryState {
             let mut in_tag = false;
 
             for output_obj in self.get_output_stream() {
-                let text_content = Value::get_string_value(output_obj.as_ref());
+                let text_content = Value::get_value::<&StringValue>(output_obj.as_ref());
 
                 if let (false, Some(text_content)) = (in_tag, text_content) {
                     sb.push_str(&text_content.string);
@@ -258,7 +258,9 @@ impl StoryState {
                         _ => {}
                     }
                 } else if in_tag {
-                    if let Some(string_value) = Value::get_string_value(output_obj.as_ref()) {
+                    if let Some(string_value) =
+                        Value::get_value::<&StringValue>(output_obj.as_ref())
+                    {
                         sb.push_str(&string_value.string);
                     }
                     if let Some(tag) = output_obj.as_ref().as_any().downcast_ref::<Tag>() {
@@ -360,7 +362,7 @@ impl StoryState {
     }
 
     pub fn push_evaluation_stack(&mut self, obj: Rc<dyn RTObject>) {
-        if let Some(list) = Value::get_list_value(obj.as_ref()) {
+        if let Some(list) = Value::get_value::<&InkList>(obj.as_ref()) {
             let origin_names = list.get_origin_names();
 
             list.origins.borrow_mut().clear();
@@ -377,7 +379,7 @@ impl StoryState {
     }
 
     pub fn push_to_output_stream(&mut self, obj: Rc<dyn RTObject>) {
-        let text = Value::get_string_value(obj.as_ref());
+        let text = Value::get_value::<&StringValue>(obj.as_ref());
 
         if let Some(s) = text {
             let list_text = StoryState::try_splitting_head_tail_whitespace(&s.string);
@@ -530,7 +532,7 @@ impl StoryState {
 
     fn push_to_output_stream_individual(&mut self, obj: Rc<dyn RTObject>) {
         let glue = obj.clone().into_any().downcast::<Glue>();
-        let text = Value::get_string_value(obj.as_ref());
+        let text = Value::get_value::<&StringValue>(obj.as_ref());
         let mut include_in_output = true;
 
         // New glue, so chomp away any whitespace from the end of the stream
@@ -632,7 +634,7 @@ impl StoryState {
             if let Some(obj) = output_stream.get(i as usize) {
                 if obj.as_ref().as_any().is::<ControlCommand>() {
                     break;
-                } else if let Some(sv) = Value::get_string_value(obj.as_ref()) {
+                } else if let Some(sv) = Value::get_value::<&StringValue>(obj.as_ref()) {
                     if sv.is_non_whitespace() {
                         break;
                     } else if sv.is_newline {
@@ -647,7 +649,7 @@ impl StoryState {
         if remove_whitespace_from >= 0 {
             i = remove_whitespace_from;
             while i < output_stream.len() as i32 {
-                if Value::get_string_value(output_stream[i as usize].as_ref()).is_some() {
+                if Value::get_value::<&StringValue>(output_stream[i as usize].as_ref()).is_some() {
                     output_stream.remove(i as usize);
                 } else {
                     i += 1;
@@ -975,7 +977,7 @@ impl StoryState {
                     break;
                 }
 
-                if let Some(txt) = Value::get_string_value(obj.as_ref()) {
+                if let Some(txt) = Value::get_value::<&StringValue>(obj.as_ref()) {
                     if txt.is_newline || txt.is_inline_whitespace {
                         self.get_output_stream_mut().remove(i as usize);
                         self.output_stream_dirty();
