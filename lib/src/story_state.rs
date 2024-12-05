@@ -7,6 +7,7 @@ use crate::{
     control_command::{CommandType, ControlCommand},
     flow::Flow,
     glue::Glue,
+    ink_list::InkList,
     json::{json_read, json_write},
     list_definitions_origin::ListDefinitionsOrigin,
     object::{Object, RTObject},
@@ -496,10 +497,10 @@ impl StoryState {
 
         if head_first_newline_idx != -1 {
             if head_first_newline_idx > 0 {
-                let leading_spaces = Value::new_string(&text[0..head_first_newline_idx as usize]);
+                let leading_spaces = Value::new::<&str>(&text[0..head_first_newline_idx as usize]);
                 list_texts.push(leading_spaces);
             }
-            list_texts.push(Value::new_string("\n"));
+            list_texts.push(Value::new::<&str>("\n"));
             inner_str_start = head_last_newline_idx + 1;
         }
 
@@ -509,14 +510,14 @@ impl StoryState {
 
         if inner_str_end > inner_str_start as usize {
             let inner_str_text = &text[inner_str_start as usize..inner_str_end];
-            list_texts.push(Value::new_string(inner_str_text));
+            list_texts.push(Value::new::<&str>(inner_str_text));
         }
 
         if tail_last_newline_idx != -1 && tail_first_newline_idx > head_last_newline_idx {
-            list_texts.push(Value::new_string("\n"));
+            list_texts.push(Value::new::<&str>("\n"));
             if tail_last_newline_idx < text.len() as i32 - 1 {
                 let num_spaces = (text.len() as i32 - tail_last_newline_idx) - 1;
-                let trailing_spaces = Value::new_string(
+                let trailing_spaces = Value::new::<&str>(
                     &text[(tail_last_newline_idx + 1) as usize
                         ..(num_spaces + tail_last_newline_idx + 1) as usize],
                 );
@@ -1019,11 +1020,11 @@ impl StoryState {
         if let Some(arguments) = arguments {
             for arg in arguments {
                 let value = match arg {
-                    ValueType::Bool(v) => Value::new_bool(*v),
-                    ValueType::Int(v) => Value::new_int(*v),
-                    ValueType::Float(v) => Value::new_float(*v),
-                    ValueType::List(v) => Value::new_list(v.clone()),
-                    ValueType::String(v) => Value::new_string(&v.string),
+                    ValueType::Bool(v) => Value::new::<bool>(*v),
+                    ValueType::Int(v) => Value::new::<i32>(*v),
+                    ValueType::Float(v) => Value::new::<f32>(*v),
+                    ValueType::List(v) => Value::new::<InkList>(v.clone()),
+                    ValueType::String(v) => Value::new::<&str>(&v.string),
                     _ => {
                         return Err(StoryError::InvalidStoryState("ink arguments when calling EvaluateFunction / ChoosePathStringWithParameters must be \
                         int, float, string, bool or InkList.".to_owned()));
@@ -1088,7 +1089,7 @@ impl StoryState {
                 // DivertTargets get returned as the string of components
                 // (rather than a Path, which isn't public)
                 if let ValueType::DivertTarget(p) = &return_val.value {
-                    return Ok(Some(ValueType::new_string(&p.to_string())));
+                    return Ok(Some(ValueType::new::<&str>(&p.to_string())));
                 }
 
                 // Other types can just have their exact object type:

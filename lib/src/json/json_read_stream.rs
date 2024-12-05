@@ -123,14 +123,14 @@ fn jtoken_to_runtime_object(
 ) -> Result<ArrayElement, StoryError> {
     match value {
         JsonValue::Null => Ok(ArrayElement::NullElement),
-        JsonValue::Boolean(value) => Ok(ArrayElement::RTObject(Rc::new(Value::new_bool(value)))),
+        JsonValue::Boolean(value) => Ok(ArrayElement::RTObject(Rc::new(Value::new::<bool>(value)))),
         JsonValue::Number(value) => {
             if value.is_integer() {
                 let val: i32 = value.as_integer().unwrap();
-                Ok(ArrayElement::RTObject(Rc::new(Value::new_int(val))))
+                Ok(ArrayElement::RTObject(Rc::new(Value::new::<i32>(val))))
             } else {
                 let val: f32 = value.as_float().unwrap();
-                Ok(ArrayElement::RTObject(Rc::new(Value::new_float(val))))
+                Ok(ArrayElement::RTObject(Rc::new(Value::new::<f32>(val))))
             }
         }
         JsonValue::String(value) => {
@@ -139,11 +139,11 @@ fn jtoken_to_runtime_object(
             // String value
             let first_char = str.chars().next().unwrap();
             if first_char == '^' {
-                return Ok(ArrayElement::RTObject(Rc::new(Value::new_string(
+                return Ok(ArrayElement::RTObject(Rc::new(Value::new::<&str>(
                     &str[1..],
                 ))));
             } else if first_char == '\n' && str.len() == 1 {
-                return Ok(ArrayElement::RTObject(Rc::new(Value::new_string("\n"))));
+                return Ok(ArrayElement::RTObject(Rc::new(Value::new::<&str>("\n"))));
             }
 
             // Glue
@@ -185,7 +185,7 @@ fn jtoken_to_runtime_object(
             // Divert target value to path
             if prop == "^->" {
                 tok.expect('}')?;
-                return Ok(ArrayElement::RTObject(Rc::new(Value::new_divert_target(
+                return Ok(ArrayElement::RTObject(Rc::new(Value::new::<Path>(
                     Path::new_with_components_string(prop_value.as_str()),
                 ))));
             }
@@ -375,7 +375,7 @@ fn jtoken_to_runtime_object(
                 }
 
                 tok.expect('}')?;
-                return Ok(ArrayElement::RTObject(Rc::new(Value::new_list(raw_list))));
+                return Ok(ArrayElement::RTObject(Rc::new(Value::new::<InkList>(raw_list))));
             }
 
             // Used when serialising save state only

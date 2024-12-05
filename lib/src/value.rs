@@ -41,47 +41,22 @@ impl fmt::Display for Value {
     }
 }
 
+impl<T: Into<ValueType>> From<T> for Value {
+    fn from(value: T) -> Self {
+        Self::new_value_type(value.into())
+    }
+}
+
 impl Value {
-    pub fn new(value: ValueType) -> Self {
+    pub fn new_value_type(valuetype: ValueType) -> Self {
         Self {
             obj: Object::new(),
-            value,
+            value:valuetype,
         }
     }
 
-    pub fn new_bool(v: bool) -> Self {
-        Self {
-            obj: Object::new(),
-            value: ValueType::Bool(v),
-        }
-    }
-
-    pub fn new_int(v: i32) -> Self {
-        Self {
-            obj: Object::new(),
-            value: ValueType::Int(v),
-        }
-    }
-
-    pub fn new_float(v: f32) -> Self {
-        Self {
-            obj: Object::new(),
-            value: ValueType::Float(v),
-        }
-    }
-
-    pub fn new_string(v: &str) -> Self {
-        Self {
-            obj: Object::new(),
-            value: ValueType::new_string(v),
-        }
-    }
-
-    pub fn new_divert_target(p: Path) -> Self {
-        Self {
-            obj: Object::new(),
-            value: ValueType::DivertTarget(p),
-        }
+    pub fn new<T: Into<Value>>(v: T) -> Self {
+        v.into()
     }
 
     pub fn new_variable_pointer(variable_name: &str, context_index: i32) -> Self {
@@ -91,20 +66,6 @@ impl Value {
                 variable_name: variable_name.to_string(),
                 context_index,
             }),
-        }
-    }
-
-    pub fn new_list(l: InkList) -> Self {
-        Self {
-            obj: Object::new(),
-            value: ValueType::List(l),
-        }
-    }
-
-    pub fn from_value_type(value_type: ValueType) -> Self {
-        Self {
-            obj: Object::new(),
-            value: value_type,
         }
     }
 
@@ -242,23 +203,23 @@ impl Value {
                 CAST_BOOL => Ok(None),
                 CAST_INT => {
                     if *v {
-                        Ok(Some(Self::new_int(1)))
+                        Ok(Some(Self::new::<i32>(1)))
                     } else {
-                        Ok(Some(Self::new_int(0)))
+                        Ok(Some(Self::new::<i32>(0)))
                     }
                 }
                 CAST_FLOAT => {
                     if *v {
-                        Ok(Some(Self::new_float(1.0)))
+                        Ok(Some(Self::new::<f32>(1.0)))
                     } else {
-                        Ok(Some(Self::new_float(0.0)))
+                        Ok(Some(Self::new::<f32>(0.0)))
                     }
                 }
                 CAST_STRING => {
                     if *v {
-                        Ok(Some(Self::new_string("true")))
+                        Ok(Some(Self::new::<&str>("true")))
                     } else {
-                        Ok(Some(Self::new_string("false")))
+                        Ok(Some(Self::new::<&str>("false")))
                     }
                 }
                 _ => Err(StoryError::InvalidStoryState(
@@ -268,14 +229,14 @@ impl Value {
             ValueType::Int(v) => match cast_dest_type {
                 CAST_BOOL => {
                     if *v == 0 {
-                        Ok(Some(Self::new_bool(false)))
+                        Ok(Some(Self::new::<bool>(false)))
                     } else {
-                        Ok(Some(Self::new_bool(true)))
+                        Ok(Some(Self::new::<bool>(true)))
                     }
                 }
                 CAST_INT => Ok(None),
-                CAST_FLOAT => Ok(Some(Self::new_float(*v as f32))),
-                CAST_STRING => Ok(Some(Self::new_string(&v.to_string()))),
+                CAST_FLOAT => Ok(Some(Self::new::<f32>(*v as f32))),
+                CAST_STRING => Ok(Some(Self::new::<&str>(&v.to_string()))),
                 _ => Err(StoryError::InvalidStoryState(
                     "Cast not allowed for int".to_owned(),
                 )),
@@ -283,21 +244,21 @@ impl Value {
             ValueType::Float(v) => match cast_dest_type {
                 CAST_BOOL => {
                     if *v == 0.0 {
-                        Ok(Some(Self::new_bool(false)))
+                        Ok(Some(Self::new::<bool>(false)))
                     } else {
-                        Ok(Some(Self::new_bool(true)))
+                        Ok(Some(Self::new::<bool>(true)))
                     }
                 }
-                CAST_INT => Ok(Some(Self::new_int(*v as i32))),
+                CAST_INT => Ok(Some(Self::new::<i32>(*v as i32))),
                 CAST_FLOAT => Ok(None),
-                CAST_STRING => Ok(Some(Self::new_string(&v.to_string()))),
+                CAST_STRING => Ok(Some(Self::new::<&str>(&v.to_string()))),
                 _ => Err(StoryError::InvalidStoryState(
                     "Cast not allowed for float".to_owned(),
                 )),
             },
             ValueType::String(v) => match cast_dest_type {
-                CAST_INT => Ok(Some(Self::new_int(v.string.parse::<i32>().unwrap()))),
-                CAST_FLOAT => Ok(Some(Self::new_float(v.string.parse::<f32>().unwrap()))),
+                CAST_INT => Ok(Some(Self::new::<i32>(v.string.parse::<i32>().unwrap()))),
+                CAST_FLOAT => Ok(Some(Self::new::<f32>(v.string.parse::<f32>().unwrap()))),
                 CAST_STRING => Ok(None),
                 _ => Err(StoryError::InvalidStoryState(
                     "Cast not allowed for string".to_owned(),
@@ -307,23 +268,23 @@ impl Value {
                 CAST_INT => {
                     let max = l.get_max_item();
                     match max {
-                        Some(i) => Ok(Some(Self::new_int(i.1))),
-                        None => Ok(Some(Self::new_int(0))),
+                        Some(i) => Ok(Some(Self::new::<i32>(i.1))),
+                        None => Ok(Some(Self::new::<i32>(0))),
                     }
                 }
                 CAST_FLOAT => {
                     let max = l.get_max_item();
                     match max {
-                        Some(i) => Ok(Some(Self::new_float(i.1 as f32))),
-                        None => Ok(Some(Self::new_float(0.0))),
+                        Some(i) => Ok(Some(Self::new::<f32>(i.1 as f32))),
+                        None => Ok(Some(Self::new::<f32>(0.0))),
                     }
                 }
                 CAST_LIST => Ok(None),
                 CAST_STRING => {
                     let max = l.get_max_item();
                     match max {
-                        Some(i) => Ok(Some(Self::new_string(&i.0.to_string()))),
-                        None => Ok(Some(Self::new_string(""))),
+                        Some(i) => Ok(Some(Self::new::<&str>(&i.0.to_string()))),
+                        None => Ok(Some(Self::new::<&str>(""))),
                     }
                 }
                 _ => Err(StoryError::InvalidStoryState(

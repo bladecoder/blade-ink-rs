@@ -185,7 +185,7 @@ impl Story {
 
         // Convert return value (if any) to a type that the ink engine can use
         let return_obj: Rc<dyn RTObject> = match func_result {
-            Some(func_result) => Rc::new(Value::new(func_result)),
+            Some(func_result) => Rc::new(Value::new_value_type(func_result)),
             None => Rc::new(Void::new()),
         };
 

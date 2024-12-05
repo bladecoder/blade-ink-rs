@@ -129,7 +129,7 @@ impl Story {
                             // only problem is when exporting text for viewing, it
                             // skips over numbers etc.
                             let text: Rc<dyn RTObject> =
-                                Rc::new(Value::new_string(&output.to_string()));
+                                Rc::new(Value::new::<&str>(&output.to_string()));
                             self.get_state_mut().push_to_output_stream(text);
                         }
                     }
@@ -284,18 +284,18 @@ impl Story {
                     // Return to expression evaluation (from content mode)
                     self.get_state().set_in_expression_evaluation(true);
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Value::new_string(&sb)));
+                        .push_evaluation_stack(Rc::new(Value::new::<&str>(&sb)));
                 }
                 CommandType::NoOp => {}
                 CommandType::ChoiceCount => {
                     let choice_count = self.get_state().get_generated_choices().len();
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Value::new_int(choice_count as i32)));
+                        .push_evaluation_stack(Rc::new(Value::new::<i32>(choice_count as i32)));
                 }
                 CommandType::Turns => {
                     let current_turn = self.get_state().current_turn_index;
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Value::new_int(current_turn + 1)));
+                        .push_evaluation_stack(Rc::new(Value::new::<i32>(current_turn + 1)));
                 }
                 CommandType::TurnsSince | CommandType::ReadCount => {
                     let target = self.get_state_mut().pop_evaluation_stack();
@@ -347,7 +347,7 @@ impl Story {
                     }
 
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Value::new_int(either_count)));
+                        .push_evaluation_stack(Rc::new(Value::new::<i32>(either_count)));
                 }
                 CommandType::Random => {
                     let mut max_int = None;
@@ -392,7 +392,7 @@ impl Story {
                     let next_random = rng.gen::<u32>();
                     let chosen_value = (next_random % random_range as u32) as i32 + min_value;
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Value::new_int(chosen_value)));
+                        .push_evaluation_stack(Rc::new(Value::new::<i32>(chosen_value)));
                     self.get_state_mut().previous_random = self.get_state().previous_random + 1;
                 }
                 CommandType::SeedRandom => {
@@ -419,11 +419,11 @@ impl Story {
                     let count = self.get_state_mut().visit_count_for_container(&cpc) - 1; // index
                                                                                           // not count
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Value::new_int(count)));
+                        .push_evaluation_stack(Rc::new(Value::new::<i32>(count)));
                 }
                 CommandType::SequenceShuffleIndex => {
                     let shuffle_index = self.next_sequence_shuffle_index()?;
-                    let v = Rc::new(Value::new_int(shuffle_index));
+                    let v = Rc::new(Value::new::<i32>(shuffle_index));
                     self.get_state_mut().push_evaluation_stack(v);
                 }
                 CommandType::StartThread => {
@@ -477,7 +477,7 @@ impl Story {
                                 found_item.clone(),
                                 int_val.unwrap(),
                             ));
-                            generated_list_value = Some(Value::new_list(l));
+                            generated_list_value = Some(Value::new::<InkList>(l));
                         }
                     } else {
                         return Err(StoryError::InvalidStoryState(format!(
@@ -487,7 +487,7 @@ impl Story {
                     }
 
                     if generated_list_value.is_none() {
-                        generated_list_value = Some(Value::new_list(InkList::new()));
+                        generated_list_value = Some(Value::new::<InkList>(InkList::new()));
                     }
 
                     self.get_state_mut()
@@ -510,7 +510,7 @@ impl Story {
                         .unwrap()
                         .list_with_sub_range(&min.unwrap().value, &max.unwrap().value);
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Value::new_list(result)));
+                        .push_evaluation_stack(Rc::new(Value::new::<InkList>(result)));
                 }
                 CommandType::ListRandom => {
                     let o = self.get_state_mut().pop_evaluation_stack();
@@ -549,7 +549,7 @@ impl Story {
                         }
                     };
                     self.get_state_mut()
-                        .push_evaluation_stack(Rc::new(Value::new_list(new_list)));
+                        .push_evaluation_stack(Rc::new(Value::new::<InkList>(new_list)));
                 }
                 CommandType::BeginTag => self
                     .get_state_mut()
@@ -658,7 +658,7 @@ impl Story {
                 let count = self
                     .get_state_mut()
                     .visit_count_for_container(container.as_ref().unwrap());
-                found_value = Rc::new(Value::new_int(count));
+                found_value = Rc::new(Value::new::<i32>(count));
             }
             // Normal variable reference
             else {
@@ -670,7 +670,7 @@ impl Story {
                     Some(v) => found_value = v,
                     None => {
                         self.add_error(&format!("Variable not found: '{}'. Using default value of 0 (false). This can happen with temporary variables if the declaration hasn't yet been hit. Globals are always given a default value on load if a value doesn't exist in the save state.", var_ref.name), true);
-                        found_value = Rc::new(Value::new_int(0));
+                        found_value = Rc::new(Value::new::<i32>(0));
                     }
                 }
             }

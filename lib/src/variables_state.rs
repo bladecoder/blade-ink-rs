@@ -198,7 +198,7 @@ impl VariablesState {
             )));
         }
 
-        let val = Value::from_value_type(value_type);
+        let val = Value::new_value_type(value_type);
 
         let notify = self.set_global(variable_name, Rc::new(val));
 
