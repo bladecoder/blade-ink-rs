@@ -10,7 +10,7 @@ pub enum ValueType {
     Float(f32),
     /// An Ink list value.
     List(InkList),
-    /// Ink string, constructed with [`new_string`](ValueType::new_string)
+    /// Ink string, constructed with [`new_string`](ValueType::new::<&str>)
     String(StringValue),
     /// Reference to an Ink divert.
     DivertTarget(Path),
@@ -18,55 +18,104 @@ pub enum ValueType {
     VariablePointer(VariablePointerValue),
 }
 
-impl ValueType {
-    /// Creates a new `ValueType` for a `String`.
-    pub fn new_string(str: &str) -> ValueType {
-        let mut inline_ws = true;
+impl From<bool> for ValueType {
+    fn from(value: bool) -> ValueType {
+        ValueType::Bool(value)
+    }
+}
 
-        for c in str.chars() {
-            if c != ' ' && c != '\t' {
-                inline_ws = false;
-                break;
-            }
-        }
+impl From<i32> for ValueType {
+    fn from(value: i32) -> ValueType {
+        ValueType::Int(value)
+    }
+}
+
+impl From<f32> for ValueType {
+    fn from(value: f32) -> ValueType {
+        ValueType::Float(value)
+    }
+}
+
+impl From<&str> for ValueType {
+    fn from(value: &str) -> ValueType {
+        let inline_ws = value.chars().all(|c| c == ' ' || c == '\t');
 
         ValueType::String(StringValue {
-            string: str.to_string(),
+            string: value.to_string(),
             is_inline_whitespace: inline_ws,
-            is_newline: str.eq("\n"),
+            is_newline: value.eq("\n"),
         })
     }
+}
 
-    /// Gets the internal boolean, value or `None` if the `ValueType` is not a [`ValueType::Bool`]
-    pub fn get_bool(&self) -> Option<bool> {
-        match self {
-            ValueType::Bool(v) => Some(*v),
-            _ => None,
+impl From<InkList> for ValueType {
+    fn from(value: InkList) -> ValueType {
+        ValueType::List(value)
+    }
+}
+
+impl From<Path> for ValueType {
+    fn from(value: Path) -> ValueType {
+        ValueType::DivertTarget(value)
+    }
+}
+
+impl From<VariablePointerValue> for ValueType {
+    fn from(value: VariablePointerValue) -> Self {
+        ValueType::VariablePointer(value)
+    }
+}
+
+impl TryFrom<&ValueType> for bool {
+    type Error = ();
+    fn try_from(value: &ValueType) -> Result<Self, Self::Error> {
+        match value {
+            ValueType::Bool(v) => Ok(*v),
+            _ => Err(()),
         }
     }
+}
 
-    /// Gets the internal `i32` value, or `None` if the `ValueType` is not a [`ValueType::Int`]
-    pub fn get_int(&self) -> Option<i32> {
-        match self {
-            ValueType::Int(v) => Some(*v),
-            _ => None,
+impl TryFrom<&ValueType> for i32 {
+    type Error = ();
+    fn try_from(value: &ValueType) -> Result<Self, Self::Error> {
+        match value {
+            ValueType::Int(v) => Ok(*v),
+            _ => Err(()),
         }
     }
+}
 
-    /// Gets the internal `f32` value, or `None` if the `ValueType` is not a [`ValueType::Float`]
-    pub fn get_float(&self) -> Option<f32> {
-        match self {
-            ValueType::Float(v) => Some(*v),
-            _ => None,
+impl TryFrom<&ValueType> for f32 {
+    type Error = ();
+    fn try_from(value: &ValueType) -> Result<Self, Self::Error> {
+        match value {
+            ValueType::Float(v) => Ok(*v),
+            _ => Err(()),
         }
     }
+}
 
-    /// Gets the internal string value, or `None` if the `ValueType` is not a [`ValueType::String`]
-    pub fn get_str(&self) -> Option<&str> {
-        match self {
-            ValueType::String(v) => Some(&v.string),
-            _ => None,
+impl<'val> TryFrom<&'val ValueType> for &'val str {
+    type Error = ();
+    fn try_from(value: &'val ValueType) -> Result<Self, Self::Error> {
+        match value {
+            ValueType::String(v) => Ok(&v.string),
+            _ => Err(()),
         }
+    }
+}
+
+impl ValueType {
+    pub fn new<T: Into<ValueType>>(v: T) -> Self {
+        v.into()
+    }
+
+    pub fn get<'val, T>(&'val self) -> Option<T>
+    where
+        &'val Self: TryInto<T>,
+    {
+        self.try_into().ok()
     }
 
     /// Tries to convert the internal value of this `ValueType` to `i32`

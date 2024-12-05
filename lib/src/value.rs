@@ -41,47 +41,107 @@ impl fmt::Display for Value {
     }
 }
 
+impl<T: Into<ValueType>> From<T> for Value {
+    fn from(value: T) -> Self {
+        Self::new_value_type(value.into())
+    }
+}
+
+impl<'val> TryFrom<&'val dyn RTObject> for &'val StringValue {
+    type Error = ();
+    fn try_from(o: &dyn RTObject) -> Result<&StringValue, Self::Error> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::String(v) => Ok(v),
+                _ => Err(()),
+            },
+            None => Err(()),
+        }
+    }
+}
+impl<'val> TryFrom<&'val dyn RTObject> for &'val VariablePointerValue {
+    type Error = ();
+    fn try_from(o: &dyn RTObject) -> Result<&VariablePointerValue, Self::Error> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::VariablePointer(v) => Ok(v),
+                _ => Err(()),
+            },
+            None => Err(()),
+        }
+    }
+}
+impl<'val> TryFrom<&'val dyn RTObject> for &'val Path {
+    type Error = ();
+    fn try_from(o: &dyn RTObject) -> Result<&Path, Self::Error> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::DivertTarget(p) => Ok(p),
+                _ => Err(()),
+            },
+            None => Err(()),
+        }
+    }
+}
+impl TryFrom<&dyn RTObject> for i32 {
+    type Error = ();
+    fn try_from(o: &dyn RTObject) -> Result<i32, Self::Error> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::Int(v) => Ok(*v),
+                _ => Err(()),
+            },
+            None => Err(()),
+        }
+    }
+}
+impl TryFrom<&dyn RTObject> for f32 {
+    type Error = ();
+    fn try_from(o: &dyn RTObject) -> Result<f32, Self::Error> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::Float(v) => Ok(*v),
+                _ => Err(()),
+            },
+            None => Err(()),
+        }
+    }
+}
+impl<'val> TryFrom<&'val mut dyn RTObject> for &'val mut InkList {
+    type Error = ();
+    fn try_from(o: &mut dyn RTObject) -> Result<&mut InkList, Self::Error> {
+        match o.as_any_mut().downcast_mut::<Value>() {
+            Some(v) => match &mut v.value {
+                ValueType::List(v) => Ok(v),
+                _ => Err(()),
+            },
+            None => Err(()),
+        }
+    }
+}
+impl<'val> TryFrom<&'val dyn RTObject> for &'val InkList {
+    type Error = ();
+    fn try_from(o: &dyn RTObject) -> Result<&InkList, Self::Error> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::List(v) => Ok(v),
+                _ => Err(()),
+            },
+            None => Err(()),
+        }
+    }
+}
+
 impl Value {
-    pub fn new(value: ValueType) -> Self {
+    pub fn new_value_type(valuetype: ValueType) -> Self {
         Self {
             obj: Object::new(),
-            value,
+            value: valuetype,
         }
     }
 
-    pub fn new_bool(v: bool) -> Self {
-        Self {
-            obj: Object::new(),
-            value: ValueType::Bool(v),
-        }
-    }
-
-    pub fn new_int(v: i32) -> Self {
-        Self {
-            obj: Object::new(),
-            value: ValueType::Int(v),
-        }
-    }
-
-    pub fn new_float(v: f32) -> Self {
-        Self {
-            obj: Object::new(),
-            value: ValueType::Float(v),
-        }
-    }
-
-    pub fn new_string(v: &str) -> Self {
-        Self {
-            obj: Object::new(),
-            value: ValueType::new_string(v),
-        }
-    }
-
-    pub fn new_divert_target(p: Path) -> Self {
-        Self {
-            obj: Object::new(),
-            value: ValueType::DivertTarget(p),
-        }
+    pub fn new<T: Into<Value>>(v: T) -> Self {
+        v.into()
     }
 
     pub fn new_variable_pointer(variable_name: &str, context_index: i32) -> Self {
@@ -94,17 +154,20 @@ impl Value {
         }
     }
 
-    pub fn new_list(l: InkList) -> Self {
-        Self {
-            obj: Object::new(),
-            value: ValueType::List(l),
-        }
+    pub fn get_value<'val, T>(o: &'val dyn RTObject) -> Option<T>
+    where
+        &'val dyn RTObject: TryInto<T>,
+    {
+        o.try_into().ok()
     }
 
-    pub fn from_value_type(value_type: ValueType) -> Self {
-        Self {
-            obj: Object::new(),
-            value: value_type,
+    pub(crate) fn get_bool_value(o: &dyn RTObject) -> Option<bool> {
+        match o.as_any().downcast_ref::<Value>() {
+            Some(v) => match &v.value {
+                ValueType::Bool(v) => Some(*v),
+                _ => None,
+            },
+            None => None,
         }
     }
 
@@ -124,99 +187,9 @@ impl Value {
         }
     }
 
-    pub fn get_string_value(o: &dyn RTObject) -> Option<&StringValue> {
-        match o.as_any().downcast_ref::<Value>() {
-            Some(v) => match &v.value {
-                ValueType::String(v) => Some(v),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
-    pub fn get_variable_pointer_value(o: &dyn RTObject) -> Option<&VariablePointerValue> {
-        match o.as_any().downcast_ref::<Value>() {
-            Some(v) => match &v.value {
-                ValueType::VariablePointer(v) => Some(v),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
-    pub fn get_divert_target_value(o: &dyn RTObject) -> Option<&Path> {
-        match o.as_any().downcast_ref::<Value>() {
-            Some(v) => match &v.value {
-                ValueType::DivertTarget(p) => Some(p),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
-    pub(crate) fn get_bool_value(o: &dyn RTObject) -> Option<bool> {
-        match o.as_any().downcast_ref::<Value>() {
-            Some(v) => match &v.value {
-                ValueType::Bool(v) => Some(*v),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
-    pub fn get_int_value(o: &dyn RTObject) -> Option<i32> {
-        match o.as_any().downcast_ref::<Value>() {
-            Some(v) => match &v.value {
-                ValueType::Int(v) => Some(*v),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
-    pub fn get_float_value(o: &dyn RTObject) -> Option<f32> {
-        match o.as_any().downcast_ref::<Value>() {
-            Some(v) => match &v.value {
-                ValueType::Float(v) => Some(*v),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
-    pub fn get_list_value_mut(o: &mut dyn RTObject) -> Option<&mut InkList> {
-        match o.as_any_mut().downcast_mut::<Value>() {
-            Some(v) => match &mut v.value {
-                ValueType::List(v) => Some(v),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
-    pub fn get_list_value(o: &dyn RTObject) -> Option<&InkList> {
-        match o.as_any().downcast_ref::<Value>() {
-            Some(v) => match &v.value {
-                ValueType::List(v) => Some(v),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
-    pub fn get_divert_value(o: &dyn RTObject) -> Option<&Path> {
-        match o.as_any().downcast_ref::<Value>() {
-            Some(v) => match &v.value {
-                ValueType::DivertTarget(v) => Some(v),
-                _ => None,
-            },
-            None => None,
-        }
-    }
-
     pub fn retain_list_origins_for_assignment(old_value: &dyn RTObject, new_value: &dyn RTObject) {
-        if let Some(old_list) = Self::get_list_value(old_value) {
-            if let Some(new_list) = Self::get_list_value(new_value) {
+        if let Some(old_list) = Self::get_value::<&InkList>(old_value) {
+            if let Some(new_list) = Self::get_value::<&InkList>(new_value) {
                 if new_list.items.is_empty() {
                     new_list.set_initial_origin_names(old_list.get_origin_names());
                 }
@@ -242,23 +215,23 @@ impl Value {
                 CAST_BOOL => Ok(None),
                 CAST_INT => {
                     if *v {
-                        Ok(Some(Self::new_int(1)))
+                        Ok(Some(Self::new::<i32>(1)))
                     } else {
-                        Ok(Some(Self::new_int(0)))
+                        Ok(Some(Self::new::<i32>(0)))
                     }
                 }
                 CAST_FLOAT => {
                     if *v {
-                        Ok(Some(Self::new_float(1.0)))
+                        Ok(Some(Self::new::<f32>(1.0)))
                     } else {
-                        Ok(Some(Self::new_float(0.0)))
+                        Ok(Some(Self::new::<f32>(0.0)))
                     }
                 }
                 CAST_STRING => {
                     if *v {
-                        Ok(Some(Self::new_string("true")))
+                        Ok(Some(Self::new::<&str>("true")))
                     } else {
-                        Ok(Some(Self::new_string("false")))
+                        Ok(Some(Self::new::<&str>("false")))
                     }
                 }
                 _ => Err(StoryError::InvalidStoryState(
@@ -268,14 +241,14 @@ impl Value {
             ValueType::Int(v) => match cast_dest_type {
                 CAST_BOOL => {
                     if *v == 0 {
-                        Ok(Some(Self::new_bool(false)))
+                        Ok(Some(Self::new::<bool>(false)))
                     } else {
-                        Ok(Some(Self::new_bool(true)))
+                        Ok(Some(Self::new::<bool>(true)))
                     }
                 }
                 CAST_INT => Ok(None),
-                CAST_FLOAT => Ok(Some(Self::new_float(*v as f32))),
-                CAST_STRING => Ok(Some(Self::new_string(&v.to_string()))),
+                CAST_FLOAT => Ok(Some(Self::new::<f32>(*v as f32))),
+                CAST_STRING => Ok(Some(Self::new::<&str>(&v.to_string()))),
                 _ => Err(StoryError::InvalidStoryState(
                     "Cast not allowed for int".to_owned(),
                 )),
@@ -283,21 +256,21 @@ impl Value {
             ValueType::Float(v) => match cast_dest_type {
                 CAST_BOOL => {
                     if *v == 0.0 {
-                        Ok(Some(Self::new_bool(false)))
+                        Ok(Some(Self::new::<bool>(false)))
                     } else {
-                        Ok(Some(Self::new_bool(true)))
+                        Ok(Some(Self::new::<bool>(true)))
                     }
                 }
-                CAST_INT => Ok(Some(Self::new_int(*v as i32))),
+                CAST_INT => Ok(Some(Self::new::<i32>(*v as i32))),
                 CAST_FLOAT => Ok(None),
-                CAST_STRING => Ok(Some(Self::new_string(&v.to_string()))),
+                CAST_STRING => Ok(Some(Self::new::<&str>(&v.to_string()))),
                 _ => Err(StoryError::InvalidStoryState(
                     "Cast not allowed for float".to_owned(),
                 )),
             },
             ValueType::String(v) => match cast_dest_type {
-                CAST_INT => Ok(Some(Self::new_int(v.string.parse::<i32>().unwrap()))),
-                CAST_FLOAT => Ok(Some(Self::new_float(v.string.parse::<f32>().unwrap()))),
+                CAST_INT => Ok(Some(Self::new::<i32>(v.string.parse::<i32>().unwrap()))),
+                CAST_FLOAT => Ok(Some(Self::new::<f32>(v.string.parse::<f32>().unwrap()))),
                 CAST_STRING => Ok(None),
                 _ => Err(StoryError::InvalidStoryState(
                     "Cast not allowed for string".to_owned(),
@@ -307,23 +280,23 @@ impl Value {
                 CAST_INT => {
                     let max = l.get_max_item();
                     match max {
-                        Some(i) => Ok(Some(Self::new_int(i.1))),
-                        None => Ok(Some(Self::new_int(0))),
+                        Some(i) => Ok(Some(Self::new::<i32>(i.1))),
+                        None => Ok(Some(Self::new::<i32>(0))),
                     }
                 }
                 CAST_FLOAT => {
                     let max = l.get_max_item();
                     match max {
-                        Some(i) => Ok(Some(Self::new_float(i.1 as f32))),
-                        None => Ok(Some(Self::new_float(0.0))),
+                        Some(i) => Ok(Some(Self::new::<f32>(i.1 as f32))),
+                        None => Ok(Some(Self::new::<f32>(0.0))),
                     }
                 }
                 CAST_LIST => Ok(None),
                 CAST_STRING => {
                     let max = l.get_max_item();
                     match max {
-                        Some(i) => Ok(Some(Self::new_string(&i.0.to_string()))),
-                        None => Ok(Some(Self::new_string(""))),
+                        Some(i) => Ok(Some(Self::new::<&str>(&i.0.to_string()))),
+                        None => Ok(Some(Self::new::<&str>(""))),
                     }
                 }
                 _ => Err(StoryError::InvalidStoryState(

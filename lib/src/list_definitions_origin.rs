@@ -24,7 +24,7 @@ impl ListDefinitionsOrigin {
                 let mut l = InkList::new();
                 l.items.insert(key.clone(), *val);
 
-                let list_value = Rc::new(Value::new_list(l));
+                let list_value = Rc::new(Value::new::<InkList>(l));
 
                 list_definitions_origin
                     .all_unambiguous_list_value_cache

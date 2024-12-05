@@ -123,7 +123,7 @@ fn evaluating_function_variable_state_bug_test() -> Result<(), StoryError> {
     let mut output = String::new();
     let result = story.evaluate_function("function_to_evaluate", None, &mut output);
 
-    assert_eq!("RIGHT", result?.unwrap().get_str().unwrap());
+    assert_eq!("RIGHT", result?.unwrap().get::<&str>().unwrap());
 
     assert_eq!("End\n", story.cont()?);
 

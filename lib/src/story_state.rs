@@ -7,6 +7,7 @@ use crate::{
     control_command::{CommandType, ControlCommand},
     flow::Flow,
     glue::Glue,
+    ink_list::InkList,
     json::{json_read, json_write},
     list_definitions_origin::ListDefinitionsOrigin,
     object::{Object, RTObject},
@@ -18,7 +19,7 @@ use crate::{
     story_error::StoryError,
     tag::Tag,
     value::Value,
-    value_type::ValueType,
+    value_type::{StringValue, ValueType},
     variables_state::VariablesState,
     void::Void,
 };
@@ -199,7 +200,7 @@ impl StoryState {
             let mut in_tag = false;
 
             for output_obj in self.get_output_stream() {
-                let text_content = Value::get_string_value(output_obj.as_ref());
+                let text_content = Value::get_value::<&StringValue>(output_obj.as_ref());
 
                 if let (false, Some(text_content)) = (in_tag, text_content) {
                     sb.push_str(&text_content.string);
@@ -257,7 +258,9 @@ impl StoryState {
                         _ => {}
                     }
                 } else if in_tag {
-                    if let Some(string_value) = Value::get_string_value(output_obj.as_ref()) {
+                    if let Some(string_value) =
+                        Value::get_value::<&StringValue>(output_obj.as_ref())
+                    {
                         sb.push_str(&string_value.string);
                     }
                     if let Some(tag) = output_obj.as_ref().as_any().downcast_ref::<Tag>() {
@@ -359,7 +362,7 @@ impl StoryState {
     }
 
     pub fn push_evaluation_stack(&mut self, obj: Rc<dyn RTObject>) {
-        if let Some(list) = Value::get_list_value(obj.as_ref()) {
+        if let Some(list) = Value::get_value::<&InkList>(obj.as_ref()) {
             let origin_names = list.get_origin_names();
 
             list.origins.borrow_mut().clear();
@@ -376,7 +379,7 @@ impl StoryState {
     }
 
     pub fn push_to_output_stream(&mut self, obj: Rc<dyn RTObject>) {
-        let text = Value::get_string_value(obj.as_ref());
+        let text = Value::get_value::<&StringValue>(obj.as_ref());
 
         if let Some(s) = text {
             let list_text = StoryState::try_splitting_head_tail_whitespace(&s.string);
@@ -496,10 +499,10 @@ impl StoryState {
 
         if head_first_newline_idx != -1 {
             if head_first_newline_idx > 0 {
-                let leading_spaces = Value::new_string(&text[0..head_first_newline_idx as usize]);
+                let leading_spaces = Value::new::<&str>(&text[0..head_first_newline_idx as usize]);
                 list_texts.push(leading_spaces);
             }
-            list_texts.push(Value::new_string("\n"));
+            list_texts.push(Value::new::<&str>("\n"));
             inner_str_start = head_last_newline_idx + 1;
         }
 
@@ -509,14 +512,14 @@ impl StoryState {
 
         if inner_str_end > inner_str_start as usize {
             let inner_str_text = &text[inner_str_start as usize..inner_str_end];
-            list_texts.push(Value::new_string(inner_str_text));
+            list_texts.push(Value::new::<&str>(inner_str_text));
         }
 
         if tail_last_newline_idx != -1 && tail_first_newline_idx > head_last_newline_idx {
-            list_texts.push(Value::new_string("\n"));
+            list_texts.push(Value::new::<&str>("\n"));
             if tail_last_newline_idx < text.len() as i32 - 1 {
                 let num_spaces = (text.len() as i32 - tail_last_newline_idx) - 1;
-                let trailing_spaces = Value::new_string(
+                let trailing_spaces = Value::new::<&str>(
                     &text[(tail_last_newline_idx + 1) as usize
                         ..(num_spaces + tail_last_newline_idx + 1) as usize],
                 );
@@ -529,7 +532,7 @@ impl StoryState {
 
     fn push_to_output_stream_individual(&mut self, obj: Rc<dyn RTObject>) {
         let glue = obj.clone().into_any().downcast::<Glue>();
-        let text = Value::get_string_value(obj.as_ref());
+        let text = Value::get_value::<&StringValue>(obj.as_ref());
         let mut include_in_output = true;
 
         // New glue, so chomp away any whitespace from the end of the stream
@@ -631,7 +634,7 @@ impl StoryState {
             if let Some(obj) = output_stream.get(i as usize) {
                 if obj.as_ref().as_any().is::<ControlCommand>() {
                     break;
-                } else if let Some(sv) = Value::get_string_value(obj.as_ref()) {
+                } else if let Some(sv) = Value::get_value::<&StringValue>(obj.as_ref()) {
                     if sv.is_non_whitespace() {
                         break;
                     } else if sv.is_newline {
@@ -646,7 +649,7 @@ impl StoryState {
         if remove_whitespace_from >= 0 {
             i = remove_whitespace_from;
             while i < output_stream.len() as i32 {
-                if Value::get_string_value(output_stream[i as usize].as_ref()).is_some() {
+                if Value::get_value::<&StringValue>(output_stream[i as usize].as_ref()).is_some() {
                     output_stream.remove(i as usize);
                 } else {
                     i += 1;
@@ -974,7 +977,7 @@ impl StoryState {
                     break;
                 }
 
-                if let Some(txt) = Value::get_string_value(obj.as_ref()) {
+                if let Some(txt) = Value::get_value::<&StringValue>(obj.as_ref()) {
                     if txt.is_newline || txt.is_inline_whitespace {
                         self.get_output_stream_mut().remove(i as usize);
                         self.output_stream_dirty();
@@ -1019,11 +1022,11 @@ impl StoryState {
         if let Some(arguments) = arguments {
             for arg in arguments {
                 let value = match arg {
-                    ValueType::Bool(v) => Value::new_bool(*v),
-                    ValueType::Int(v) => Value::new_int(*v),
-                    ValueType::Float(v) => Value::new_float(*v),
-                    ValueType::List(v) => Value::new_list(v.clone()),
-                    ValueType::String(v) => Value::new_string(&v.string),
+                    ValueType::Bool(v) => Value::new::<bool>(*v),
+                    ValueType::Int(v) => Value::new::<i32>(*v),
+                    ValueType::Float(v) => Value::new::<f32>(*v),
+                    ValueType::List(v) => Value::new::<InkList>(v.clone()),
+                    ValueType::String(v) => Value::new::<&str>(&v.string),
                     _ => {
                         return Err(StoryError::InvalidStoryState("ink arguments when calling EvaluateFunction / ChoosePathStringWithParameters must be \
                         int, float, string, bool or InkList.".to_owned()));
@@ -1088,7 +1091,7 @@ impl StoryState {
                 // DivertTargets get returned as the string of components
                 // (rather than a Path, which isn't public)
                 if let ValueType::DivertTarget(p) = &return_val.value {
-                    return Ok(Some(ValueType::new_string(&p.to_string())));
+                    return Ok(Some(ValueType::new::<&str>(&p.to_string())));
                 }
 
                 // Other types can just have their exact object type:

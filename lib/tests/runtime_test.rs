@@ -26,13 +26,13 @@ impl ExternalFunction for ExtFunc1 {
 
 impl ExternalFunction for ExtFunc2 {
     fn call(&mut self, _: &str, _: Vec<ValueType>) -> Option<ValueType> {
-        Some(ValueType::new_string("Hello world"))
+        Some(ValueType::new::<&str>("Hello world"))
     }
 }
 
 impl ExternalFunction for ExtFunc3 {
     fn call(&mut self, _: &str, args: Vec<ValueType>) -> Option<ValueType> {
-        Some(ValueType::Bool(args[0].get_int().unwrap() != 1))
+        Some(ValueType::Bool(args[0].get::<i32>().unwrap() != 1))
     }
 }
 
@@ -159,11 +159,11 @@ fn set_and_get_variable_test() -> Result<(), Box<dyn Error>> {
     let mut text: Vec<String> = Vec::new();
 
     common::next_all(&mut story, &mut text)?;
-    assert_eq!(10, story.get_variable("x").unwrap().get_int().unwrap());
+    assert_eq!(10, story.get_variable("x").unwrap().get::<i32>().unwrap());
 
     story.set_variable("x", &ValueType::Int(15))?;
 
-    assert_eq!(15, story.get_variable("x").unwrap().get_int().unwrap());
+    assert_eq!(15, story.get_variable("x").unwrap().get::<i32>().unwrap());
 
     story.choose_choice_index(0)?;
 
@@ -184,14 +184,14 @@ fn set_non_existant_variable_test() -> Result<(), Box<dyn Error>> {
 
     common::next_all(&mut story, &mut text)?;
 
-    let result = story.set_variable("y", &ValueType::new_string("earth"));
+    let result = story.set_variable("y", &ValueType::new::<&str>("earth"));
     assert!(result.is_err());
 
-    assert_eq!(10, story.get_variable("x").unwrap().get_int().unwrap());
+    assert_eq!(10, story.get_variable("x").unwrap().get::<i32>().unwrap());
 
     story.set_variable("x", &ValueType::Int(15))?;
 
-    assert_eq!(15, story.get_variable("x").unwrap().get_int().unwrap());
+    assert_eq!(15, story.get_variable("x").unwrap().get::<i32>().unwrap());
 
     story.choose_choice_index(0)?;
 

@@ -1,6 +1,6 @@
 use crate::{
     choice::Choice, choice_point::ChoicePoint, object::Object, path::Path, story::Story,
-    story_error::StoryError, tag::Tag, value::Value,
+    story_error::StoryError, tag::Tag, value::Value, value_type::StringValue,
 };
 use std::rc::Rc;
 /// # Choices
@@ -156,7 +156,7 @@ impl Story {
 
     fn pop_choice_string_and_tags(&mut self, tags: &mut Vec<String>) -> String {
         let obj = self.get_state_mut().pop_evaluation_stack();
-        let choice_only_str_val = Value::get_string_value(obj.as_ref()).unwrap();
+        let choice_only_str_val = Value::get_value::<&StringValue>(obj.as_ref()).unwrap();
 
         while !self.get_state().evaluation_stack.is_empty()
             && self
