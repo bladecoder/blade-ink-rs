@@ -1,8 +1,6 @@
 //! Tokenizer for the streamed JSON parser.
 use std::io::{self, Read};
 
-use stringreader::StringReader;
-
 #[derive(Debug)]
 pub(super) enum Number {
     Int(i32),
@@ -59,7 +57,7 @@ impl JsonValue {
 }
 
 pub(super) struct JsonTokenizer<'a> {
-    reader: Box<dyn Read + 'a>,
+    json: &'a [u8],
     lookahead: Option<char>,
     skip_whitespaces: bool,
 }
@@ -67,7 +65,7 @@ pub(super) struct JsonTokenizer<'a> {
 impl<'a> JsonTokenizer<'a> {
     pub(super) fn new_from_str(s: &'a str) -> JsonTokenizer<'a> {
         JsonTokenizer {
-            reader: Box::new(StringReader::new(s)) as Box<dyn Read + 'a>,
+            json: s.as_bytes(),
             lookahead: None,
             skip_whitespaces: true,
         }
@@ -103,7 +101,7 @@ impl<'a> JsonTokenizer<'a> {
 
         // Read bytes until a valid UTF-8 character is formed
         loop {
-            self.reader.read_exact(&mut temp_buf)?;
+            self.json.read_exact(&mut temp_buf)?;
             utf8_char.push(temp_buf[0]);
 
             if let Ok(utf8_str) = std::str::from_utf8(&utf8_char) {
