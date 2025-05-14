@@ -23,7 +23,6 @@ strum = { version = "0.26.3", features = ["derive"] }
 as-any = "0.3.0"
 rand = "0.8.5"
 web-time = "1.1.0"
-stringreader = "0.1.1"
 
 [features]
 stream-json-parser = []
