@@ -161,7 +161,9 @@ mod misc {
             let mut unpicked_indices: Vec<i32> = (0..num_elements).collect();
 
             for i in 0..=iteration_index {
-                let chosen = rng.random::<i32>().rem_euclid(unpicked_indices.len() as i32);
+                let chosen = rng
+                    .random::<i32>()
+                    .rem_euclid(unpicked_indices.len() as i32);
                 let chosen_index = unpicked_indices[chosen as usize];
                 unpicked_indices.retain(|&x| x != chosen_index);
 

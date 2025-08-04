@@ -273,8 +273,7 @@ impl Story {
                                                                         // by choices, which are pushed to the stack during string generation.
 
                     while let Some(rescue_tag) = content_to_retain.pop_back() {
-                        self.get_state_mut()
-                            .push_to_output_stream(rescue_tag);
+                        self.get_state_mut().push_to_output_stream(rescue_tag);
                     }
 
                     // Build string out of the content we collected

@@ -84,7 +84,8 @@ fn tags_in_choice_test() -> Result<(), StoryError> {
 
 #[test]
 fn tags_in_choice_dynamic_content_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/tags/tagsInChoiceDynamic.ink.json").unwrap();
+    let json_string =
+        common::get_json_string("inkfiles/tags/tagsInChoiceDynamic.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;
 
     story.cont()?; // Avanzar una vez
