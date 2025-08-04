@@ -730,4 +730,9 @@ impl Story {
         self.if_async_we_cant("call currentText since it's a work in progress")?;
         Ok(self.get_state_mut().get_current_text())
     }
+
+    /// String representation of the location where the story currently is.
+    pub fn get_current_path(&self) -> Option<String> {
+        self.get_state().current_path_string()
+    }
 }

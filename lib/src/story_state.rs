@@ -104,20 +104,21 @@ impl StoryState {
         !self.current_errors.is_empty()
     }
 
-    /**
-     * Get the previous state of currentPathString, which can be helpful
-     * for finding out where the story was before it ended (when the path
-     * string becomes null)
-     *
-     * Marked as dead code by now.
-     */
+    /// String representation of the location where the story currently is.
+    pub fn current_path_string(&self) -> Option<String> {
+        let pointer = self.get_current_pointer();
+        pointer.get_path().map(|path| path.to_string())
+    }
+
+    /// Get the previous state of currentPathString, which can be helpful
+    /// for finding out where the story was before it ended (when the path
+    /// string becomes null)
+    ///
+    /// Marked as dead code by now.
     #[allow(dead_code)]
     pub fn previous_path_string(&self) -> Option<String> {
         let pointer = self.get_previous_pointer();
-        match pointer.get_path() {
-            Some(path) => Some(path.to_string()),
-            None => None,
-        }
+        pointer.get_path().map(|path| path.to_string())
     }
 
     pub fn get_current_pointer(&self) -> Pointer {
