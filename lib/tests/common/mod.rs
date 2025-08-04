@@ -46,7 +46,7 @@ pub fn run_story(
 
     let mut choice_list_index = 0;
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     while story.can_continue() || !story.get_current_choices().is_empty() {
         println!("{}", story.build_string_of_hierarchy());
@@ -80,11 +80,11 @@ pub fn run_story(
                     story.choose_choice_index(choice_list[choice_list_index])?;
                     choice_list_index += 1;
                 } else {
-                    let random_choice_index = rng.gen_range(0..len);
+                    let random_choice_index = rng.random_range(0..len);
                     story.choose_choice_index(random_choice_index)?;
                 }
             } else {
-                let random_choice_index = rng.gen_range(0..len);
+                let random_choice_index = rng.random_range(0..len);
                 story.choose_choice_index(random_choice_index)?;
             }
         }

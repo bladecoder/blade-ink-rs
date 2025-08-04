@@ -391,7 +391,7 @@ impl Story {
                     let result_seed =
                         self.get_state().story_seed + self.get_state().previous_random;
                     let mut rng = StdRng::seed_from_u64(result_seed as u64);
-                    let next_random = rng.gen::<u32>();
+                    let next_random = rng.random::<u32>();
                     let chosen_value = (next_random % random_range as u32) as i32 + min_value;
                     self.get_state_mut()
                         .push_evaluation_stack(Rc::new(Value::new::<i32>(chosen_value)));
@@ -535,7 +535,7 @@ impl Story {
                             let result_seed =
                                 self.get_state().story_seed + self.get_state().previous_random;
                             let mut rng = StdRng::seed_from_u64(result_seed as u64);
-                            let next_random = rng.gen::<u32>();
+                            let next_random = rng.random::<u32>();
                             let list_item_index = (next_random as usize) % list.items.len(); // Iterate through to get the random element, sorted for
                                                                                              // predictibility
                             let mut sorted: Vec<(&InkListItem, &i32)> = list.items.iter().collect();

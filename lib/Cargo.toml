@@ -1,6 +1,6 @@
 [package]
 name = "bladeink"
-version = "1.1.0"
+version = "1.2.0"
 authors = ["Rafael Garcia <bladecoder@gmail.com>"]
 description = """
 This is a Rust port of inkle's ink, a scripting language for writing interactive narrative.
@@ -19,13 +19,13 @@ path = "src/lib.rs"
 [dependencies]
 serde = { version = "1.0.152", features = ["derive"] }
 serde_json = "1.0.93"
-strum = { version = "0.26.3", features = ["derive"] }
+strum = { version = "0.27.2", features = ["derive"] }
 as-any = "0.3.0"
-rand = "0.8.5"
+rand = "0.9.2"
 web-time = "1.1.0"
 
 [features]
 stream-json-parser = []
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
-getrandom = { version = "0.2.15", features = ["js"] }
+getrandom = { version = "0.3.3", features = ["wasm_js"] }

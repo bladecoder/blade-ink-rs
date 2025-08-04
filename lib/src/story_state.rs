@@ -64,8 +64,8 @@ impl StoryState {
         let current_flow = Flow::new(DEFAULT_FLOW_NAME, main_content_container.clone());
         let callstack = current_flow.callstack.clone();
 
-        let mut rng = rand::thread_rng();
-        let story_seed = rng.gen_range(0..100);
+        let mut rng = rand::rng();
+        let story_seed = rng.random_range(0..100);
 
         let state = StoryState {
             current_flow,

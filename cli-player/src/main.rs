@@ -92,7 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let choices = story.get_current_choices();
         if !choices.is_empty() {
             let command = if args.auto_play {
-                let i = rand::thread_rng().gen_range(0..choices.len());
+                let i = rand::rng().random_range(0..choices.len());
 
                 println!();
                 print_choices(&choices);
