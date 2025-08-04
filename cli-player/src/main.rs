@@ -152,10 +152,14 @@ fn process_command(command: Command, story: &mut Story) -> Result<bool, Box<dyn 
 fn print_choices(choices: &[Rc<Choice>]) {
     for (i, c) in choices.iter().enumerate() {
         println!("{}: {}", i + 1, c.text);
+
+        if !c.tags.is_empty() {
+            println!("# tags: {}", c.tags.join(", "));
+        }
     }
 }
 
-fn read_input(choices: &Vec<Rc<Choice>>) -> Result<Command, Box<dyn Error>> {
+fn read_input(choices: &[Rc<Choice>]) -> Result<Command, Box<dyn Error>> {
     let mut line = String::new();
 
     loop {

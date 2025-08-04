@@ -104,7 +104,7 @@ fn suppress_choice_test() -> Result<(), StoryError> {
     common::next_all(&mut story, &mut text)?;
     assert_eq!(
         "Hello back!",
-        story.get_current_choices().get(0).unwrap().text
+        story.get_current_choices().first().unwrap().text
     );
     story.choose_choice_index(0)?;
 
@@ -126,7 +126,7 @@ fn mixed_choice_test() -> Result<(), StoryError> {
     common::next_all(&mut story, &mut text)?;
     assert_eq!(
         "Hello back!",
-        story.get_current_choices().get(0).unwrap().text
+        story.get_current_choices().first().unwrap().text
     );
     story.choose_choice_index(0)?;
 

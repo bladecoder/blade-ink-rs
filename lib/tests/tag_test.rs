@@ -83,6 +83,30 @@ fn tags_in_choice_test() -> Result<(), StoryError> {
 }
 
 #[test]
+fn tags_in_choice_dynamic_content_test() -> Result<(), StoryError> {
+    let json_string = common::get_json_string("inkfiles/tags/tagsInChoiceDynamic.ink.json").unwrap();
+    let mut story = Story::new(&json_string)?;
+
+    story.cont()?; // Avanzar una vez
+    let current_tags = story.get_current_tags()?;
+    assert_eq!(0, current_tags.len());
+
+    let choices = story.get_current_choices();
+    assert_eq!(3, choices.len());
+
+    assert_eq!(1, choices[0].tags.len());
+    assert_eq!("tag Name", choices[0].tags[0]);
+
+    assert_eq!(1, choices[1].tags.len());
+    assert_eq!("tag 1 Name 2 3 4", choices[1].tags[0]);
+
+    assert_eq!(1, choices[2].tags.len());
+    assert_eq!("Name tag 1 2 3 4", choices[2].tags[0]);
+
+    Ok(())
+}
+
+#[test]
 fn tags_dynamic_content_test() -> Result<(), StoryError> {
     let json_string = common::get_json_string("inkfiles/tags/tagsDynamicContent.ink.json").unwrap();
     let mut story = Story::new(&json_string)?;

@@ -271,9 +271,10 @@ impl Story {
                                                                         // rather than consume as part of the string we're building.
                                                                         // At the time of writing, this only applies to Tag objects generated
                                                                         // by choices, which are pushed to the stack during string generation.
-                    for rescued_tag in content_to_retain.iter() {
+
+                    while let Some(rescue_tag) = content_to_retain.pop_back() {
                         self.get_state_mut()
-                            .push_to_output_stream(rescued_tag.clone());
+                            .push_to_output_stream(rescue_tag);
                     }
 
                     // Build string out of the content we collected
@@ -607,7 +608,7 @@ impl Story {
                         self.get_state_mut()
                             .pop_from_output_stream(output_count_consumed);
                         let mut sb = String::new();
-                        for str_val in &content_stack_for_tag {
+                        for str_val in content_stack_for_tag.iter().rev() {
                             sb.push_str(str_val);
                         }
 
