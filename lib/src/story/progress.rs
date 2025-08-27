@@ -260,15 +260,15 @@ impl Story {
                         );
                     }
 
-                    // Send out variable observation events at the last second, since it might trigger new ink to be run
-                    if let Some(changed) = changed_variables_to_observe {
-                        for (variable_name, value) in changed {
-                            self.notify_variable_changed(&variable_name, &value);
-                        }
-                    }
-
                     return Err(StoryError::InvalidStoryState(sb));
                 }
+            }
+        }
+
+        // Send out variable observation events at the last second, since it might trigger new ink to be run
+        if let Some(changed) = changed_variables_to_observe {
+            for (variable_name, value) in changed {
+                self.notify_variable_changed(&variable_name, &value);
             }
         }
 

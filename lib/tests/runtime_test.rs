@@ -143,11 +143,16 @@ fn variable_observers_test() -> Result<(), Box<dyn Error>> {
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
-    story.observe_variable("x", Rc::new(RefCell::new(VObserver { expected_value: 5 })))?;
+    let observer = Rc::new(RefCell::new(VObserver { expected_value: 5 }));
+    story.observe_variable("x", observer.clone())?;
 
     common::next_all(&mut story, &mut text)?;
     story.choose_choice_index(0)?;
     common::next_all(&mut story, &mut text)?;
+    assert_eq!(10, story.get_variable("x").unwrap().get::<i32>().unwrap());
+
+    // Check that the observer's expected_value is now 10
+    assert_eq!(observer.borrow().expected_value, 10);
 
     Ok(())
 }
