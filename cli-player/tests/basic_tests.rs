@@ -10,8 +10,8 @@ use std::{
 fn basic_story_test() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("binkplayer")?;
 
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../conformance-tests/inkfiles/test1.ink.json");
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../conformance-tests/inkfiles/test1.ink.json");
 
     cmd.arg(path);
     cmd.stdin(Stdio::piped());
