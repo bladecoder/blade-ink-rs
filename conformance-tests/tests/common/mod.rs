@@ -94,12 +94,7 @@ pub fn run_story(
 }
 
 pub fn get_json_string(filename: &str) -> Result<String, Box<dyn Error>> {
-    let mut path = Path::new(filename).to_path_buf();
-
-    // Due to a bug with Cargo workspaces, for Release mode the current folder is the crate folder and for Debug mode the current folder is the root folder.
-    if !path.exists() {
-        path = Path::new("../").join(path);
-    }
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(filename);
 
     let json = fs::read_to_string(path)?;
     Ok(json)

@@ -1,3 +1,3 @@
 [workspace]
-members = ["cli-player", "lib"]
+members = ["cli-player", "conformance-tests", "lib"]
 resolver = "2"
