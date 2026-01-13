@@ -10,13 +10,8 @@ use std::{
 fn basic_story_test() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("binkplayer")?;
 
-    let mut path = Path::new("inkfiles/test1.ink.json").to_path_buf();
-
-    // Due to a bug with Cargo workspaces, for Release mode the current folder is
-    // the crate folder and for Debug mode the current folder is the root folder.
-    if !path.exists() {
-        path = Path::new("../").join(path);
-    }
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../conformance-tests/inkfiles/test1.ink.json");
 
     cmd.arg(path);
     cmd.stdin(Stdio::piped());
