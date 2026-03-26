@@ -1,16 +1,20 @@
-use std::{cell::RefCell, fmt, rc::Rc};
+use std::{
+    cell::RefCell,
+    fmt,
+    rc::{Rc, Weak},
+};
 
 use crate::{
     container::Container,
     object::{Object, RTObject},
     path::{Component, Path},
-    pointer::{self, Pointer},
+    pointer::Pointer,
     push_pop::PushPopType,
 };
 
 pub struct Divert {
     obj: Object,
-    target_pointer: RefCell<Pointer>,
+    target_cache: RefCell<Option<(Weak<Container>, i32)>>,
     target_path: RefCell<Option<Path>>,
     pub external_args: usize,
     pub is_conditional: bool,
@@ -37,7 +41,7 @@ impl Divert {
             stack_push_type,
             is_external,
             external_args,
-            target_pointer: RefCell::new(pointer::NULL.clone()),
+            target_cache: RefCell::new(None),
             target_path: RefCell::new(Self::target_path_string(target_path)),
             variable_divert_name: var_divert_name,
         }
@@ -80,24 +84,32 @@ impl Divert {
     }
 
     pub fn get_target_pointer(self: &Rc<Self>) -> Pointer {
-        let target_pointer_null = self.target_pointer.borrow().is_null();
-        if target_pointer_null {
-            let target_obj =
-                Object::resolve_path(self.clone(), self.target_path.borrow().as_ref().unwrap())
-                    .obj
-                    .clone();
+        if let Some((weak, index)) = self.target_cache.borrow().as_ref() {
+            if let Some(container) = weak.upgrade() {
+                return Pointer {
+                    container: Some(container),
+                    index: *index,
+                };
+            }
+        }
 
-            if self
-                .target_path
-                .borrow()
-                .as_ref()
-                .unwrap()
-                .get_last_component()
-                .unwrap()
-                .is_index()
-            {
-                self.target_pointer.borrow_mut().container = target_obj.get_object().get_parent();
-                self.target_pointer.borrow_mut().index = self
+        let target_obj =
+            Object::resolve_path(self.clone(), self.target_path.borrow().as_ref().unwrap())
+                .obj
+                .clone();
+
+        let pointer = if self
+            .target_path
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .get_last_component()
+            .unwrap()
+            .is_index()
+        {
+            Pointer {
+                container: target_obj.get_object().get_parent(),
+                index: self
                     .target_path
                     .borrow()
                     .as_ref()
@@ -105,14 +117,19 @@ impl Divert {
                     .get_last_component()
                     .unwrap()
                     .index
-                    .unwrap() as i32;
-            } else {
-                let c = target_obj.into_any().downcast::<Container>();
-                self.target_pointer.replace(Pointer::start_of(c.unwrap()));
+                    .unwrap() as i32,
             }
+        } else {
+            let c = target_obj.into_any().downcast::<Container>().unwrap();
+            Pointer::start_of(c)
+        };
+
+        if let Some(container) = &pointer.container {
+            self.target_cache
+                .replace(Some((Rc::downgrade(container), pointer.index)));
         }
 
-        self.target_pointer.borrow().clone()
+        pointer
     }
 
     pub fn get_target_path(self: &Rc<Self>) -> Option<Path> {
