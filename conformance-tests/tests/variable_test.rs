@@ -1,11 +1,12 @@
 use bladeink::{story::Story, story_error::StoryError};
+use bladeink_compiler::Compiler;
 
 mod common;
 
 #[test]
 fn variable_declaration_test() -> Result<(), StoryError> {
-    let json_string =
-        common::get_json_string("inkfiles/variable/variable-declaration.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/variable/variable-declaration.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
@@ -21,7 +22,8 @@ fn variable_declaration_test() -> Result<(), StoryError> {
 
 #[test]
 fn var_calc_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/variable/varcalc.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/variable/varcalc.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
     common::next_all(&mut story, &mut text)?;
@@ -34,7 +36,8 @@ fn var_calc_test() -> Result<(), StoryError> {
 
 #[test]
 fn var_string_ink_bug_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/variable/varstringinc.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/variable/varstringinc.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -51,7 +54,8 @@ fn var_string_ink_bug_test() -> Result<(), StoryError> {
 
 #[test]
 fn var_divert_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/variable/var-divert.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/variable/var-divert.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 

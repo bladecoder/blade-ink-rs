@@ -33,6 +33,7 @@ impl Compiler {
 
     pub fn compile(&self, source: &str) -> Result<String, CompilerError> {
         let _ = self.options.count_all_visits;
+
         let parsed_story = parser::Parser::new(source).parse()?;
         parsed_story.to_json_string().map_err(|error| {
             CompilerError::InvalidSource(format!("failed to serialize compiled ink: {error}"))
@@ -123,6 +124,38 @@ mod tests {
         assert_compiles_to_fixture(
             include_str!("../../conformance-tests/inkfiles/glue/testbugfix2.ink"),
             include_str!("../../conformance-tests/inkfiles/glue/testbugfix2.ink.json"),
+        );
+    }
+
+    #[test]
+    fn compiles_variable_declaration_story() {
+        assert_compiles_to_fixture(
+            include_str!("../../conformance-tests/inkfiles/variable/variable-declaration.ink"),
+            include_str!("../../conformance-tests/inkfiles/variable/variable-declaration.ink.json"),
+        );
+    }
+
+    #[test]
+    fn compiles_var_calc_story() {
+        assert_compiles_to_fixture(
+            include_str!("../../conformance-tests/inkfiles/variable/varcalc.ink"),
+            include_str!("../../conformance-tests/inkfiles/variable/varcalc.ink.json"),
+        );
+    }
+
+    #[test]
+    fn compiles_var_divert_story() {
+        assert_compiles_to_fixture(
+            include_str!("../../conformance-tests/inkfiles/variable/var-divert.ink"),
+            include_str!("../../conformance-tests/inkfiles/variable/var-divert.ink.json"),
+        );
+    }
+
+    #[test]
+    fn compiles_var_string_inc_story() {
+        assert_compiles_to_fixture(
+            include_str!("../../conformance-tests/inkfiles/variable/varstringinc.ink"),
+            include_str!("../../conformance-tests/inkfiles/variable/varstringinc.ink.json"),
         );
     }
 }
