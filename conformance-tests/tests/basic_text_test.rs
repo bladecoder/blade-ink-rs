@@ -1,4 +1,5 @@
 use bladeink::{story::Story, story_error::StoryError};
+use bladeink_compiler::Compiler;
 use std::env;
 
 mod common;
@@ -7,7 +8,8 @@ mod common;
 fn oneline_test() -> Result<(), StoryError> {
     println!("{}", env::current_dir().unwrap().to_string_lossy());
 
-    let json_string = common::get_json_string("inkfiles/basictext/oneline.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/basictext/oneline.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 
@@ -22,7 +24,8 @@ fn oneline_test() -> Result<(), StoryError> {
 
 #[test]
 fn twolines_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/basictext/twolines.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/basictext/twolines.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 

@@ -93,11 +93,15 @@ pub fn run_story(
     Ok(text)
 }
 
-pub fn get_json_string(filename: &str) -> Result<String, Box<dyn Error>> {
+pub fn get_file_string(filename: &str) -> Result<String, Box<dyn Error>> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(filename);
 
-    let json = fs::read_to_string(path)?;
-    Ok(json)
+    let content = fs::read_to_string(path)?;
+    Ok(content)
+}
+
+pub fn get_json_string(filename: &str) -> Result<String, Box<dyn Error>> {
+    get_file_string(filename)
 }
 
 pub fn is_ended(story: &Story) -> bool {

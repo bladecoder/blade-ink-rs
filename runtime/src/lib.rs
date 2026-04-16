@@ -42,7 +42,7 @@
 //! threads, multi-flows, variable set/get from code, variable observing,
 //! external functions, tags on choices, etc. Examples of uses of all these
 //! features will be added to this documentation in the future, but meanwhile,
-//! all the examples can be found in the `lib/tests` folder in the source code
+//! all the examples can be found in the `runtime/tests` folder in the source code
 //! of this crate.
 
 mod callstack;
