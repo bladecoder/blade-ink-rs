@@ -366,10 +366,7 @@ impl Story {
         let r = pointer.resolve();
 
         let mut container_to_enter = match r {
-            Some(o) => match o.into_any().downcast::<Container>() {
-                Ok(c) => Some(c),
-                Err(_) => None,
-            },
+            Some(o) => o.into_any().downcast::<Container>().ok(),
             None => None,
         };
 
@@ -387,10 +384,7 @@ impl Story {
             let r = pointer.resolve();
 
             container_to_enter = match r {
-                Some(o) => match o.into_any().downcast::<Container>() {
-                    Ok(c) => Some(c),
-                    Err(_) => None,
-                },
+                Some(o) => o.into_any().downcast::<Container>().ok(),
                 None => None,
             };
         }
@@ -483,12 +477,8 @@ impl Story {
         // pointer,
         // so that when returning from the thread, it returns to the content
         // after this instruction.
-        if current_content_obj.is_some() {
-            if let Some(control_cmd) = current_content_obj
-                .as_ref()
-                .unwrap()
-                .as_any()
-                .downcast_ref::<ControlCommand>()
+        if let Some(current_content_obj) = &current_content_obj {
+            if let Some(control_cmd) = current_content_obj.as_any().downcast_ref::<ControlCommand>()
             {
                 if control_cmd.command_type == CommandType::StartThread {
                     self.get_state().get_callstack().borrow_mut().push_thread();

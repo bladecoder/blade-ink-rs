@@ -63,12 +63,12 @@ impl Story {
     }
 
     /// Any critical errors generated during evaluation of the `Story`.
-    pub fn get_current_errors(&self) -> &Vec<String> {
+    pub fn get_current_errors(&self) -> &[String] {
         self.get_state().get_current_errors()
     }
 
     /// Any warnings generated during evaluation of the `Story`.
-    pub fn get_current_warnings(&self) -> &Vec<String> {
+    pub fn get_current_warnings(&self) -> &[String] {
         self.get_state().get_current_warnings()
     }
 }

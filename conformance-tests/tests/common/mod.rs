@@ -22,7 +22,7 @@ pub fn next_all(story: &mut Story, text: &mut Vec<String>) -> Result<(), StoryEr
     Ok(())
 }
 
-pub fn join_text(text: &Vec<String>) -> String {
+pub fn join_text(text: &[String]) -> String {
     let mut sb = String::new();
 
     for s in text {

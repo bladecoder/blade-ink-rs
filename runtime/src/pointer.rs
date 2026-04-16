@@ -26,10 +26,10 @@ impl Pointer {
                     return Some(container.clone());
                 }
 
-                return match container.content.get(self.index as usize) {
+                match container.content.get(self.index as usize) {
                     Some(o) => Some(o.clone()),
                     None => None,
-                };
+                }
             }
             None => None,
         }

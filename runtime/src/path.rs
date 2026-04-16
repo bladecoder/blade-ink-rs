@@ -144,13 +144,13 @@ impl Path {
     }
 
     pub fn get_components_string(&self) -> String {
-        return self
+        self
             .components_string
             .get_or_init(|| {
                 let mut sb = String::new();
 
-                if !self.components.is_empty() {
-                    sb.push_str(&self.components.get(0).unwrap().to_string());
+                if let Some(first) = self.components.first() {
+                    sb.push_str(&first.to_string());
 
                     for i in 1..self.components.len() {
                         sb.push('.');
@@ -164,7 +164,7 @@ impl Path {
 
                 sb
             })
-            .to_string();
+            .to_string()
     }
 
     pub fn path_by_appending_component(&self, c: Component) -> Path {
@@ -277,7 +277,7 @@ impl Hash for Component {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self.index {
             Some(index) => index.hash(state),
-            None => return self.name.as_ref().unwrap().hash(state),
+            None => self.name.as_ref().unwrap().hash(state),
         }
     }
 }

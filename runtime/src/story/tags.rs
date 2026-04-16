@@ -33,7 +33,7 @@ impl Story {
         // Expected to be global story, knot, or stitch
         let mut flow_container = self.content_at_path(&path).container().unwrap();
 
-        while let Some(first_content) = flow_container.content.get(0) {
+        while let Some(first_content) = flow_container.content.first() {
             if let Ok(container) = first_content.clone().into_any().downcast::<Container>() {
                 flow_container = container;
             } else {

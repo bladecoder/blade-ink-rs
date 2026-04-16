@@ -219,11 +219,7 @@ impl Container {
             }
 
             current_obj = found_obj;
-            current_container = if let Ok(container) = next_container {
-                Some(container)
-            } else {
-                None
-            };
+            current_container = next_container.ok();
         }
 
         SearchResult::new(current_obj, approximate)

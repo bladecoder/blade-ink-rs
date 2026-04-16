@@ -353,7 +353,7 @@ pub fn jtoken_to_runtime_object(
 }
 
 fn jarray_to_container(
-    jarray: &Vec<serde_json::Value>,
+    jarray: &[serde_json::Value],
     name: Option<String>,
 ) -> Result<Rc<dyn RTObject>, StoryError> {
     // Final object in the array is always a combination of
@@ -396,7 +396,7 @@ fn jarray_to_container(
 }
 
 pub fn jarray_to_runtime_obj_list(
-    jarray: &Vec<serde_json::Value>,
+    jarray: &[serde_json::Value],
     skip_last: bool,
 ) -> Result<Vec<Rc<dyn RTObject>>, StoryError> {
     let mut count = jarray.len();

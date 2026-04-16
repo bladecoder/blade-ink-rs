@@ -116,6 +116,9 @@ enum ArrayElement {
     NullElement,
 }
 
+type RuntimeObjectList = Vec<Rc<dyn RTObject>>;
+type RuntimeObjectListResult = Result<(RuntimeObjectList, Option<ArrayElement>), StoryError>;
+
 fn jtoken_to_runtime_object(
     tok: &mut JsonTokenizer,
     value: JsonValue,
@@ -487,10 +490,8 @@ fn jarray_to_container(
     Ok(container)
 }
 
-fn jarray_to_runtime_obj_list(
-    tok: &mut JsonTokenizer,
-) -> Result<(Vec<Rc<dyn RTObject>>, Option<ArrayElement>), StoryError> {
-    let mut list: Vec<Rc<dyn RTObject>> = Vec::new();
+fn jarray_to_runtime_obj_list(tok: &mut JsonTokenizer) -> RuntimeObjectListResult {
+    let mut list: RuntimeObjectList = Vec::new();
     let mut last_element: Option<ArrayElement> = None;
 
     while tok.peek()? != ']' {

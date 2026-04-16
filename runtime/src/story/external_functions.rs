@@ -34,18 +34,18 @@ impl Story {
     /// Arguments:
     /// * `func_name` - The name of the function you're binding the handler to.
     /// * `function` - The handler that will be called whenever Ink runs that
-    /// `EXTERNAL` function.
+    ///   `EXTERNAL` function.
     /// * `lookahead_safe` - The ink engine often evaluates further
-    /// than you might expect beyond the current line just in case it sees
-    /// glue that will the current line with the next. It's
-    /// possible that a function can appear to be called twice,
-    /// and earlier than expected. If it's safe for your
-    /// function to be called in this way (since the result and side effect
-    /// of the function will not change), then you can pass `true`.
-    /// If your function might have side effects or return different results
-    /// each time it's called, pass `false` to avoid these extra calls,
-    /// especially if you want some action to be performed in game code when
-    /// this function is called.
+    ///   than you might expect beyond the current line just in case it sees
+    ///   glue that will the current line with the next. It's
+    ///   possible that a function can appear to be called twice,
+    ///   and earlier than expected. If it's safe for your
+    ///   function to be called in this way (since the result and side effect
+    ///   of the function will not change), then you can pass `true`.
+    ///   If your function might have side effects or return different results
+    ///   each time it's called, pass `false` to avoid these extra calls,
+    ///   especially if you want some action to be performed in game code when
+    ///   this function is called.
     pub fn bind_external_function(
         &mut self,
         func_name: &str,

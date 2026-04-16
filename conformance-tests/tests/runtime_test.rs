@@ -217,22 +217,22 @@ fn jump_knot_test() -> Result<(), Box<dyn Error>> {
 
     story.choose_path_string("two", true, None)?;
     common::next_all(&mut story, &mut text)?;
-    assert_eq!("Two", text.get(0).unwrap());
+    assert_eq!("Two", text.first().unwrap());
 
     text.clear();
     story.choose_path_string("three", true, None)?;
     common::next_all(&mut story, &mut text)?;
-    assert_eq!("Three", text.get(0).unwrap());
+    assert_eq!("Three", text.first().unwrap());
 
     text.clear();
     story.choose_path_string("one", true, None)?;
     common::next_all(&mut story, &mut text)?;
-    assert_eq!("One", text.get(0).unwrap());
+    assert_eq!("One", text.first().unwrap());
 
     text.clear();
     story.choose_path_string("two", true, None)?;
     common::next_all(&mut story, &mut text)?;
-    assert_eq!("Two", text.get(0).unwrap());
+    assert_eq!("Two", text.first().unwrap());
 
     Ok(())
 }
@@ -245,22 +245,22 @@ fn jump_stitch_test() -> Result<(), Box<dyn Error>> {
 
     story.choose_path_string("two.sthree", true, None)?;
     common::next_all(&mut story, &mut text)?;
-    assert_eq!("Two.3", text.get(0).unwrap());
+    assert_eq!("Two.3", text.first().unwrap());
 
     text.clear();
     story.choose_path_string("one.stwo", true, None)?;
     common::next_all(&mut story, &mut text)?;
-    assert_eq!("One.2", text.get(0).unwrap());
+    assert_eq!("One.2", text.first().unwrap());
 
     text.clear();
     story.choose_path_string("one.sone", true, None)?;
     common::next_all(&mut story, &mut text)?;
-    assert_eq!("One.1", text.get(0).unwrap());
+    assert_eq!("One.1", text.first().unwrap());
 
     text.clear();
     story.choose_path_string("two.stwo", true, None)?;
     common::next_all(&mut story, &mut text)?;
-    assert_eq!("Two.2", text.get(0).unwrap());
+    assert_eq!("Two.2", text.first().unwrap());
 
     Ok(())
 }
@@ -288,7 +288,7 @@ fn load_save_test() -> Result<(), Box<dyn Error>> {
     assert_eq!(1, text.len());
     assert_eq!(
         "We arrived into London at 9.45pm exactly.",
-        text.get(0).unwrap()
+        text.first().unwrap()
     );
 
     // save the game state

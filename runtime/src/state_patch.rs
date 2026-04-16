@@ -52,6 +52,6 @@ impl StatePatch {
 
     pub(crate) fn get_turn_index(&self, container: &Container) -> Option<&i32> {
         let key = Object::get_path(container).to_string();
-        return self.turn_indices.get(&key);
+        self.turn_indices.get(&key)
     }
 }
