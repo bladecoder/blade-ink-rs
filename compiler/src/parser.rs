@@ -1,8 +1,8 @@
 use crate::{
     error::CompilerError,
     parsed_hierarchy::{
-        AssignMode, BinaryOperator, Choice, ChoiceStyle, Condition, Expression, Flow,
-        GlobalVariable, Node, ParsedStory,
+        AssignMode, BinaryOperator, Choice, Condition, Divert, Expression, Flow, GlobalVariable,
+        Node, ParsedStory,
     },
 };
 
@@ -12,13 +12,35 @@ struct Line<'a> {
     had_newline: bool,
 }
 
-enum FlowHeader {
-    Knot(String),
-    Function(String),
+enum Header {
+    Knot {
+        name: String,
+        parameters: Vec<String>,
+    },
+    Function {
+        name: String,
+        parameters: Vec<String>,
+    },
+    Stitch {
+        name: String,
+    },
+}
+
+#[derive(Default)]
+struct FlowBuilder {
+    name: String,
+    parameters: Vec<String>,
+    nodes: Vec<Node>,
+    children: Vec<Flow>,
 }
 
 pub struct Parser<'a> {
     source: &'a str,
+}
+
+enum ParsedStatement {
+    Global(GlobalVariable),
+    Nodes(Vec<Node>),
 }
 
 impl<'a> Parser<'a> {
@@ -45,19 +67,42 @@ impl<'a> Parser<'a> {
         let mut globals = Vec::new();
         let mut root = Vec::new();
         let mut flows = Vec::new();
-        let mut current_flow: Option<Flow> = None;
+        let mut current_flow: Option<FlowBuilder> = None;
+        let mut current_stitch: Option<FlowBuilder> = None;
         let mut line_index = 0;
 
         while line_index < lines.len() {
             if let Some(header) = parse_header(lines[line_index].content) {
-                if let Some(flow) = current_flow.take() {
-                    flows.push(flow);
+                match header {
+                    Header::Knot { name, parameters } | Header::Function { name, parameters } => {
+                        finalize_stitch(&mut current_flow, &mut current_stitch)?;
+                        if let Some(flow) = current_flow.take() {
+                            flows.push(flow.build());
+                        }
+
+                        current_flow = Some(FlowBuilder {
+                            name,
+                            parameters,
+                            nodes: Vec::new(),
+                            children: Vec::new(),
+                        });
+                    }
+                    Header::Stitch { name } => {
+                        finalize_stitch(&mut current_flow, &mut current_stitch)?;
+                        if current_flow.is_none() {
+                            return Err(CompilerError::InvalidSource(
+                                "stitch declared outside of a knot".to_owned(),
+                            ));
+                        }
+                        current_stitch = Some(FlowBuilder {
+                            name,
+                            parameters: Vec::new(),
+                            nodes: Vec::new(),
+                            children: Vec::new(),
+                        });
+                    }
                 }
 
-                current_flow = Some(Flow {
-                    name: header.into_name(),
-                    nodes: Vec::new(),
-                });
                 line_index += 1;
                 continue;
             }
@@ -66,28 +111,58 @@ impl<'a> Parser<'a> {
             match statement {
                 ParsedStatement::Global(global) => globals.push(global),
                 ParsedStatement::Nodes(mut nodes) => {
-                    let target = if let Some(flow) = current_flow.as_mut() {
-                        &mut flow.nodes
-                    } else {
-                        &mut root
-                    };
-
-                    target.append(&mut nodes);
+                    target_nodes(&mut root, current_flow.as_mut(), current_stitch.as_mut())
+                        .append(&mut nodes)
                 }
             }
         }
 
-        if let Some(flow) = current_flow {
-            flows.push(flow);
+        finalize_stitch(&mut current_flow, &mut current_stitch)?;
+        if let Some(flow) = current_flow.take() {
+            flows.push(flow.build());
         }
 
         Ok(ParsedStory::new(globals, root, flows))
     }
 }
 
-enum ParsedStatement {
-    Global(GlobalVariable),
-    Nodes(Vec<Node>),
+impl FlowBuilder {
+    fn build(self) -> Flow {
+        Flow {
+            name: self.name,
+            parameters: self.parameters,
+            nodes: self.nodes,
+            children: self.children,
+        }
+    }
+}
+
+fn finalize_stitch(
+    current_flow: &mut Option<FlowBuilder>,
+    current_stitch: &mut Option<FlowBuilder>,
+) -> Result<(), CompilerError> {
+    if let Some(stitch) = current_stitch.take() {
+        let flow = current_flow.as_mut().ok_or_else(|| {
+            CompilerError::InvalidSource("stitch declared without enclosing knot".to_owned())
+        })?;
+        flow.children.push(stitch.build());
+    }
+
+    Ok(())
+}
+
+fn target_nodes<'a>(
+    root: &'a mut Vec<Node>,
+    current_flow: Option<&'a mut FlowBuilder>,
+    current_stitch: Option<&'a mut FlowBuilder>,
+) -> &'a mut Vec<Node> {
+    if let Some(stitch) = current_stitch {
+        &mut stitch.nodes
+    } else if let Some(flow) = current_flow {
+        &mut flow.nodes
+    } else {
+        root
+    }
 }
 
 fn split_lines(source: &str) -> Vec<Line<'_>> {
@@ -146,11 +221,11 @@ fn parse_statement(
         return parse_choice(lines, line_index);
     }
 
-    if let Some(target) = trimmed.strip_prefix("->") {
+    if let Some(divert) = trimmed.strip_prefix("->") {
         *line_index += 1;
-        return Ok(ParsedStatement::Nodes(vec![Node::Divert(
-            target.trim().to_owned(),
-        )]));
+        return Ok(ParsedStatement::Nodes(vec![Node::Divert(parse_divert(
+            divert.trim(),
+        )?)]));
     }
 
     *line_index += 1;
@@ -167,8 +242,13 @@ fn parse_content_line(
         line.content
     };
 
-    let content = content.trim_end();
-    let mut nodes = tokenize_inline_content(content)?;
+    let mut nodes = Vec::new();
+    if let Some((text_part, divert_part)) = split_inline_divert(content) {
+        nodes.extend(tokenize_inline_content(text_part)?);
+        nodes.push(Node::Divert(parse_divert(divert_part)?));
+    } else {
+        nodes.extend(tokenize_inline_content(content)?);
+    }
 
     if line.had_newline {
         nodes.push(Node::Newline);
@@ -188,36 +268,45 @@ fn parse_choice(
         .ok_or_else(|| CompilerError::InvalidSource("expected choice marker".to_owned()))?
         .trim_start();
 
-    if let Some(choice_only) = remainder.strip_prefix('[') {
-        let end = choice_only.find(']').ok_or_else(|| {
-            CompilerError::InvalidSource("choice label is missing closing ']'".to_owned())
-        })?;
+    let (display_text, selected_text, inline_target) =
+        if let Some(choice_only) = remainder.strip_prefix('[') {
+            let end = choice_only.find(']').ok_or_else(|| {
+                CompilerError::InvalidSource("choice label is missing closing ']'".to_owned())
+            })?;
+            let label = choice_only[..end].trim().to_owned();
+            let after_label = choice_only[end + 1..].trim_start();
+            let inline_target = after_label
+                .strip_prefix("->")
+                .map(str::trim)
+                .map(parse_divert)
+                .transpose()?;
+            (label, None, inline_target)
+        } else if let Some((before, after)) = remainder.split_once("[]") {
+            let label = before.trim_end().to_owned();
+            let suffix = after.trim_start();
+            let selected = if suffix.is_empty() {
+                Some(label.clone())
+            } else {
+                Some(format!("{label} {suffix}"))
+            };
+            (label, selected, None)
+        } else {
+            (
+                remainder.trim().to_owned(),
+                Some(remainder.trim().to_owned()),
+                None,
+            )
+        };
 
-        let label = choice_only[..end].trim().to_owned();
-        let after_label = choice_only[end + 1..].trim_start();
-        let target = after_label
-            .strip_prefix("->")
-            .ok_or_else(|| {
-                CompilerError::UnsupportedFeature(
-                    "only single-line bracketed choices with diverts are supported".to_owned(),
-                )
-            })?
-            .trim()
-            .to_owned();
-
-        *line_index += 1;
-        return Ok(ParsedStatement::Nodes(vec![Node::Choice(Choice {
-            label,
-            body: vec![Node::Divert(target)],
-            style: ChoiceStyle::ChoiceOnly,
-        })]));
-    }
-
-    let label = remainder.trim().to_owned();
-    let choice_indent = line.indent;
     *line_index += 1;
 
+    let choice_indent = line.indent;
     let mut body = Vec::new();
+
+    if let Some(divert) = inline_target {
+        body.push(Node::Divert(divert));
+    }
+
     while *line_index < lines.len() {
         if parse_header(lines[*line_index].content).is_some()
             || lines[*line_index].indent <= choice_indent
@@ -237,9 +326,9 @@ fn parse_choice(
     }
 
     Ok(ParsedStatement::Nodes(vec![Node::Choice(Choice {
-        label,
+        display_text,
+        selected_text,
         body,
-        style: ChoiceStyle::EchoLabelOnSelect,
     })]))
 }
 
@@ -254,13 +343,13 @@ fn parse_conditional(
     } else {
         line.content.trim()
     };
-    let content = content.trim_end();
 
     if let Some((condition, branch_text)) = parse_inline_conditional(content)? {
         *line_index += 1;
         let mut nodes = vec![Node::Conditional {
             condition,
-            branch: tokenize_inline_content(branch_text.trim_end())?,
+            when_true: tokenize_inline_content(branch_text)?,
+            when_false: None,
         }];
 
         if line.had_newline {
@@ -280,18 +369,31 @@ fn parse_conditional(
     let condition = parse_condition(condition_text.trim())?;
     *line_index += 1;
 
-    let mut branch = Vec::new();
+    let mut when_true = Vec::new();
+    let mut when_false = Vec::new();
+    let mut in_else = false;
+
     if line.had_newline {
-        branch.push(Node::Newline);
+        when_true.push(Node::Newline);
     }
 
     while *line_index < lines.len() {
         let body_line = &lines[*line_index];
-        if body_line.content.trim() == "}" {
+        let trimmed = body_line.content.trim();
+
+        if trimmed == "}" {
             let closing_had_newline = body_line.had_newline && (*line_index + 1) < lines.len();
             *line_index += 1;
 
-            let mut nodes = vec![Node::Conditional { condition, branch }];
+            let mut nodes = vec![Node::Conditional {
+                condition,
+                when_true,
+                when_false: if when_false.is_empty() {
+                    None
+                } else {
+                    Some(when_false)
+                },
+            }];
             if closing_had_newline {
                 nodes.push(Node::Newline);
             }
@@ -299,14 +401,28 @@ fn parse_conditional(
             return Ok(nodes);
         }
 
+        if trimmed == "- else:" {
+            in_else = true;
+            *line_index += 1;
+            if body_line.had_newline {
+                when_false.push(Node::Newline);
+            }
+            continue;
+        }
+
         let statement = parse_statement(lines, line_index, true)?;
+        let target = if in_else {
+            &mut when_false
+        } else {
+            &mut when_true
+        };
         match statement {
             ParsedStatement::Global(_) => {
                 return Err(CompilerError::UnsupportedFeature(
                     "global declarations are not supported inside conditionals".to_owned(),
                 ))
             }
-            ParsedStatement::Nodes(mut nodes) => branch.append(&mut nodes),
+            ParsedStatement::Nodes(mut nodes) => target.append(&mut nodes),
         }
     }
 
@@ -331,12 +447,9 @@ fn tokenize_inline_content(content: &str) -> Result<Vec<Node>, CompilerError> {
         }
 
         if ch == '{' {
-            let end = content[index + 1..]
-                .find('}')
-                .map(|offset| index + 1 + offset)
-                .ok_or_else(|| {
-                    CompilerError::InvalidSource("unterminated inline brace expression".to_owned())
-                })?;
+            let end = find_matching_brace(content, index).ok_or_else(|| {
+                CompilerError::InvalidSource("unterminated inline brace expression".to_owned())
+            })?;
 
             if !text.is_empty() {
                 nodes.push(Node::Text(std::mem::take(&mut text)));
@@ -346,7 +459,8 @@ fn tokenize_inline_content(content: &str) -> Result<Vec<Node>, CompilerError> {
             if let Some((condition, branch_text)) = parse_inline_conditional(inline)? {
                 nodes.push(Node::Conditional {
                     condition,
-                    branch: tokenize_inline_content(branch_text.trim_end())?,
+                    when_true: tokenize_inline_content(branch_text)?,
+                    when_false: None,
                 });
             } else {
                 let expression = parse_expression(&content[index + 1..end])?;
@@ -374,6 +488,34 @@ fn tokenize_inline_content(content: &str) -> Result<Vec<Node>, CompilerError> {
     Ok(nodes)
 }
 
+fn split_inline_divert(content: &str) -> Option<(&str, &str)> {
+    let index = content.rfind("->")?;
+    let (text, divert) = content.split_at(index);
+    let divert = divert.strip_prefix("->")?.trim();
+    if divert.is_empty() {
+        None
+    } else {
+        Some((text, divert))
+    }
+}
+
+fn find_matching_brace(content: &str, start: usize) -> Option<usize> {
+    let mut depth = 0;
+    for (index, ch) in content[start..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(start + index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 fn looks_like_conditional(content: &str) -> bool {
     content.starts_with('{') && content.contains(':')
 }
@@ -390,7 +532,10 @@ fn parse_inline_conditional(content: &str) -> Result<Option<(Condition, &str)>, 
         None => return Ok(None),
     };
 
-    Ok(Some((parse_condition(condition.trim())?, branch)))
+    Ok(Some((
+        parse_condition(condition.trim())?,
+        branch.trim_start(),
+    )))
 }
 
 fn parse_condition(condition: &str) -> Result<Condition, CompilerError> {
@@ -402,9 +547,7 @@ fn parse_condition(condition: &str) -> Result<Condition, CompilerError> {
                 return Ok(Condition::FunctionCall(name.trim().to_owned()));
             }
 
-            Err(CompilerError::UnsupportedFeature(format!(
-                "unsupported condition '{condition}'"
-            )))
+            Ok(Condition::Expression(parse_expression(condition)?))
         }
     }
 }
@@ -443,6 +586,20 @@ fn split_assignment(input: &str, separator: &str) -> Result<(String, String), Co
     Ok((name.trim().to_owned(), expression.trim().to_owned()))
 }
 
+fn parse_divert(input: &str) -> Result<Divert, CompilerError> {
+    if let Some((target, args)) = parse_call_like(input)? {
+        return Ok(Divert {
+            target,
+            arguments: args,
+        });
+    }
+
+    Ok(Divert {
+        target: input.trim().to_owned(),
+        arguments: Vec::new(),
+    })
+}
+
 fn parse_expression(input: &str) -> Result<Expression, CompilerError> {
     let tokens = tokenize_expression(input)?;
     let mut parser = ExpressionParser::new(tokens);
@@ -458,110 +615,116 @@ fn parse_expression(input: &str) -> Result<Expression, CompilerError> {
     Ok(expression)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 enum Token {
     Bool(bool),
     Int(i32),
+    Float(f32),
     Str(String),
     Ident(String),
     DivertTarget(String),
     Plus,
     Minus,
     Star,
+    EqualEqual,
     LeftParen,
     RightParen,
 }
 
 fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
     let mut tokens = Vec::new();
-    let mut chars = input.char_indices().peekable();
+    let chars: Vec<char> = input.chars().collect();
+    let mut index = 0;
 
-    while let Some((index, ch)) = chars.next() {
+    while index < chars.len() {
+        let ch = chars[index];
         if ch.is_whitespace() {
+            index += 1;
             continue;
         }
 
-        if ch == '-' && input[index..].starts_with("->") {
-            let rest = input[index + 2..].trim_start();
-            let name = parse_identifier(rest).ok_or_else(|| {
+        if ch == '-' && chars.get(index + 1) == Some(&'>') {
+            let target = input[index + 2..].trim();
+            let parsed = parse_path_identifier(target).ok_or_else(|| {
                 CompilerError::InvalidSource("expected divert target after '->'".to_owned())
             })?;
-            tokens.push(Token::DivertTarget(name.to_owned()));
-
-            while let Some((peek_index, _)) = chars.peek() {
-                if *peek_index < input.len() && input[*peek_index..].starts_with(rest) {
-                    chars.next();
-                } else {
-                    break;
-                }
-            }
-
+            tokens.push(Token::DivertTarget(parsed.to_owned()));
             break;
         }
 
         match ch {
-            '+' => tokens.push(Token::Plus),
-            '-' => tokens.push(Token::Minus),
-            '*' => tokens.push(Token::Star),
-            '(' => tokens.push(Token::LeftParen),
-            ')' => tokens.push(Token::RightParen),
+            '+' => {
+                tokens.push(Token::Plus);
+                index += 1;
+            }
+            '-' => {
+                tokens.push(Token::Minus);
+                index += 1;
+            }
+            '*' => {
+                tokens.push(Token::Star);
+                index += 1;
+            }
+            '=' if chars.get(index + 1) == Some(&'=') => {
+                tokens.push(Token::EqualEqual);
+                index += 2;
+            }
+            '(' => {
+                tokens.push(Token::LeftParen);
+                index += 1;
+            }
+            ')' => {
+                tokens.push(Token::RightParen);
+                index += 1;
+            }
             '"' => {
-                let string_start = index + 1;
-                let string_end = input[string_start..]
-                    .find('"')
-                    .map(|offset| string_start + offset)
-                    .ok_or_else(|| {
-                        CompilerError::InvalidSource("unterminated string literal".to_owned())
-                    })?;
-                tokens.push(Token::Str(input[string_start..string_end].to_owned()));
-
-                while let Some((peek_index, _)) = chars.peek() {
-                    if *peek_index <= string_end {
-                        chars.next();
-                    } else {
-                        break;
-                    }
+                let mut end = index + 1;
+                while end < chars.len() && chars[end] != '"' {
+                    end += 1;
                 }
+                if end >= chars.len() {
+                    return Err(CompilerError::InvalidSource(
+                        "unterminated string literal".to_owned(),
+                    ));
+                }
+                tokens.push(Token::Str(chars[index + 1..end].iter().collect()));
+                index = end + 1;
             }
             '0'..='9' => {
-                let end = input[index..]
-                    .char_indices()
-                    .find(|(_, c)| !c.is_ascii_digit())
-                    .map(|(offset, _)| index + offset)
-                    .unwrap_or(input.len());
-                let value = input[index..end].parse::<i32>().map_err(|error| {
-                    CompilerError::InvalidSource(format!("invalid integer literal: {error}"))
-                })?;
-                tokens.push(Token::Int(value));
-
-                while let Some((peek_index, _)) = chars.peek() {
-                    if *peek_index < end {
-                        chars.next();
-                    } else {
-                        break;
+                let start = index;
+                index += 1;
+                while index < chars.len() && chars[index].is_ascii_digit() {
+                    index += 1;
+                }
+                if index < chars.len() && chars[index] == '.' {
+                    index += 1;
+                    while index < chars.len() && chars[index].is_ascii_digit() {
+                        index += 1;
                     }
+                    let value = input[start..index].parse::<f32>().map_err(|error| {
+                        CompilerError::InvalidSource(format!("invalid float literal: {error}"))
+                    })?;
+                    tokens.push(Token::Float(value));
+                } else {
+                    let value = input[start..index].parse::<i32>().map_err(|error| {
+                        CompilerError::InvalidSource(format!("invalid integer literal: {error}"))
+                    })?;
+                    tokens.push(Token::Int(value));
                 }
             }
             'a'..='z' | 'A'..='Z' | '_' => {
-                let end = input[index..]
-                    .char_indices()
-                    .find(|(_, c)| !matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_'))
-                    .map(|(offset, _)| index + offset)
-                    .unwrap_or(input.len());
-                let ident = &input[index..end];
-
+                let start = index;
+                index += 1;
+                while index < chars.len()
+                    && matches!(chars[index], 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '.')
+                {
+                    index += 1;
+                }
+                let ident = &input[start..index];
                 match ident {
                     "true" => tokens.push(Token::Bool(true)),
                     "false" => tokens.push(Token::Bool(false)),
                     _ => tokens.push(Token::Ident(ident.to_owned())),
-                }
-
-                while let Some((peek_index, _)) = chars.peek() {
-                    if *peek_index < end {
-                        chars.next();
-                    } else {
-                        break;
-                    }
                 }
             }
             _ => {
@@ -587,11 +750,26 @@ impl ExpressionParser {
     }
 
     fn parse_expression(&mut self) -> Result<Expression, CompilerError> {
-        self.parse_addition()
+        self.parse_equality()
     }
 
     fn is_at_end(&self) -> bool {
         self.current >= self.tokens.len()
+    }
+
+    fn parse_equality(&mut self) -> Result<Expression, CompilerError> {
+        let mut expression = self.parse_addition()?;
+
+        while self.match_token(&Token::EqualEqual) {
+            let right = self.parse_addition()?;
+            expression = Expression::Binary {
+                left: Box::new(expression),
+                operator: BinaryOperator::Equal,
+                right: Box::new(right),
+            };
+        }
+
+        Ok(expression)
     }
 
     fn parse_addition(&mut self) -> Result<Expression, CompilerError> {
@@ -632,6 +810,7 @@ impl ExpressionParser {
         match token {
             Token::Bool(value) => Ok(Expression::Bool(value)),
             Token::Int(value) => Ok(Expression::Int(value)),
+            Token::Float(value) => Ok(Expression::Float(value)),
             Token::Str(value) => Ok(Expression::Str(value)),
             Token::Ident(name) => Ok(Expression::Variable(name)),
             Token::DivertTarget(target) => Ok(Expression::DivertTarget(target)),
@@ -692,26 +871,105 @@ fn parse_bool(value: &str) -> Result<bool, CompilerError> {
     }
 }
 
-fn parse_header(line: &str) -> Option<FlowHeader> {
+fn parse_header(line: &str) -> Option<Header> {
     let trimmed = line.trim();
-    if !trimmed.starts_with("==") {
-        return None;
+
+    if trimmed.starts_with("===") || trimmed.starts_with("==") {
+        let inner = trimmed.trim_matches('=').trim();
+        if let Some(rest) = inner.strip_prefix("function") {
+            let (name, parameters) = parse_header_signature(rest.trim())?;
+            return Some(Header::Function { name, parameters });
+        }
+
+        let (name, parameters) = parse_header_signature(inner)?;
+        return Some(Header::Knot { name, parameters });
     }
 
-    let inner = trimmed.trim_matches('=').trim();
-    if let Some(rest) = inner.strip_prefix("function") {
-        let name = parse_identifier(rest.trim())?;
-        return Some(FlowHeader::Function(name.to_owned()));
+    if trimmed.starts_with('=') {
+        let inner = trimmed.trim_start_matches('=').trim();
+        let name = parse_path_identifier(inner)?;
+        return Some(Header::Stitch {
+            name: name.to_owned(),
+        });
     }
 
-    let name = parse_identifier(inner)?;
-    Some(FlowHeader::Knot(name.to_owned()))
+    None
 }
 
-fn parse_identifier(text: &str) -> Option<&str> {
+fn parse_header_signature(text: &str) -> Option<(String, Vec<String>)> {
+    let open = text.find('(');
+    let close = text.rfind(')');
+
+    match (open, close) {
+        (Some(open), Some(close)) if close > open => {
+            let name = parse_path_identifier(text[..open].trim())?.to_owned();
+            let parameters = split_top_level_commas(&text[open + 1..close])
+                .into_iter()
+                .filter(|part| !part.trim().is_empty())
+                .map(|part| part.trim().to_owned())
+                .collect();
+            Some((name, parameters))
+        }
+        _ => Some((parse_path_identifier(text)?.to_owned(), Vec::new())),
+    }
+}
+
+fn parse_call_like(text: &str) -> Result<Option<(String, Vec<Expression>)>, CompilerError> {
+    let trimmed = text.trim();
+    let open = match trimmed.find('(') {
+        Some(index) => index,
+        None => return Ok(None),
+    };
+    let close = trimmed
+        .rfind(')')
+        .ok_or_else(|| CompilerError::InvalidSource("missing ')' in divert target".to_owned()))?;
+    if close < open {
+        return Err(CompilerError::InvalidSource(
+            "invalid call-like syntax".to_owned(),
+        ));
+    }
+
+    let name = parse_path_identifier(trimmed[..open].trim())
+        .ok_or_else(|| CompilerError::InvalidSource("invalid divert target".to_owned()))?
+        .to_owned();
+    let mut arguments = Vec::new();
+    for argument in split_top_level_commas(&trimmed[open + 1..close]) {
+        if !argument.trim().is_empty() {
+            arguments.push(parse_expression(argument.trim())?);
+        }
+    }
+
+    Ok(Some((name, arguments)))
+}
+
+fn split_top_level_commas(input: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut depth = 0;
+    let mut in_string = false;
+    let chars: Vec<char> = input.chars().collect();
+
+    for (index, ch) in chars.iter().enumerate() {
+        match ch {
+            '"' => in_string = !in_string,
+            '(' if !in_string => depth += 1,
+            ')' if !in_string => depth -= 1,
+            ',' if !in_string && depth == 0 => {
+                parts.push(input[start..index].trim());
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+
+    parts.push(input[start..].trim());
+    parts
+}
+
+fn parse_path_identifier(text: &str) -> Option<&str> {
     let end = text
         .char_indices()
-        .find(|(_, ch)| !matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_'))
+        .find(|(_, ch)| !matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '.'))
         .map(|(index, _)| index)
         .unwrap_or(text.len());
 
@@ -719,13 +977,5 @@ fn parse_identifier(text: &str) -> Option<&str> {
         None
     } else {
         Some(&text[..end])
-    }
-}
-
-impl FlowHeader {
-    fn into_name(self) -> String {
-        match self {
-            Self::Knot(name) | Self::Function(name) => name,
-        }
     }
 }

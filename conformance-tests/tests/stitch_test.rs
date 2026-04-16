@@ -1,10 +1,12 @@
 use bladeink::{story::Story, story_error::StoryError};
+use bladeink_compiler::Compiler;
 
 mod common;
 
 #[test]
 fn auto_stitch_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/stitch/auto-stitch.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/stitch/auto-stitch.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -18,7 +20,8 @@ fn auto_stitch_test() -> Result<(), StoryError> {
 
 #[test]
 fn auto_stitch2_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/stitch/auto-stitch.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/stitch/auto-stitch.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -35,7 +38,8 @@ fn auto_stitch2_test() -> Result<(), StoryError> {
 
 #[test]
 fn manual_stitch_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/stitch/manual-stitch.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/stitch/manual-stitch.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -56,7 +60,8 @@ fn manual_stitch_test() -> Result<(), StoryError> {
 
 #[test]
 fn manual_stitch2_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/stitch/manual-stitch.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/stitch/manual-stitch.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 

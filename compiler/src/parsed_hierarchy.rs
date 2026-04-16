@@ -5,23 +5,26 @@ use serde_json::{json, Map, Value};
 
 use crate::error::CompilerError;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Condition {
     Bool(bool),
     FunctionCall(String),
+    Expression(Expression),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOperator {
     Add,
     Subtract,
     Multiply,
+    Equal,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
     Bool(bool),
     Int(i32),
+    Float(f32),
     Str(String),
     Variable(String),
     DivertTarget(String),
@@ -38,35 +41,36 @@ pub enum AssignMode {
     AddAssign,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GlobalVariable {
     pub name: String,
     pub initial_value: Expression,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ChoiceStyle {
-    ChoiceOnly,
-    EchoLabelOnSelect,
+#[derive(Debug, Clone, PartialEq)]
+pub struct Divert {
+    pub target: String,
+    pub arguments: Vec<Expression>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Choice {
-    pub label: String,
+    pub display_text: String,
+    pub selected_text: Option<String>,
     pub body: Vec<Node>,
-    pub style: ChoiceStyle,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Node {
     Text(String),
     OutputExpression(Expression),
     Newline,
     Glue,
-    Divert(String),
+    Divert(Divert),
     Conditional {
         condition: Condition,
-        branch: Vec<Node>,
+        when_true: Vec<Node>,
+        when_false: Option<Vec<Node>>,
     },
     ReturnBool(bool),
     Assignment {
@@ -77,13 +81,15 @@ pub enum Node {
     Choice(Choice),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Flow {
     pub name: String,
+    pub parameters: Vec<String>,
     pub nodes: Vec<Node>,
+    pub children: Vec<Flow>,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct ParsedStory {
     globals: Vec<GlobalVariable>,
     root: Vec<Node>,
@@ -94,6 +100,18 @@ pub struct ParsedStory {
 struct EmittedContainer {
     content: Vec<Value>,
     named: Map<String, Value>,
+}
+
+#[derive(Clone)]
+struct EmitScope {
+    path: String,
+    top_flow_name: Option<String>,
+    child_flow_names: BTreeSet<String>,
+}
+
+struct EmitContext {
+    global_variables: BTreeSet<String>,
+    top_flow_names: BTreeSet<String>,
 }
 
 impl EmittedContainer {
@@ -134,11 +152,6 @@ impl EmittedContainer {
     }
 }
 
-struct EmitContext {
-    global_variables: BTreeSet<String>,
-    flow_names: BTreeSet<String>,
-}
-
 impl ParsedStory {
     pub fn new(globals: Vec<GlobalVariable>, root: Vec<Node>, flows: Vec<Flow>) -> Self {
         Self {
@@ -150,18 +163,15 @@ impl ParsedStory {
 
     pub fn to_json_value(&self) -> Result<Value, CompilerError> {
         let context = EmitContext::new(self);
+        let root_scope = EmitScope::root(&self.flows);
 
-        let mut root_container = emit_nodes(&self.root, "0", &context)?;
+        let mut root_container = emit_nodes(&self.root, &root_scope, &context)?;
         root_container.push(json!(["done", {"#n": "g-0"}]));
 
         let mut named_content = Map::new();
 
         for flow in &self.flows {
-            let flow_container = emit_nodes(&flow.nodes, &flow.name, &context)?;
-            named_content.insert(
-                flow.name.clone(),
-                flow_container.into_json_array(None, None)?,
-            );
+            named_content.insert(flow.name.clone(), emit_flow(flow, &context)?);
         }
 
         if !self.globals.is_empty() {
@@ -198,12 +208,69 @@ impl EmitContext {
     fn new(story: &ParsedStory) -> Self {
         Self {
             global_variables: story.globals.iter().map(|var| var.name.clone()).collect(),
-            flow_names: story.flows.iter().map(|flow| flow.name.clone()).collect(),
+            top_flow_names: story.flows.iter().map(|flow| flow.name.clone()).collect(),
+        }
+    }
+}
+
+impl EmitScope {
+    fn root(flows: &[Flow]) -> Self {
+        Self {
+            path: "0".to_owned(),
+            top_flow_name: None,
+            child_flow_names: flows.iter().map(|flow| flow.name.clone()).collect(),
         }
     }
 
-    fn is_variable_divert(&self, target: &str) -> bool {
-        self.global_variables.contains(target) && !self.flow_names.contains(target)
+    fn child_flow(&self, child: &Flow) -> Self {
+        let path = if self.path == "0" {
+            child.name.clone()
+        } else {
+            format!("{}.{}", self.path, child.name)
+        };
+
+        Self {
+            path,
+            top_flow_name: self
+                .top_flow_name
+                .clone()
+                .or_else(|| Some(child.name.clone())),
+            child_flow_names: child
+                .children
+                .iter()
+                .map(|nested| nested.name.clone())
+                .collect(),
+        }
+    }
+
+    fn choice_branch(&self, branch_name: &str) -> Self {
+        Self {
+            path: format!("{}.{}", self.path, branch_name),
+            top_flow_name: self.top_flow_name.clone(),
+            child_flow_names: self.child_flow_names.clone(),
+        }
+    }
+
+    fn resolve_divert_target(&self, target: &str, context: &EmitContext) -> String {
+        if target == "END" || target == "DONE" || target.contains('.') {
+            return target.to_owned();
+        }
+
+        if context.global_variables.contains(target) && !context.top_flow_names.contains(target) {
+            return target.to_owned();
+        }
+
+        if self.child_flow_names.contains(target) {
+            if let Some(top_flow_name) = &self.top_flow_name {
+                return format!("{top_flow_name}.{target}");
+            }
+        }
+
+        target.to_owned()
+    }
+
+    fn is_variable_divert(&self, target: &str, context: &EmitContext) -> bool {
+        context.global_variables.contains(target) && !context.top_flow_names.contains(target)
     }
 }
 
@@ -222,9 +289,78 @@ fn emit_global_declarations(globals: &[GlobalVariable]) -> Result<EmittedContain
     Ok(container)
 }
 
+fn emit_flow(flow: &Flow, context: &EmitContext) -> Result<Value, CompilerError> {
+    let parent_scope = EmitScope::root(&[]);
+    let scope = parent_scope.child_flow(flow);
+    let mut container = emit_nodes(&flow.nodes, &scope, context)?;
+
+    prepend_parameters(&mut container, &flow.parameters);
+
+    if container.content.is_empty() && !flow.children.is_empty() {
+        let target = if let Some(top_flow_name) = &scope.top_flow_name {
+            format!("{top_flow_name}.{}", flow.children[0].name)
+        } else {
+            flow.children[0].name.clone()
+        };
+        container.push(json!({"->": target}));
+    }
+
+    for child in &flow.children {
+        container.insert_named(
+            child.name.clone(),
+            emit_nested_flow(child, &scope, context)?,
+        );
+    }
+
+    container.into_json_array(None, None)
+}
+
+fn emit_nested_flow(
+    flow: &Flow,
+    parent_scope: &EmitScope,
+    context: &EmitContext,
+) -> Result<Value, CompilerError> {
+    let scope = parent_scope.child_flow(flow);
+    let mut container = emit_nodes(&flow.nodes, &scope, context)?;
+
+    prepend_parameters(&mut container, &flow.parameters);
+
+    if container.content.is_empty() && !flow.children.is_empty() {
+        let target = if let Some(top_flow_name) = &scope.top_flow_name {
+            format!("{top_flow_name}.{}", flow.children[0].name)
+        } else {
+            flow.children[0].name.clone()
+        };
+        container.push(json!({"->": target}));
+    }
+
+    for child in &flow.children {
+        container.insert_named(
+            child.name.clone(),
+            emit_nested_flow(child, &scope, context)?,
+        );
+    }
+
+    container.into_json_array(None, None)
+}
+
+fn prepend_parameters(container: &mut EmittedContainer, parameters: &[String]) {
+    if parameters.is_empty() {
+        return;
+    }
+
+    let mut prefix: Vec<Value> = parameters
+        .iter()
+        .rev()
+        .map(|parameter| json!({"temp=": parameter}))
+        .collect();
+    prefix.append(&mut container.content);
+    container.content = prefix;
+}
+
 fn emit_nodes(
     nodes: &[Node],
-    container_path: &str,
+    scope: &EmitScope,
     context: &EmitContext,
 ) -> Result<EmittedContainer, CompilerError> {
     let mut out = EmittedContainer::default();
@@ -241,27 +377,22 @@ fn emit_nodes(
             }
             Node::Newline => out.push(json!("\n")),
             Node::Glue => out.push(json!("<>")),
-            Node::Divert(target) => {
-                if target == "END" {
-                    out.push(json!("end"));
-                } else if target == "DONE" {
-                    out.push(json!("done"));
-                } else if context.is_variable_divert(target) {
-                    out.push(json!({"->": target, "var": true}));
-                } else {
-                    out.push(json!({"->": target}));
-                }
-            }
+            Node::Divert(divert) => emit_divert(&mut out, divert, scope, context),
             Node::ReturnBool(value) => {
                 out.push(json!("ev"));
                 out.push(json!(value));
                 out.push(json!("/ev"));
                 out.push(json!("~ret"));
             }
-            Node::Conditional { condition, branch } => out.push(emit_conditional(
+            Node::Conditional {
                 condition,
-                branch,
-                container_path,
+                when_true,
+                when_false,
+            } => out.push(emit_conditional(
+                condition,
+                when_true,
+                when_false.as_deref(),
+                scope,
                 out.content.len(),
                 context,
             )?),
@@ -271,13 +402,46 @@ fn emit_nodes(
                 mode,
             } => emit_assignment(variable_name, expression, mode, &mut out),
             Node::Choice(choice) => {
-                emit_choice(&mut out, choice, container_path, next_choice_index, context)?;
+                emit_choice(&mut out, choice, scope, next_choice_index, context)?;
                 next_choice_index += 1;
             }
         }
     }
 
     Ok(out)
+}
+
+fn emit_divert(
+    out: &mut EmittedContainer,
+    divert: &Divert,
+    scope: &EmitScope,
+    context: &EmitContext,
+) {
+    let resolved_target = scope.resolve_divert_target(&divert.target, context);
+
+    if resolved_target == "END" {
+        out.push(json!("end"));
+        return;
+    }
+
+    if resolved_target == "DONE" {
+        out.push(json!("done"));
+        return;
+    }
+
+    if !divert.arguments.is_empty() {
+        out.push(json!("ev"));
+        for argument in &divert.arguments {
+            emit_expression(argument, &mut out.content);
+        }
+        out.push(json!("/ev"));
+    }
+
+    if scope.is_variable_divert(&resolved_target, context) {
+        out.push(json!({"->": resolved_target, "var": true}));
+    } else {
+        out.push(json!({"->": resolved_target}));
+    }
 }
 
 fn emit_assignment(
@@ -310,30 +474,31 @@ fn emit_assignment(
 fn emit_choice(
     out: &mut EmittedContainer,
     choice: &Choice,
-    container_path: &str,
+    scope: &EmitScope,
     choice_index: usize,
     context: &EmitContext,
 ) -> Result<(), CompilerError> {
     out.push(json!("ev"));
     out.push(json!("str"));
-    out.push(json!(format!("^{}", choice.label)));
+    out.push(json!(format!("^{}", choice.display_text)));
     out.push(json!("/str"));
     out.push(json!("/ev"));
 
     let branch_name = format!("c-{choice_index}");
-    let branch_path = format!("{container_path}.{branch_name}");
+    let branch_scope = scope.choice_branch(&branch_name);
     out.push(json!({
-        "*": branch_path,
+        "*": branch_scope.path,
         "flg": 20
     }));
 
-    let mut branch_nodes = choice.body.clone();
-    if choice.style == ChoiceStyle::EchoLabelOnSelect {
-        branch_nodes.insert(0, Node::Newline);
-        branch_nodes.insert(0, Node::Text(choice.label.clone()));
+    let mut branch_nodes = Vec::new();
+    if let Some(selected_text) = &choice.selected_text {
+        branch_nodes.push(Node::Text(selected_text.clone()));
+        branch_nodes.push(Node::Newline);
     }
+    branch_nodes.extend(choice.body.clone());
 
-    let branch_container = emit_nodes(&branch_nodes, &branch_path, context)?;
+    let branch_container = emit_nodes(&branch_nodes, &branch_scope, context)?;
     out.insert_named(
         branch_name,
         branch_container.into_json_array(None, Some(5))?,
@@ -346,6 +511,7 @@ fn emit_expression(expression: &Expression, out: &mut Vec<Value>) {
     match expression {
         Expression::Bool(value) => out.push(json!(value)),
         Expression::Int(value) => out.push(json!(value)),
+        Expression::Float(value) => out.push(json!(value)),
         Expression::Str(value) => {
             out.push(json!("str"));
             out.push(json!(format!("^{value}")));
@@ -364,22 +530,13 @@ fn emit_expression(expression: &Expression, out: &mut Vec<Value>) {
                 BinaryOperator::Add => "+",
                 BinaryOperator::Subtract => "-",
                 BinaryOperator::Multiply => "*",
+                BinaryOperator::Equal => "==",
             }));
         }
     }
 }
 
-fn emit_conditional(
-    condition: &Condition,
-    branch: &[Node],
-    container_path: &str,
-    conditional_index: usize,
-    context: &EmitContext,
-) -> Result<Value, CompilerError> {
-    let mut out = Vec::new();
-
-    out.push(json!("ev"));
-
+fn emit_condition(condition: &Condition, out: &mut Vec<Value>) -> Result<(), CompilerError> {
     match condition {
         Condition::Bool(value) => out.push(json!(value)),
         Condition::FunctionCall(name) => {
@@ -389,21 +546,80 @@ fn emit_conditional(
                 CompilerError::InvalidSource(format!("failed to serialize function call: {error}"))
             })?);
         }
+        Condition::Expression(expression) => emit_expression(expression, out),
     }
 
-    out.push(json!("/ev"));
+    Ok(())
+}
 
-    let mut branch_content = emit_nodes(branch, container_path, context)?;
-    branch_content.push(json!({"->": format!("{container_path}.{}", conditional_index + 1)}));
+fn emit_conditional(
+    condition: &Condition,
+    when_true: &[Node],
+    when_false: Option<&[Node]>,
+    scope: &EmitScope,
+    conditional_index: usize,
+    context: &EmitContext,
+) -> Result<Value, CompilerError> {
+    let mut out = Vec::new();
+
+    out.extend(emit_conditional_branch(
+        Some(condition),
+        when_true,
+        scope,
+        conditional_index,
+        0,
+        context,
+    )?);
+
+    if let Some(when_false) = when_false {
+        out.extend(emit_conditional_branch(
+            None,
+            when_false,
+            scope,
+            conditional_index,
+            1,
+            context,
+        )?);
+    }
+
+    out.push(json!("nop"));
+
+    Ok(Value::Array(out))
+}
+
+fn emit_conditional_branch(
+    condition: Option<&Condition>,
+    branch: &[Node],
+    scope: &EmitScope,
+    conditional_index: usize,
+    _branch_index: usize,
+    context: &EmitContext,
+) -> Result<Vec<Value>, CompilerError> {
+    let mut out = Vec::new();
+
+    if let Some(condition) = condition {
+        out.push(json!("ev"));
+        emit_condition(condition, &mut out)?;
+        out.push(json!("/ev"));
+    }
+
+    let mut branch_content = emit_nodes(branch, scope, context)?;
+    branch_content.push(json!({"->": format!("{}.{}", scope.path, conditional_index + 1)}));
 
     let mut named = Map::new();
     named.insert("b".to_owned(), branch_content.into_json_array(None, None)?);
 
-    out.push(Value::Array(vec![
-        json!({"->": ".^.b", "c": true}),
-        Value::Object(named),
-    ]));
-    out.push(json!("nop"));
+    if condition.is_some() {
+        out.push(Value::Array(vec![
+            json!({"->": ".^.b", "c": true}),
+            Value::Object(named),
+        ]));
+    } else {
+        out.push(Value::Array(vec![
+            json!({"->": ".^.b"}),
+            Value::Object(named),
+        ]));
+    }
 
-    Ok(Value::Array(out))
+    Ok(out)
 }
