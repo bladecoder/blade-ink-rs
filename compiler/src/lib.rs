@@ -33,7 +33,39 @@ impl Compiler {
 
     pub fn compile(&self, source: &str) -> Result<String, CompilerError> {
         let _ = self.options.count_all_visits;
-        let _parsed_story = parser::Parser::new(source).parse()?;
-        Err(CompilerError::Unimplemented)
+        let parsed_story = parser::Parser::new(source).parse()?;
+        parsed_story
+            .to_json_string()
+            .map_err(|_| CompilerError::InvalidSource("failed to serialize compiled ink"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Compiler;
+    use serde_json::Value;
+
+    #[test]
+    fn compiles_single_line_text_story() {
+        let compiled = Compiler::new().compile("Line.\n").unwrap();
+        let actual: Value = serde_json::from_str(&compiled).unwrap();
+        let expected: Value = serde_json::from_str(
+            r##"{"inkVersion":21,"root":[["^Line.","\n",["done",{"#n":"g-0"}],null],"done",null],"listDefs":{}}"##,
+        )
+        .unwrap();
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn compiles_two_line_text_story() {
+        let compiled = Compiler::new().compile("Line.\nOther line.\n").unwrap();
+        let actual: Value = serde_json::from_str(&compiled).unwrap();
+        let expected: Value = serde_json::from_str(
+            r##"{"inkVersion":21,"root":[["^Line.","\n","^Other line.","\n",["done",{"#n":"g-0"}],null],"done",null],"listDefs":{}}"##,
+        )
+        .unwrap();
+
+        assert_eq!(expected, actual);
     }
 }

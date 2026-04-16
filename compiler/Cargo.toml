@@ -10,3 +10,4 @@ path = "src/lib.rs"
 
 [dependencies]
 bladeink = { path = "../runtime" }
+serde_json = "1.0.149"
