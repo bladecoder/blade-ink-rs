@@ -478,7 +478,9 @@ impl Story {
         // so that when returning from the thread, it returns to the content
         // after this instruction.
         if let Some(current_content_obj) = &current_content_obj {
-            if let Some(control_cmd) = current_content_obj.as_any().downcast_ref::<ControlCommand>()
+            if let Some(control_cmd) = current_content_obj
+                .as_any()
+                .downcast_ref::<ControlCommand>()
             {
                 if control_cmd.command_type == CommandType::StartThread {
                     self.get_state().get_callstack().borrow_mut().push_thread();

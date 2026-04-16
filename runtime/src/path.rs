@@ -144,8 +144,7 @@ impl Path {
     }
 
     pub fn get_components_string(&self) -> String {
-        self
-            .components_string
+        self.components_string
             .get_or_init(|| {
                 let mut sb = String::new();
 
