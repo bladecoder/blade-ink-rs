@@ -360,7 +360,7 @@ pub fn parse_inline_sequence(content: &str) -> Result<Option<Sequence>, Compiler
     if parts.len() < 2 && !explicit_mode {
         return Ok(None);
     }
-    if parts.len() < 1 {
+    if parts.is_empty() {
         return Ok(None);
     }
 
