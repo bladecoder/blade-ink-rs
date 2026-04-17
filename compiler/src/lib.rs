@@ -252,7 +252,9 @@ mod tests {
                 if name == "sub.ink" {
                     Ok(sub_source.to_owned())
                 } else {
-                    Err(CompilerError::invalid_source(format!("file not found: {name}")))
+                    Err(CompilerError::invalid_source(format!(
+                        "file not found: {name}"
+                    )))
                 }
             })
             .unwrap_err();
