@@ -1544,7 +1544,7 @@ fn emit_switch_conditional(
     out.push(json!("/ev"));
 
     // Each branch
-    for ((case_expr, _), body) in branches.iter().zip(branch_bodies.into_iter()) {
+    for ((case_expr, _), body) in branches.iter().zip(branch_bodies) {
         let mut named = Map::new();
         let body_array = body.into_json_array(None, None)?;
         // Insert pop at the start of the body array
