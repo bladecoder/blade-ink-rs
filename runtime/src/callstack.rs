@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Rc};
 
-use serde_json::{json, Map};
+use serde_json::{Map, json};
 
 use crate::{
     container::Container,
@@ -148,10 +148,10 @@ impl Thread {
             if !el.current_pointer.is_null() {
                 el_map.insert(
                     "cPath".to_owned(),
-                    json!(Object::get_path(
-                        el.current_pointer.container.as_ref().unwrap().as_ref()
-                    )
-                    .get_components_string()),
+                    json!(
+                        Object::get_path(el.current_pointer.container.as_ref().unwrap().as_ref())
+                            .get_components_string()
+                    ),
                 );
                 el_map.insert("idx".to_owned(), json!(el.current_pointer.index));
             }

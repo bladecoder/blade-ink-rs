@@ -38,8 +38,10 @@ fn gather_chain_test() -> Result<(), StoryError> {
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
-    assert_eq!(                "I did not pause for breath but kept on running. The road could not be much further! Mackie would have the engine running, and then I'd be safe.",
-    text[0]);
+    assert_eq!(
+        "I did not pause for breath but kept on running. The road could not be much further! Mackie would have the engine running, and then I'd be safe.",
+        text[0]
+    );
     assert_eq!(2, story.get_current_choices().len());
     story.choose_choice_index(0)?;
 
@@ -76,7 +78,10 @@ fn nested_flow_test() -> Result<(), StoryError> {
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, text.len());
     assert_eq!("\"Myself!\"", text[0]);
-    assert_eq!("Mrs. Christie lowered her manuscript a moment. The rest of the writing group sat, open-mouthed.", text[1]);
+    assert_eq!(
+        "Mrs. Christie lowered her manuscript a moment. The rest of the writing group sat, open-mouthed.",
+        text[1]
+    );
 
     Ok(())
 }

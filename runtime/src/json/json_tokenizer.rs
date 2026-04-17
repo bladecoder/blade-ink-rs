@@ -105,9 +105,10 @@ impl<'a> JsonTokenizer<'a> {
             utf8_char.push(temp_buf[0]);
 
             if let Ok(utf8_str) = std::str::from_utf8(&utf8_char)
-                && let Some(ch) = utf8_str.chars().next() {
-                    return Ok(ch);
-                }
+                && let Some(ch) = utf8_str.chars().next()
+            {
+                return Ok(ch);
+            }
 
             // If we have read 4 bytes and still not a valid character, return an error
             if utf8_char.len() >= 4 {

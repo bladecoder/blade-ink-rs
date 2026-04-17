@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Rc};
 
-use serde_json::{json, Map};
+use serde_json::{Map, json};
 
 use crate::{
     choice::Choice,

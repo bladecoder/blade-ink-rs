@@ -91,7 +91,10 @@ fn list_range_test() -> Result<(), Box<dyn Error>> {
     let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
-    assert_eq!("Pound, Pizza, Euro, Pasta, Dollar, Curry, Paella\nEuro, Pasta, Dollar, Curry\nTwo, Three, Four, Five, Six\nPizza, Pasta\n", &story.continue_maximally()?);
+    assert_eq!(
+        "Pound, Pizza, Euro, Pasta, Dollar, Curry, Paella\nEuro, Pasta, Dollar, Curry\nTwo, Three, Four, Five, Six\nPizza, Pasta\n",
+        &story.continue_maximally()?
+    );
 
     Ok(())
 }
@@ -119,7 +122,10 @@ fn more_list_operations2_test() -> Result<(), Box<dyn Error>> {
     let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
-    assert_eq!("a1, b1, c1\na1\na1, b2\ncount:2\nmax:c2\nmin:a1\ntrue\ntrue\nfalse\nempty\na2\na2, b2, c2\nrange:a1, b2\na1\nsubtract:a1, c1\nrandom:c2\nlistinc:b1\n", &story.continue_maximally()?);
+    assert_eq!(
+        "a1, b1, c1\na1\na1, b2\ncount:2\nmax:c2\nmin:a1\ntrue\ntrue\nfalse\nempty\na2\na2, b2, c2\nrange:a1, b2\na1\nsubtract:a1, c1\nrandom:c2\nlistinc:b1\n",
+        &story.continue_maximally()?
+    );
 
     Ok(())
 }
@@ -141,7 +147,10 @@ fn list_comparison_test() -> Result<(), Box<dyn Error>> {
     let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
-    assert_eq!("Hey, my name is Philippe. What about yours?\nI am Andre and I need my rheumatism pills!\nWould you like me, Philippe, to get some more for you?\n", &story.continue_maximally()?);
+    assert_eq!(
+        "Hey, my name is Philippe. What about yours?\nI am Andre and I need my rheumatism pills!\nWould you like me, Philippe, to get some more for you?\n",
+        &story.continue_maximally()?
+    );
 
     Ok(())
 }

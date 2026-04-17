@@ -206,16 +206,18 @@ impl InkList {
         if let ValueType::Int(v) = min_bound {
             min_value = *v;
         } else if let ValueType::List(l) = min_bound
-            && !l.items.is_empty() {
-                min_value = l.get_min_item().unwrap().1;
-            }
+            && !l.items.is_empty()
+        {
+            min_value = l.get_min_item().unwrap().1;
+        }
 
         if let ValueType::Int(v) = max_bound {
             max_value = *v;
         } else if let ValueType::List(l) = max_bound
-            && !l.items.is_empty() {
-                max_value = l.get_max_item().unwrap().1;
-            }
+            && !l.items.is_empty()
+        {
+            max_value = l.get_max_item().unwrap().1;
+        }
 
         let mut sub_list = InkList::new();
         sub_list.set_initial_origin_names(self.initial_origin_names.borrow().clone());

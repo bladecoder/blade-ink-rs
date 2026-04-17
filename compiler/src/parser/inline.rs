@@ -14,11 +14,12 @@ pub fn tokenize_inline_content(content: &str) -> Result<Vec<Node>, CompilerError
         // \# is an escaped hash — emit literal '#' instead of starting a tag
         if ch == '\\' {
             if let Some((_, next_ch)) = chars.peek().copied()
-                && next_ch == '#' {
-                    chars.next();
-                    text.push('#');
-                    continue;
-                }
+                && next_ch == '#'
+            {
+                chars.next();
+                text.push('#');
+                continue;
+            }
             text.push(ch);
             continue;
         }

@@ -4,9 +4,9 @@ use crate::{
 };
 
 use super::{
+    Line, ParsedStatement,
     expression::parse_expression,
     inline::{parse_condition, parse_inline_conditional, tokenize_inline_content},
-    Line, ParsedStatement,
 };
 
 pub fn looks_like_conditional(content: &str) -> bool {
@@ -134,7 +134,7 @@ pub fn parse_conditional(
             | ParsedStatement::ExternalFunction(_) => {
                 return Err(CompilerError::unsupported_feature(
                     "global declarations are not supported inside conditionals".to_owned(),
-                ))
+                ));
             }
             ParsedStatement::Nodes(mut nodes) => target.append(&mut nodes),
         }

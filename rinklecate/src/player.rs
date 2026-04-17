@@ -8,8 +8,8 @@ use std::io::{self, BufRead, Write};
 use std::rc::Rc;
 
 use bladeink::story::{
-    errors::{ErrorHandler, ErrorType},
     Story,
+    errors::{ErrorHandler, ErrorType},
 };
 
 use crate::Options;
@@ -308,9 +308,10 @@ fn parse_input(input: &str) -> InputResult {
 
     // Choice number (1-based)
     if let Ok(n) = input.trim().parse::<usize>()
-        && n >= 1 {
-            return InputResult::Choice(n - 1);
-        }
+        && n >= 1
+    {
+        return InputResult::Choice(n - 1);
+    }
 
     InputResult::Unknown
 }

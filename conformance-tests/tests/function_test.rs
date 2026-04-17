@@ -96,8 +96,10 @@ fn complex_func3_test() -> Result<(), StoryError> {
     common::next_all(&mut story, &mut text)?;
 
     assert_eq!(1, text.len());
-    assert_eq!("\"I will pay you 120 reales if you get the goods to their destination. The goods will take up 20 cargo spaces.\"",
-    text[0]);
+    assert_eq!(
+        "\"I will pay you 120 reales if you get the goods to their destination. The goods will take up 20 cargo spaces.\"",
+        text[0]
+    );
 
     Ok(())
 }

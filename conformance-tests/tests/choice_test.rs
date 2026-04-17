@@ -308,7 +308,10 @@ fn divert_choice_test() -> Result<(), StoryError> {
     text.clear();
     common::next_all(&mut story, &mut text)?;
     assert_eq!(2, text.len());
-    assert_eq!("You pull a face, and the soldier comes at you! You shove the guard to one side, but he comes back swinging.", text[0]);
+    assert_eq!(
+        "You pull a face, and the soldier comes at you! You shove the guard to one side, but he comes back swinging.",
+        text[0]
+    );
 
     assert_eq!(1, story.get_current_choices().len());
     assert_eq!("Grapple and fight", story.get_current_choices()[0].text);

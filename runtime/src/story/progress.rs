@@ -6,7 +6,7 @@ use crate::{
     object::RTObject,
     pointer::{self, Pointer},
     push_pop::PushPopType,
-    story::{errors::ErrorType, OutputStateChange, Story},
+    story::{OutputStateChange, Story, errors::ErrorType},
     story_error::StoryError,
     value::Value,
     value_type::VariablePointerValue,
@@ -55,7 +55,10 @@ impl Story {
 
     pub(crate) fn if_async_we_cant(&self, activity_str: &str) -> Result<(), StoryError> {
         if self.async_continue_active {
-            return Err(StoryError::InvalidStoryState(format!("Can't {}. Story is in the middle of a continue_async(). Make more continue_async() calls or a single cont() call beforehand.", activity_str)));
+            return Err(StoryError::InvalidStoryState(format!(
+                "Can't {}. Story is in the middle of a continue_async(). Make more continue_async() calls or a single cont() call beforehand.",
+                activity_str
+            )));
         }
 
         Ok(())
@@ -430,19 +433,20 @@ impl Story {
             );
 
             if let Some(var_pointer) = var_pointer
-                && var_pointer.context_index == -1 {
-                    // Create new Object so we're not overwriting the story's own
-                    // data
-                    let context_idx = self
-                        .get_state()
-                        .get_callstack()
-                        .borrow()
-                        .context_for_variable_named(&var_pointer.variable_name);
-                    current_content_obj = Some(Rc::new(Value::new_variable_pointer(
-                        &var_pointer.variable_name,
-                        context_idx as i32,
-                    )));
-                }
+                && var_pointer.context_index == -1
+            {
+                // Create new Object so we're not overwriting the story's own
+                // data
+                let context_idx = self
+                    .get_state()
+                    .get_callstack()
+                    .borrow()
+                    .context_for_variable_named(&var_pointer.variable_name);
+                current_content_obj = Some(Rc::new(Value::new_variable_pointer(
+                    &var_pointer.variable_name,
+                    context_idx as i32,
+                )));
+            }
 
             // Expression evaluation content
             if self.get_state().get_in_expression_evaluation() {
@@ -467,9 +471,10 @@ impl Story {
             && let Some(control_cmd) = current_content_obj
                 .as_any()
                 .downcast_ref::<ControlCommand>()
-                && control_cmd.command_type == CommandType::StartThread {
-                    self.get_state().get_callstack().borrow_mut().push_thread();
-                }
+            && control_cmd.command_type == CommandType::StartThread
+        {
+            self.get_state().get_callstack().borrow_mut().push_thread();
+        }
 
         Ok(())
     }

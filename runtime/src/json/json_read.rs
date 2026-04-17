@@ -58,7 +58,7 @@ pub fn load_from_string(
         None => {
             return Err(StoryError::BadJson(
                 "Root node for ink not found. Are you sure it's a valid .ink.json file?".to_owned(),
-            ))
+            ));
         }
     };
 

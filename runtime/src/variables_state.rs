@@ -180,9 +180,9 @@ impl VariablesState {
         if let Some(value_of_variable_pointed_to) = value_of_variable_pointed_to
             && Value::get_value::<&VariablePointerValue>(value_of_variable_pointed_to.as_ref())
                 .is_some()
-            {
-                return value_of_variable_pointed_to;
-            }
+        {
+            return value_of_variable_pointed_to;
+        }
 
         Rc::new(Value::new_variable_pointer(
             &var_pointer.variable_name,
@@ -208,9 +208,10 @@ impl VariablesState {
 
     pub fn get(&self, variable_name: &str) -> Option<ValueType> {
         if self.patch.is_some()
-            && let Some(var) = self.patch.as_ref().unwrap().get_global(variable_name) {
-                return Some(var.value.clone());
-            }
+            && let Some(var) = self.patch.as_ref().unwrap().get_global(variable_name)
+        {
+            return Some(var.value.clone());
+        }
 
         // Search main dictionary first.
         // If it's not found, it might be because the story content has changed,
@@ -242,9 +243,10 @@ impl VariablesState {
         // 0 context = global
         if context_index == 0 || context_index == -1 {
             if let Some(patch) = &self.patch
-                && let Some(global) = patch.get_global(name) {
-                    return Some(global);
-                }
+                && let Some(global) = patch.get_global(name)
+            {
+                return Some(global);
+            }
 
             if let Some(global) = self.global_variables.get(name) {
                 return Some(global.clone());
@@ -269,10 +271,8 @@ impl VariablesState {
         }
 
         // Temporary
-        
 
-        self
-            .callstack
+        self.callstack
             .borrow()
             .get_temporary_variable_with_name(name, context_index)
     }
@@ -319,9 +319,10 @@ impl VariablesState {
         let var_value = self.get_raw_variable_with_name(name, context_index);
         // Get value from pointer?
         if let Some(vv) = var_value.clone()
-            && let Some(var_pointer) = Value::get_value::<&VariablePointerValue>(vv.as_ref()) {
-                return self.value_at_variable_pointer(var_pointer);
-            }
+            && let Some(var_pointer) = Value::get_value::<&VariablePointerValue>(vv.as_ref())
+        {
+            return self.value_at_variable_pointer(var_pointer);
+        }
 
         var_value
     }
@@ -341,9 +342,10 @@ impl VariablesState {
             // Don't write out values that are the same as the default global values
             let default_val = self.default_global_variables.get(name);
             if let Some(default_val) = default_val
-                && self.val_equal(val, default_val) {
-                    continue;
-                }
+                && self.val_equal(val, default_val)
+            {
+                continue;
+            }
 
             jobj.insert(name.clone(), json_write::write_rtobject(val.clone())?);
         }

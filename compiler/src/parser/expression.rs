@@ -200,7 +200,7 @@ pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
                 return Err(CompilerError::unsupported_feature(format!(
                     "unsupported token '{}' in expression",
                     ch
-                )))
+                )));
             }
         }
     }
@@ -240,11 +240,7 @@ pub fn parse_path_identifier(text: &str) -> Option<&str> {
         .map(|(index, _)| index)
         .unwrap_or(text.len());
 
-    if end == 0 {
-        None
-    } else {
-        Some(&text[..end])
-    }
+    if end == 0 { None } else { Some(&text[..end]) }
 }
 
 pub fn parse_call_like(text: &str) -> Result<Option<(String, Vec<Expression>)>, CompilerError> {

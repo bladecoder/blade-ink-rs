@@ -173,7 +173,7 @@ impl Story {
                 .downcast::<Tag>()
                 .unwrap();
             tags.insert(0, tag.get_text().clone()); // popped in reverse
-                                                    // order
+            // order
         }
 
         choice_only_str_val.string.to_string()

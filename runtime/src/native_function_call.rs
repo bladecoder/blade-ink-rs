@@ -218,7 +218,10 @@ impl NativeFunctionCall {
 
         for p in &params {
             if p.as_ref().as_any().is::<Void>() {
-                return Err(StoryError::InvalidStoryState(format!("Attempting to perform {} on a void value. Did you forget to 'return' a value from a function you called here?", Self::get_name(self.op))));
+                return Err(StoryError::InvalidStoryState(format!(
+                    "Attempting to perform {} on a void value. Did you forget to 'return' a value from a function you called here?",
+                    Self::get_name(self.op)
+                )));
             }
 
             if Value::get_value::<&InkList>(p.as_ref()).is_some() {
@@ -307,11 +310,12 @@ impl NativeFunctionCall {
             });
 
             if let Some(item_origin) = item_origin
-                && let Some(incremented_item) = item_origin.get_item_with_value(target_int) {
-                    result_raw_list
-                        .items
-                        .insert(incremented_item.clone(), target_int);
-                }
+                && let Some(incremented_item) = item_origin.get_item_with_value(target_int)
+            {
+                result_raw_list
+                    .items
+                    .insert(incremented_item.clone(), target_int);
+            }
         }
 
         Rc::new(Value::new::<InkList>(result_raw_list))
@@ -366,9 +370,10 @@ impl NativeFunctionCall {
             // use the same type on both sides. e.g. binary operation of
             // int and float causes the int to be casted to a float.
             if let Some(v) = obj.as_ref().as_any().downcast_ref::<Value>()
-                && v.get_cast_ordinal() > dest_type {
-                    dest_type = v.get_cast_ordinal();
-                }
+                && v.get_cast_ordinal() > dest_type
+            {
+                dest_type = v.get_cast_ordinal();
+            }
         }
 
         for obj in params.iter() {

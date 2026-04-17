@@ -4,8 +4,8 @@ use crate::{
 };
 
 use super::{
-    inline::{parse_divert, split_inline_choice_divert, split_text_and_tags},
     Line, ParsedStatement,
+    inline::{parse_divert, split_inline_choice_divert, split_text_and_tags},
 };
 
 pub struct ParsedChoiceText {
@@ -81,7 +81,7 @@ pub fn parse_choice(
             | ParsedStatement::ExternalFunction(_) => {
                 return Err(CompilerError::unsupported_feature(
                     "global declarations are not supported inside choice bodies".to_owned(),
-                ))
+                ));
             }
             ParsedStatement::Nodes(mut nodes) => body.append(&mut nodes),
         }
@@ -245,38 +245,39 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
     }
 
     if let Some(open) = trimmed.find('[')
-        && let Some(close_rel) = trimmed[open + 1..].find(']') {
-            let close = open + 1 + close_rel;
-            let start = &trimmed[..open];
-            let choice_only = trimmed[open + 1..close].trim();
-            let end = trimmed[close + 1..].trim_start();
-            let (end, inline_target) = split_inline_choice_divert(end)?;
-            let display = format!("{start}{choice_only}");
-            let (start_text, start_tags) = split_text_and_tags(start)?;
-            let (choice_only_text, choice_only_tags) = split_text_and_tags(choice_only)?;
-            let (end_text, end_tags) = split_text_and_tags(end)?;
-            let selected_text = if end_text.is_empty() {
-                start_text.trim_end().to_owned()
-            } else if start_text.trim().is_empty() {
-                end_text
-            } else {
-                format!("{} {}", start_text.trim_end(), end_text)
-            };
-            let mut selected_tags = start_tags.clone();
-            selected_tags.extend(end_tags);
-            return Ok(ParsedChoiceText {
-                display_text: display,
-                selected_text: Some(selected_text),
-                start_text,
-                choice_only_text,
-                has_start_content: !start.trim().is_empty(),
-                has_choice_only_content: true,
-                inline_target,
-                start_tags,
-                choice_only_tags,
-                selected_tags,
-            });
-        }
+        && let Some(close_rel) = trimmed[open + 1..].find(']')
+    {
+        let close = open + 1 + close_rel;
+        let start = &trimmed[..open];
+        let choice_only = trimmed[open + 1..close].trim();
+        let end = trimmed[close + 1..].trim_start();
+        let (end, inline_target) = split_inline_choice_divert(end)?;
+        let display = format!("{start}{choice_only}");
+        let (start_text, start_tags) = split_text_and_tags(start)?;
+        let (choice_only_text, choice_only_tags) = split_text_and_tags(choice_only)?;
+        let (end_text, end_tags) = split_text_and_tags(end)?;
+        let selected_text = if end_text.is_empty() {
+            start_text.trim_end().to_owned()
+        } else if start_text.trim().is_empty() {
+            end_text
+        } else {
+            format!("{} {}", start_text.trim_end(), end_text)
+        };
+        let mut selected_tags = start_tags.clone();
+        selected_tags.extend(end_tags);
+        return Ok(ParsedChoiceText {
+            display_text: display,
+            selected_text: Some(selected_text),
+            start_text,
+            choice_only_text,
+            has_start_content: !start.trim().is_empty(),
+            has_choice_only_content: true,
+            inline_target,
+            start_tags,
+            choice_only_tags,
+            selected_tags,
+        });
+    }
 
     let (trimmed, inline_target) = split_inline_choice_divert(trimmed)?;
     let (start_text, start_tags) = split_text_and_tags(trimmed)?;

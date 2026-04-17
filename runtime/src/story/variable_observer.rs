@@ -33,8 +33,9 @@ impl Story {
             .variables_state
             .global_variable_exists_with_name(variable_name)
         {
-            return Err(StoryError::BadArgument(
-                format!("Cannot observe variable '{variable_name}' because it wasn't declared in the ink story.")));
+            return Err(StoryError::BadArgument(format!(
+                "Cannot observe variable '{variable_name}' because it wasn't declared in the ink story."
+            )));
         }
 
         match self.variable_observers.get_mut(variable_name) {

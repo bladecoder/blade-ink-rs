@@ -247,9 +247,10 @@ pub fn split_lines(source: &str) -> Vec<Line<'_>> {
 
     if !source.ends_with('\n')
         && let Some(last_line) = lines.last_mut()
-            && !last_line.content.is_empty() {
-                last_line.had_newline = true;
-            }
+        && !last_line.content.is_empty()
+    {
+        last_line.had_newline = true;
+    }
 
     lines
 }
@@ -357,7 +358,7 @@ pub fn parse_statement(
     {
         *line_index += 1;
         return Ok(ParsedStatement::Nodes(vec![
-            parse_assignment(rest).map_err(|e| e.with_line(ln))?
+            parse_assignment(rest).map_err(|e| e.with_line(ln))?,
         ]));
     }
 
@@ -565,9 +566,10 @@ fn parse_assignment(input: &str) -> Result<Node, CompilerError> {
     // Check for a standalone function call (no '=' in the statement, but has '()')
     // e.g. `~ derp(2, 3, 4)` or `~ merchant_init()`
     if !input.contains('=')
-        && let Ok(Some((name, args))) = parse_call_like(input) {
-            return Ok(Node::VoidCall { name, args });
-        }
+        && let Ok(Some((name, args))) = parse_call_like(input)
+    {
+        return Ok(Node::VoidCall { name, args });
+    }
 
     if input.contains("+=") {
         let (name, expression) = split_assignment(input, "+=")?;

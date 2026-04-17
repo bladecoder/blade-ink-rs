@@ -57,10 +57,11 @@ impl Object {
                     let mut child_valid_name = false;
 
                     if let Some(cc) = child.downcast_ref::<Container>()
-                        && cc.has_valid_name() {
-                            child_valid_name = true;
-                            comps.push(Component::new(cc.name.as_ref().unwrap()));
-                        }
+                        && cc.has_valid_name()
+                    {
+                        child_valid_name = true;
+                        comps.push(Component::new(cc.name.as_ref().unwrap()));
+                    }
 
                     if !child_valid_name {
                         comps.push(Component::new_i(

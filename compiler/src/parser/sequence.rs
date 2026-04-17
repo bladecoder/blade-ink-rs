@@ -3,7 +3,7 @@ use crate::{
     error::CompilerError,
 };
 
-use super::{inline::tokenize_inline_content, Line, ParsedStatement};
+use super::{Line, ParsedStatement, inline::tokenize_inline_content};
 
 pub fn looks_like_sequence(content: &str) -> bool {
     if !content.starts_with('{') || !content.contains(':') {

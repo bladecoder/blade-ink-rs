@@ -15,7 +15,7 @@ use crate::{
     pointer::{self, Pointer},
     push_pop::PushPopType,
     state_patch::StatePatch,
-    story::{Story, INK_VERSION_CURRENT},
+    story::{INK_VERSION_CURRENT, Story},
     story_error::StoryError,
     tag::Tag,
     value::Value,
@@ -25,7 +25,7 @@ use crate::{
 };
 
 use rand::RngExt;
-use serde_json::{json, Map};
+use serde_json::{Map, json};
 
 pub const INK_SAVE_STATE_VERSION: u32 = 10;
 pub const MIN_COMPATIBLE_LOAD_VERSION: u32 = 8;
@@ -187,9 +187,10 @@ impl StoryState {
     pub fn in_string_evaluation(&self) -> bool {
         for e in self.get_output_stream().iter().rev() {
             if let Some(cmd) = e.as_any().downcast_ref::<ControlCommand>()
-                && cmd.command_type == CommandType::BeginString {
-                    return true;
-                }
+                && cmd.command_type == CommandType::BeginString
+            {
+                return true;
+            }
         }
         false
     }
@@ -264,9 +265,10 @@ impl StoryState {
                         sb.push_str(&string_value.string);
                     }
                     if let Some(tag) = output_obj.as_ref().as_any().downcast_ref::<Tag>()
-                        && !tag.get_text().is_empty() {
-                            self.current_tags.push(tag.get_text().clone()); // tag.text has whitespace already cleaned
-                        }
+                        && !tag.get_text().is_empty()
+                    {
+                        self.current_tags.push(tag.get_text().clone()); // tag.text has whitespace already cleaned
+                    }
                 }
             }
 
@@ -324,13 +326,14 @@ impl StoryState {
                 }
 
                 if let Some(val) = e.as_any().downcast_ref::<Value>()
-                    && let ValueType::String(text) = &val.value {
-                        if text.is_newline {
-                            return true;
-                        } else if text.is_non_whitespace() {
-                            break;
-                        }
+                    && let ValueType::String(text) = &val.value
+                {
+                    if text.is_newline {
+                        return true;
+                    } else if text.is_non_whitespace() {
+                        break;
                     }
+                }
             }
         }
 
@@ -430,9 +433,10 @@ impl StoryState {
         }
 
         if let Some(patch) = &self.patch
-            && let Some(visit_count) = patch.get_visit_count(container) {
-                return visit_count;
-            }
+            && let Some(visit_count) = patch.get_visit_count(container)
+        {
+            return visit_count;
+        }
 
         let container_path_str = container.get_path().to_string();
 
@@ -678,9 +682,10 @@ impl StoryState {
     fn output_stream_contains_content(&self) -> bool {
         for content in self.get_output_stream() {
             if let Some(v) = content.as_any().downcast_ref::<Value>()
-                && let ValueType::String(_) = v.value {
-                    return true;
-                }
+                && let ValueType::String(_) = v.value
+            {
+                return true;
+            }
         }
 
         false
@@ -1247,11 +1252,12 @@ impl StoryState {
         if !self.diverted_pointer.is_null() {
             obj.insert(
                 "currentDivertTarget".to_owned(),
-                json!(self
-                    .diverted_pointer
-                    .get_path()
-                    .unwrap()
-                    .get_components_string()),
+                json!(
+                    self.diverted_pointer
+                        .get_path()
+                        .unwrap()
+                        .get_components_string()
+                ),
             );
         }
 
@@ -1282,18 +1288,18 @@ impl StoryState {
             None => {
                 return Err(StoryError::BadJson(
                     "ink save format incorrect, can't load.".to_owned(),
-                ))
+                ));
             }
         };
 
         if let Some(version) = j_save_version.as_i64()
-            && version < MIN_COMPATIBLE_LOAD_VERSION as i64 {
-                return Err(StoryError::BadJson(format!(
-                    "Ink save format isn't compatible with the current version (saw '{}', but minimum is {}), so can't load.",
-                    version,
-                    MIN_COMPATIBLE_LOAD_VERSION
-                )));
-            }
+            && version < MIN_COMPATIBLE_LOAD_VERSION as i64
+        {
+            return Err(StoryError::BadJson(format!(
+                "Ink save format isn't compatible with the current version (saw '{}', but minimum is {}), so can't load.",
+                version, MIN_COMPATIBLE_LOAD_VERSION
+            )));
+        }
 
         // Flows: Always exists in latest format (even if there's just one default)
         // but this dictionary doesn't exist in prev format
@@ -1340,12 +1346,13 @@ impl StoryState {
 
             if let Some(named_flows) = &mut self.named_flows
                 && named_flows.len() > 1
-                    && let Some(current_flow_name) = j_object.get("currentFlowName")
-                        && let Some(curr_flow_name) = current_flow_name.as_str()
-                            && let Some(curr_flow) = named_flows.get(curr_flow_name) {
-                                self.current_flow = curr_flow.clone();
-                                named_flows.remove(curr_flow_name);
-                            }
+                && let Some(current_flow_name) = j_object.get("currentFlowName")
+                && let Some(curr_flow_name) = current_flow_name.as_str()
+                && let Some(curr_flow) = named_flows.get(curr_flow_name)
+            {
+                self.current_flow = curr_flow.clone();
+                named_flows.remove(curr_flow_name);
+            }
         }
         // Old format: individually load up callstack, output stream, choices in
         // current/default flow

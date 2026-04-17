@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bladeink::story::INK_VERSION_CURRENT;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::{
     ast::{
@@ -269,9 +269,10 @@ impl EmitScope {
         }
 
         if self.child_flow_names.contains(target)
-            && let Some(top_flow_name) = &self.top_flow_name {
-                return format!("{top_flow_name}.{target}");
-            }
+            && let Some(top_flow_name) = &self.top_flow_name
+        {
+            return format!("{top_flow_name}.{target}");
+        }
 
         target.to_owned()
     }
@@ -435,15 +436,13 @@ fn collect_choice_labels_recursive(
 
                 // Find where the choice block ends (non-Choice node)
                 let block_start_ci = *choice_index - 1; // index of first choice in block
-                                                        // collect any remaining adjacent choices
+                // collect any remaining adjacent choices
                 while i < nodes.len() && matches!(nodes[i], Node::Choice(_)) {
                     if let Node::Choice(c) = &nodes[i]
-                        && let Some(label) = &c.label {
-                            labels.insert(
-                                label.clone(),
-                                format!("{}.c-{}", scope.path, *choice_index),
-                            );
-                        }
+                        && let Some(label) = &c.label
+                    {
+                        labels.insert(label.clone(), format!("{}.c-{}", scope.path, *choice_index));
+                    }
                     *choice_index += 1;
                     i += 1;
                 }
@@ -737,10 +736,10 @@ fn emit_choice_block(
             .any(|n| matches!(n, Node::Choice(_)));
         if let Some(fb) = fallback_continuation
             && !branch_has_terminal_content(continuation_body)
-                && !has_nested_choices_in_continuation
-            {
-                gather_container.push(json!({"->": fb}));
-            }
+            && !has_nested_choices_in_continuation
+        {
+            gather_container.push(json!({"->": fb}));
+        }
         let continuation_value = gather_container.into_json_array(gather_label.as_deref(), None)?;
         out.insert_named(name.clone(), continuation_value);
         Some(format!("{}.{}", scope.path, name))
@@ -1580,11 +1579,13 @@ fn flatten_conditional_branches<'a>(
     let mut current_false = when_false;
 
     while let Some(nodes) = current_false {
-        if let [Node::Conditional {
-            condition,
-            when_true,
-            when_false,
-        }] = nodes
+        if let [
+            Node::Conditional {
+                condition,
+                when_true,
+                when_false,
+            },
+        ] = nodes
         {
             branches.push((Some(condition), when_true));
             current_false = when_false.as_deref();

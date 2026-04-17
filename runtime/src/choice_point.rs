@@ -79,9 +79,10 @@ impl ChoicePoint {
     pub fn get_path_on_choice(self: &Rc<Self>) -> Path {
         // Resolve any relative paths to global ones as we come across them
         if self.path_on_choice.borrow().is_relative()
-            && let Some(choice_target_obj) = self.get_choice_target() {
-                self.path_on_choice.replace(choice_target_obj.get_path());
-            }
+            && let Some(choice_target_obj) = self.get_choice_target()
+        {
+            self.path_on_choice.replace(choice_target_obj.get_path());
+        }
 
         self.path_on_choice.borrow().clone()
     }

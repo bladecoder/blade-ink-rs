@@ -95,7 +95,14 @@ impl Story {
                     func_detail = format!("({})", Object::get_path(container.as_ref()));
                 }
 
-                return Err(StoryError::InvalidStoryState(format!("Story was running a function {func_detail} when you called ChoosePathString({}) - this is almost certainly not what you want! Full stack trace: \n{}", path, self.get_state().get_callstack().borrow().get_callstack_trace())));
+                return Err(StoryError::InvalidStoryState(format!(
+                    "Story was running a function {func_detail} when you called ChoosePathString({}) - this is almost certainly not what you want! Full stack trace: \n{}",
+                    path,
+                    self.get_state()
+                        .get_callstack()
+                        .borrow()
+                        .get_callstack_trace()
+                )));
             }
         }
 

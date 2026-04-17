@@ -19,7 +19,7 @@ use crate::{
     variable_reference::VariableReference,
     void::Void,
 };
-use rand::{rngs::StdRng, RngExt, SeedableRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use std::{
     collections::{HashMap, VecDeque},
     rc::Rc,
@@ -72,7 +72,10 @@ impl Story {
                         return Err(StoryError::InvalidStoryState(error_message));
                     }
                 } else {
-                    return Err(StoryError::InvalidStoryState(format!("Tried to divert using a target from a variable that could not be found ({})", var_name.as_ref().unwrap())));
+                    return Err(StoryError::InvalidStoryState(format!(
+                        "Tried to divert using a target from a variable that could not be found ({})",
+                        var_name.as_ref().unwrap()
+                    )));
                 }
             } else if current_divert.is_external {
                 self.call_external_function(
@@ -121,7 +124,7 @@ impl Story {
                     // anything on the stack
                     if !self.get_state().evaluation_stack.is_empty() {
                         let output = self.get_state_mut().pop_evaluation_stack(); // Functions may evaluate to Void, in which case we skip
-                                                                                  // output
+                        // output
                         if !output.as_ref().as_any().is::<Void>() {
                             // TODO: Should we really always blanket convert to
                             // string?
@@ -156,7 +159,7 @@ impl Story {
                     } else {
                         PushPopType::Tunnel
                     }; // Tunnel onwards is allowed to specify an optional override
-                       // divert to go to immediately after returning: ->-> target
+                    // divert to go to immediately after returning: ->-> target
                     let mut override_tunnel_return_target = None;
                     if pop_type == PushPopType::Tunnel {
                         let popped = self.get_state_mut().pop_evaluation_stack();
@@ -217,7 +220,7 @@ impl Story {
                         )));
                     } else {
                         self.get_state_mut().pop_callstack(None)?; // Does tunnel onwards override by diverting to a new ->->
-                                                                   // target?
+                        // target?
                         if let Some(override_tunnel_return_target) = override_tunnel_return_target {
                             let p = Self::pointer_at_path(
                                 &self.main_content_container,
@@ -250,9 +253,10 @@ impl Story {
                         output_count_consumed += 1;
                         if let Some(command) =
                             obj.as_ref().as_any().downcast_ref::<ControlCommand>()
-                            && command.command_type == CommandType::BeginString {
-                                break;
-                            }
+                            && command.command_type == CommandType::BeginString
+                        {
+                            break;
+                        }
 
                         if obj.as_ref().as_any().downcast_ref::<Tag>().is_some() {
                             content_to_retain.push_back(obj.clone());
@@ -266,9 +270,9 @@ impl Story {
                     // Consume the content that was produced for this string
                     self.get_state_mut()
                         .pop_from_output_stream(output_count_consumed); // Rescue the tags that we want actually to keep on the output stack
-                                                                        // rather than consume as part of the string we're building.
-                                                                        // At the time of writing, this only applies to Tag objects generated
-                                                                        // by choices, which are pushed to the stack during string generation.
+                    // rather than consume as part of the string we're building.
+                    // At the time of writing, this only applies to Tag objects generated
+                    // by choices, which are pushed to the stack during string generation.
 
                     while let Some(rescue_tag) = content_to_retain.pop_back() {
                         self.get_state_mut().push_to_output_stream(rescue_tag);
@@ -305,8 +309,10 @@ impl Story {
                                     "('-> knot_name')?").to_owned();
                         }
 
-                        return Err(StoryError::InvalidStoryState(format!("TURNS_SINCE expected a divert target (knot, stitch, label name), but saw {} {}", target
-                                , extra_note)));
+                        return Err(StoryError::InvalidStoryState(format!(
+                            "TURNS_SINCE expected a divert target (knot, stitch, label name), but saw {} {}",
+                            target, extra_note
+                        )));
                     }
 
                     let target = Value::get_value::<&Path>(target.as_ref()).unwrap();
@@ -330,7 +336,7 @@ impl Story {
                         None => {
                             if eval_command.command_type == CommandType::TurnsSince {
                                 either_count = -1; // turn count, default to
-                                                   // never/unknown
+                            // never/unknown
                             } else {
                                 either_count = 0;
                             } // visit count, assume 0 to default to allowing entry
@@ -416,7 +422,7 @@ impl Story {
                 CommandType::VisitIndex => {
                     let cpc = self.get_state().get_current_pointer().container.unwrap();
                     let count = self.get_state_mut().visit_count_for_container(&cpc) - 1; // index
-                                                                                          // not count
+                    // not count
                     self.get_state_mut()
                         .push_evaluation_stack(Rc::new(Value::new::<i32>(count)));
                 }
@@ -534,7 +540,7 @@ impl Story {
                             let mut rng = StdRng::seed_from_u64(result_seed as u64);
                             let next_random = rng.random::<u32>();
                             let list_item_index = (next_random as usize) % list.items.len(); // Iterate through to get the random element, sorted for
-                                                                                             // predictibility
+                            // predictibility
                             let mut sorted: Vec<(&InkListItem, &i32)> = list.items.iter().collect();
                             sorted.sort_by(|a, b| b.1.cmp(a.1));
                             let random_item = sorted[list_item_index]; // Origin list is simply the origin of the one element
@@ -634,10 +640,10 @@ impl Story {
             .downcast_ref::<VariableAssignment>()
         {
             let assigned_val = self.get_state_mut().pop_evaluation_stack(); // When in temporary evaluation, don't create new variables purely
-                                                                            // within
-                                                                            // the temporary context, but attempt to create them globally
-                                                                            // var prioritiseHigherInCallStack = _temporaryEvaluationContainer
-                                                                            // != null;
+            // within
+            // the temporary context, but attempt to create them globally
+            // var prioritiseHigherInCallStack = _temporaryEvaluationContainer
+            // != null;
             let assigned_val = assigned_val.into_any().downcast::<Value>().unwrap();
             self.get_state_mut()
                 .variables_state

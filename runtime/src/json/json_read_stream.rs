@@ -79,7 +79,7 @@ fn parse(
         _ => {
             return Err(StoryError::BadJson(
                 "Root node for ink is not a container?".to_owned(),
-            ))
+            ));
         }
     };
 
@@ -410,7 +410,7 @@ fn jtoken_to_runtime_object(
                         _ => {
                             return Err(StoryError::BadJson(
                                 "Named content is not a runtime object".to_owned(),
-                            ))
+                            ));
                         }
                     };
 

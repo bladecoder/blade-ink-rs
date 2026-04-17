@@ -47,12 +47,12 @@ mod misc {
         json::{json_read, json_read_stream},
         object::{Object, RTObject},
         path::Path,
-        story::{Story, INK_VERSION_CURRENT},
+        story::{INK_VERSION_CURRENT, Story},
         story_error::StoryError,
         story_state::StoryState,
         value::Value,
     };
-    use rand::{rngs::StdRng, RngExt, SeedableRng};
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
     use std::{collections::HashMap, rc::Rc};
 
     impl Story {
@@ -113,7 +113,10 @@ mod misc {
 
             if let Some(val) = obj.as_ref().as_any().downcast_ref::<Value>() {
                 if let Some(target_path) = Value::get_value::<&Path>(obj.as_ref()) {
-                    return Err(StoryError::InvalidStoryState(format!("Shouldn't use a divert target (to {}) as a conditional value. Did you intend a function call 'likeThis()' or a read count check 'likeThis'? (no arrows)", target_path)));
+                    return Err(StoryError::InvalidStoryState(format!(
+                        "Shouldn't use a divert target (to {}) as a conditional value. Did you intend a function call 'likeThis()' or a read count check 'likeThis'? (no arrows)",
+                        target_path
+                    )));
                 }
 
                 return val.is_truthy();

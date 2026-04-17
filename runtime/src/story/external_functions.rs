@@ -270,23 +270,24 @@ impl Story {
         let divert = o.clone().into_any().downcast::<Divert>().ok();
 
         if let Some(divert) = divert
-            && divert.is_external {
-                let name = divert.get_target_path_string().unwrap();
+            && divert.is_external
+        {
+            let name = divert.get_target_path_string().unwrap();
 
-                if !self.externals.contains_key(&name) {
-                    if self.allow_external_function_fallbacks {
-                        let fallback_found = self
-                            .get_main_content_container()
-                            .named_content
-                            .contains_key(&name);
-                        if !fallback_found {
-                            missing_externals.insert(name);
-                        }
-                    } else {
+            if !self.externals.contains_key(&name) {
+                if self.allow_external_function_fallbacks {
+                    let fallback_found = self
+                        .get_main_content_container()
+                        .named_content
+                        .contains_key(&name);
+                    if !fallback_found {
                         missing_externals.insert(name);
                     }
+                } else {
+                    missing_externals.insert(name);
                 }
             }
+        }
 
         Ok(())
     }
