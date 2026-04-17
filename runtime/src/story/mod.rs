@@ -52,7 +52,7 @@ mod misc {
         story_state::StoryState,
         value::Value,
     };
-    use rand::{rngs::StdRng, Rng, SeedableRng};
+    use rand::{rngs::StdRng, RngExt, SeedableRng};
     use std::{collections::HashMap, rc::Rc};
 
     impl Story {

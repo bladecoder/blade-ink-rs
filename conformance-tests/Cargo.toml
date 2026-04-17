@@ -7,4 +7,4 @@ edition.workspace = true
 [dependencies]
 bladeink.workspace = true
 bladeink-compiler.workspace = true
-rand.workspace = true
+rand = { workspace = true, features = ["std_rng"] }

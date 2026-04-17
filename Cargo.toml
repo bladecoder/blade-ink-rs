@@ -11,6 +11,6 @@ edition = "2021"
 
 [workspace.dependencies]
 serde_json = "1.0"
-rand = "0.9"
+rand = "0.10"
 bladeink = { path = "runtime", version = "1.2.2" }
 bladeink-compiler = { path = "compiler", version = "1.2.2" }

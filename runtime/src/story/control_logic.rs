@@ -19,7 +19,7 @@ use crate::{
     variable_reference::VariableReference,
     void::Void,
 };
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{rngs::StdRng, RngExt, SeedableRng};
 use std::{
     collections::{HashMap, VecDeque},
     rc::Rc,

@@ -24,7 +24,7 @@ use crate::{
     void::Void,
 };
 
-use rand::Rng;
+use rand::RngExt;
 use serde_json::{json, Map};
 
 pub const INK_SAVE_STATE_VERSION: u32 = 10;

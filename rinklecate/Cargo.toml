@@ -20,5 +20,5 @@ anyhow = "1.0"
 serde_json.workspace = true
 
 [dev-dependencies]
-assert_cmd = "2.0.12"
-predicates = "3.0.4"
+assert_cmd = "2.0"
+predicates = "3.0"

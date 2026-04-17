@@ -4,7 +4,7 @@ use std::{error::Error, fs, path::Path};
 
 use bladeink::{story::Story, story_error::StoryError};
 use bladeink_compiler::Compiler;
-use rand::Rng;
+use rand::RngExt;
 
 pub fn next_all(story: &mut Story, text: &mut Vec<String>) -> Result<(), StoryError> {
     while story.can_continue() {
