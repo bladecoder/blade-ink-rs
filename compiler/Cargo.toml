@@ -1,13 +1,19 @@
 [package]
 name = "bladeink-compiler"
-version = "0.1.0"
-edition = "2021"
-publish = false
+version.workspace = true
+authors.workspace = true
+description = "Ink compiler for the bladeink runtime — compiles .ink source files into ink JSON stories."
+license.workspace = true
+repository.workspace = true
+keywords = ["ink", "gamedev", "narrative", "compiler"]
+categories = ["game-development"]
+readme = "../README.md"
+edition.workspace = true
 
 [lib]
 name = "bladeink_compiler"
 path = "src/lib.rs"
 
 [dependencies]
-bladeink = { path = "../runtime" }
-serde_json = "1.0.149"
+bladeink.workspace = true
+serde_json.workspace = true

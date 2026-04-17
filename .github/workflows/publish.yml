@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  upload-binkplayer:
+  upload-rinklecate:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -16,15 +16,15 @@ jobs:
         include:
         - build: linux
           os: ubuntu-latest
-          exec: binkplayer
+          exec: rinklecate
           platform: x86_64-linux
         - build: macos
           os: macos-latest
-          exec: binkplayer
+          exec: rinklecate
           platform: x86_64-macos
         - build: windows
           os: windows-latest
-          exec: binkplayer.exe
+          exec: rinklecate.exe
           platform: x86_64-windows
     steps:
     - uses: actions/checkout@v3
@@ -36,9 +36,9 @@ jobs:
     - name: Build package
       run: |
         cargo build --release
-    - name: Upload binkplayer to Github release
+    - name: Upload rinklecate to Github release
       run: |
-        staging="binkplayer-${{github.event.release.tag_name}}-${{ matrix.platform }}"
+        staging="rinklecate-${{github.event.release.tag_name}}-${{ matrix.platform }}"
         mkdir "$staging"
         cp target/release/${{ matrix.exec }} "$staging/"
         
@@ -66,6 +66,7 @@ jobs:
     - name: Publish
       run: |
         cargo publish -p bladeink --token ${CRATES_TOKEN}
-        cargo publish -p binkplayer --token ${CRATES_TOKEN}
+        cargo publish -p bladeink-compiler --token ${CRATES_TOKEN}
+        cargo publish -p rinklecate --token ${CRATES_TOKEN}
       env:
         CRATES_TOKEN: ${{ secrets.CRATES_TOKEN }}
