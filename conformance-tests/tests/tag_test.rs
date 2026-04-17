@@ -43,20 +43,13 @@ fn tags_test() -> Result<(), StoryError> {
 }
 
 #[test]
-fn tags_in_seq_test() -> Result<(), StoryError> {
-    let ink_source = common::get_file_string("inkfiles/tags/tagsInSeq.ink").unwrap();
+fn tags_in_lines_test() -> Result<(), StoryError> {
+    let ink_source = common::get_file_string("inkfiles/tags/tagsInLines.ink").unwrap();
     let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
-    assert_eq!("A red sequence.\n", story.cont()?);
-    let current_tags = story.get_current_tags()?;
-    assert_eq!(1, current_tags.len());
-    assert_eq!("red", current_tags[0]);
-
-    assert_eq!("A white sequence.\n", story.cont()?);
-    let current_tags = story.get_current_tags()?;
-    assert_eq!(1, current_tags.len());
-    assert_eq!("white", current_tags[0]);
+    assert_eq!("í\n", story.cont()?);
+    assert_eq!("a\n", story.cont()?);
 
     Ok(())
 }

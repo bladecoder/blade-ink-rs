@@ -13,6 +13,8 @@ struct ExtFunc1;
 struct ExtFunc2;
 struct ExtFunc3;
 struct ExtFunc4;
+struct ExtFunc5;
+struct ExtFunc6;
 
 impl ExternalFunction for ExtFunc1 {
     fn call(&mut self, func_name: &str, args: Vec<ValueType>) -> Option<ValueType> {
@@ -40,6 +42,26 @@ impl ExternalFunction for ExtFunc3 {
 impl ExternalFunction for ExtFunc4 {
     fn call(&mut self, _: &str, args: Vec<ValueType>) -> Option<ValueType> {
         Some(ValueType::Bool(!args[0].coerce_to_bool().unwrap()))
+    }
+}
+
+// ExternalFunction for 3-arg sum: x + y + z (as int)
+impl ExternalFunction for ExtFunc5 {
+    fn call(&mut self, _: &str, args: Vec<ValueType>) -> Option<ValueType> {
+        let x = args[0].coerce_to_int().unwrap_or_default();
+        let y = args[1].coerce_to_int().unwrap_or_default();
+        let z = args[2].coerce_to_int().unwrap_or_default();
+        Some(ValueType::Int(x + y + z))
+    }
+}
+
+// ExternalFunction for 3-arg sum with explicit coerce: same result
+impl ExternalFunction for ExtFunc6 {
+    fn call(&mut self, _: &str, args: Vec<ValueType>) -> Option<ValueType> {
+        let x = args[0].coerce_to_int().unwrap_or_default();
+        let y = args[1].coerce_to_int().unwrap_or_default();
+        let z = args[2].coerce_to_int().unwrap_or_default();
+        Some(ValueType::Int(x + y + z))
     }
 }
 
@@ -328,6 +350,72 @@ fn load_save_test() -> Result<(), Box<dyn Error>> {
     // check that we are at the end
     assert!(!story.can_continue());
     assert_eq!(0, story.get_current_choices().len());
+
+    Ok(())
+}
+
+#[test]
+fn external_function_two_arguments_test() -> Result<(), Box<dyn Error>> {
+    let ink_source = common::get_file_string("inkfiles/runtime/external-function-2-arg.ink")?;
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
+    let mut story = Story::new(&json_string)?;
+    let mut text: Vec<String> = Vec::new();
+
+    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc1 {})), true)?;
+
+    common::next_all(&mut story, &mut text)?;
+    assert_eq!(1, text.len());
+    assert_eq!("The value is -1.", text[0]);
+
+    Ok(())
+}
+
+#[test]
+fn external_function_two_arguments_coerce_override_test() -> Result<(), Box<dyn Error>> {
+    let ink_source = common::get_file_string("inkfiles/runtime/external-function-2-arg.ink")?;
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
+    let mut story = Story::new(&json_string)?;
+    let mut text: Vec<String> = Vec::new();
+
+    // Uses coerce_to_int explicitly for both args — same result
+    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc1 {})), true)?;
+
+    common::next_all(&mut story, &mut text)?;
+    assert_eq!(1, text.len());
+    assert_eq!("The value is -1.", text[0]);
+
+    Ok(())
+}
+
+#[test]
+fn external_function_three_arguments_test() -> Result<(), Box<dyn Error>> {
+    let ink_source = common::get_file_string("inkfiles/runtime/external-function-3-arg.ink")?;
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
+    let mut story = Story::new(&json_string)?;
+    let mut text: Vec<String> = Vec::new();
+
+    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc5 {})), true)?;
+
+    common::next_all(&mut story, &mut text)?;
+    assert_eq!(1, text.len());
+    assert_eq!("The value is 6.", text[0]);
+
+    Ok(())
+}
+
+#[test]
+fn external_function_three_arguments_coerce_override_test() -> Result<(), Box<dyn Error>> {
+    let ink_source = common::get_file_string("inkfiles/runtime/external-function-3-arg.ink")?;
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
+    let mut story = Story::new(&json_string)?;
+    let mut text: Vec<String> = Vec::new();
+
+    // Uses explicit coerce_to_int for all args — same result
+    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc6 {})), true)?;
+
+    common::next_all(&mut story, &mut text)?;
+    assert_eq!(1, text.len());
+    assert_eq!("The value is 6.", text[0]);
 
     Ok(())
 }

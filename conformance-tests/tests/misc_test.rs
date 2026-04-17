@@ -1,7 +1,7 @@
-use std::error::Error;
+use std::{error::Error, path::Path};
 
 use bladeink::{story::Story, story_error::StoryError, value_type::ValueType};
-use bladeink_compiler::Compiler;
+use bladeink_compiler::{Compiler, CompilerError};
 
 mod common;
 
@@ -82,6 +82,18 @@ fn newlines_with_string_eval_test() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Issue: https://github.com/bladecoder/blade-ink/issues/escape-hash
+#[test]
+fn escape_hash_compiles_test() -> Result<(), StoryError> {
+    let ink_source = common::get_file_string("inkfiles/misc/escape-hash.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
+    let mut story = Story::new(&json_string)?;
+
+    assert_eq!("Bug with escape character #\n", story.cont()?);
+
+    Ok(())
+}
+
 #[test]
 fn i18n() -> Result<(), StoryError> {
     let ink_source = common::get_file_string("inkfiles/misc/i18n.ink").unwrap();
@@ -94,6 +106,34 @@ fn i18n() -> Result<(), StoryError> {
     assert_eq!(1, current_tags.len());
     assert_eq!("áé", current_tags[0]);
     assert_eq!("你好世界\n", story.cont()?);
+
+    Ok(())
+}
+
+#[test]
+fn include_basic_test() -> Result<(), Box<dyn Error>> {
+    let ink_source = common::get_file_string("inkfiles/include/main.ink")?;
+    let base_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("inkfiles/include");
+
+    let json_string = Compiler::new()
+        .compile_with_file_handler(&ink_source, |filename| {
+            let path = base_dir.join(filename);
+            std::fs::read_to_string(&path).map_err(|e| {
+                CompilerError::InvalidSource(format!(
+                    "Failed to read included file '{}': {}",
+                    filename, e
+                ))
+            })
+        })
+        .unwrap();
+
+    let mut story = Story::new(&json_string)?;
+    let mut text: Vec<String> = Vec::new();
+    common::next_all(&mut story, &mut text)?;
+
+    assert_eq!(2, text.len());
+    assert_eq!("This is included.", text[0]);
+    assert_eq!("This is main.", text[1]);
 
     Ok(())
 }

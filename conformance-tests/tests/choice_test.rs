@@ -315,3 +315,11 @@ fn divert_choice_test() -> Result<(), StoryError> {
 
     Ok(())
 }
+
+#[test]
+fn label_scope_error_test() -> Result<(), StoryError> {
+    // Java test body is commented out — just verify the ink compiles
+    let ink_source = common::get_file_string("inkfiles/choices/label-scope-error.ink").unwrap();
+    let _json_string = Compiler::new().compile(&ink_source).unwrap();
+    Ok(())
+}

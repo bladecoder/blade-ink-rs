@@ -33,10 +33,68 @@ impl Compiler {
     }
 
     pub fn compile(&self, source: &str) -> Result<String, CompilerError> {
+        self.compile_with_file_handler(source, |filename| {
+            Err(CompilerError::UnsupportedFeature(format!(
+                "INCLUDE directive found for '{}', but no file handler was provided. \
+                 Use Compiler::compile_with_file_handler to resolve includes.",
+                filename
+            )))
+        })
+    }
+
+    /// Compile ink source that may contain `INCLUDE` directives.
+    ///
+    /// `file_handler` receives the filename from each `INCLUDE` directive and
+    /// must return the full contents of that file as a `String`.  The handler
+    /// is called recursively for any `INCLUDE` directives found inside included
+    /// files.
+    pub fn compile_with_file_handler<F>(
+        &self,
+        source: &str,
+        file_handler: F,
+    ) -> Result<String, CompilerError>
+    where
+        F: Fn(&str) -> Result<String, CompilerError>,
+    {
         let _ = self.options.count_all_visits;
-        let parsed_story = parser::Parser::new(source).parse()?;
+        let expanded = expand_includes(source, &file_handler, 0)?;
+        let parsed_story = parser::Parser::new(&expanded).parse()?;
         emitter::story_to_json_string(&parsed_story)
     }
+}
+
+/// Recursively expand `INCLUDE filename` directives by substituting the
+/// contents returned by `file_handler`.  Depth is limited to 32 to avoid
+/// infinite recursion in circular includes.
+fn expand_includes<F>(source: &str, file_handler: &F, depth: usize) -> Result<String, CompilerError>
+where
+    F: Fn(&str) -> Result<String, CompilerError>,
+{
+    const MAX_DEPTH: usize = 32;
+    if depth > MAX_DEPTH {
+        return Err(CompilerError::InvalidSource(
+            "INCLUDE recursion depth exceeded 32; possible circular include".to_owned(),
+        ));
+    }
+
+    let mut result = String::with_capacity(source.len());
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if let Some(filename) = trimmed.strip_prefix("INCLUDE ") {
+            let filename = filename.trim();
+            let included = file_handler(filename)?;
+            let expanded = expand_includes(&included, file_handler, depth + 1)?;
+            result.push_str(&expanded);
+            // Ensure a trailing newline after the included content
+            if !result.ends_with('\n') {
+                result.push('\n');
+            }
+        } else {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+    Ok(result)
 }
 
 #[cfg(test)]

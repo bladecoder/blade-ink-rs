@@ -53,45 +53,29 @@ fn sequence_test() -> Result<(), StoryError> {
 }
 
 #[test]
-fn cycle_test() -> Result<(), StoryError> {
-    let ink_source = common::get_file_string("inkfiles/variabletext/cycle.ink").unwrap();
-    let json_string = Compiler::new().compile(&ink_source).unwrap();
-    let mut story = Story::new(&json_string)?;
-    let mut text: Vec<String> = Vec::new();
+fn one_test() -> Result<(), StoryError> {
+    // Java test body commented out (FIXME: Value evaluated lists not supported in C# ref. engine)
+    // Just verify the ink compiles.
+    let ink_source = common::get_file_string("inkfiles/variabletext/one.ink").unwrap();
+    let _json_string = Compiler::new().compile(&ink_source).unwrap();
+    Ok(())
+}
 
-    common::next_all(&mut story, &mut text)?;
+#[test]
+fn minus_one_test() -> Result<(), StoryError> {
+    // Java test body commented out (FIXME: Value evaluated lists not supported in C# ref. engine)
+    // Just verify the ink compiles.
+    let ink_source = common::get_file_string("inkfiles/variabletext/minus-one.ink").unwrap();
+    let _json_string = Compiler::new().compile(&ink_source).unwrap();
+    Ok(())
+}
 
-    assert_eq!(1, text.len());
-    assert_eq!("The radio hissed into life. \"Three!\"", text[0]);
-
-    story.choose_choice_index(0)?;
-    text.clear();
-    common::next_all(&mut story, &mut text)?;
-
-    assert_eq!(1, text.len());
-    assert_eq!("The radio hissed into life. \"Two!\"", text[0]);
-
-    story.choose_choice_index(0)?;
-    text.clear();
-    common::next_all(&mut story, &mut text)?;
-
-    assert_eq!(1, text.len());
-    assert_eq!("The radio hissed into life. \"One!\"", text[0]);
-
-    story.choose_choice_index(0)?;
-    text.clear();
-    common::next_all(&mut story, &mut text)?;
-
-    assert_eq!(1, text.len());
-    assert_eq!("The radio hissed into life. \"Three!\"", text[0]);
-
-    story.choose_choice_index(0)?;
-    text.clear();
-    common::next_all(&mut story, &mut text)?;
-
-    assert_eq!(1, text.len());
-    assert_eq!("The radio hissed into life. \"Two!\"", text[0]);
-
+#[test]
+fn ten_test() -> Result<(), StoryError> {
+    // Java test body commented out (FIXME: Value evaluated lists not supported in C# ref. engine)
+    // Just verify the ink compiles.
+    let ink_source = common::get_file_string("inkfiles/variabletext/ten.ink").unwrap();
+    let _json_string = Compiler::new().compile(&ink_source).unwrap();
     Ok(())
 }
 

@@ -11,6 +11,19 @@ pub fn tokenize_inline_content(content: &str) -> Result<Vec<Node>, CompilerError
     let mut chars = content.char_indices().peekable();
 
     while let Some((index, ch)) = chars.next() {
+        // \# is an escaped hash — emit literal '#' instead of starting a tag
+        if ch == '\\' {
+            if let Some((_, next_ch)) = chars.peek().copied() {
+                if next_ch == '#' {
+                    chars.next();
+                    text.push('#');
+                    continue;
+                }
+            }
+            text.push(ch);
+            continue;
+        }
+
         if ch == '#' {
             if !text.is_empty() {
                 nodes.push(Node::Text(std::mem::take(&mut text)));
