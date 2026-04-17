@@ -1,8 +1,7 @@
+mod ast;
+mod emitter;
 pub mod error;
-mod legacy;
-mod parsed_hierarchy;
 mod parser;
-mod ported;
 
 pub use error::CompilerError;
 
@@ -34,7 +33,9 @@ impl Compiler {
     }
 
     pub fn compile(&self, source: &str) -> Result<String, CompilerError> {
-        legacy::compile(source, self.options.count_all_visits)
+        let _ = self.options.count_all_visits;
+        let parsed_story = parser::Parser::new(source).parse()?;
+        emitter::story_to_json_string(&parsed_story)
     }
 }
 
