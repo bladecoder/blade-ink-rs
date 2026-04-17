@@ -58,9 +58,9 @@ pub fn parse_conditional(
 
     let header = content
         .strip_prefix('{')
-        .ok_or_else(|| CompilerError::InvalidSource("expected conditional block".to_owned()))?;
+        .ok_or_else(|| CompilerError::invalid_source("expected conditional block".to_owned()))?;
     let (condition_text, rest_after_colon) = header.split_once(':').ok_or_else(|| {
-        CompilerError::InvalidSource("conditional block is missing ':'".to_owned())
+        CompilerError::invalid_source("conditional block is missing ':'".to_owned())
     })?;
 
     // Detect switch-style: `{ expr: \n - Case1: ... }` — look ahead at next body line
@@ -132,7 +132,7 @@ pub fn parse_conditional(
             ParsedStatement::Global(_)
             | ParsedStatement::List(_)
             | ParsedStatement::ExternalFunction(_) => {
-                return Err(CompilerError::UnsupportedFeature(
+                return Err(CompilerError::unsupported_feature(
                     "global declarations are not supported inside conditionals".to_owned(),
                 ))
             }
@@ -140,7 +140,7 @@ pub fn parse_conditional(
         }
     }
 
-    Err(CompilerError::InvalidSource(
+    Err(CompilerError::invalid_source(
         "unterminated conditional block".to_owned(),
     ))
 }
@@ -182,7 +182,7 @@ pub fn parse_multi_branch_conditional(
                     ParsedStatement::Global(_)
                     | ParsedStatement::List(_)
                     | ParsedStatement::ExternalFunction(_) => {
-                        return Err(CompilerError::UnsupportedFeature(
+                        return Err(CompilerError::unsupported_feature(
                             "global declarations are not supported inside conditionals".to_owned(),
                         ));
                     }
@@ -209,7 +209,7 @@ pub fn parse_multi_branch_conditional(
             }
 
             let (condition, rest) = header.split_once(':').ok_or_else(|| {
-                CompilerError::InvalidSource(
+                CompilerError::invalid_source(
                     "conditional branch is missing ':' after condition".to_owned(),
                 )
             })?;
@@ -229,7 +229,7 @@ pub fn parse_multi_branch_conditional(
             ParsedStatement::Global(_)
             | ParsedStatement::List(_)
             | ParsedStatement::ExternalFunction(_) => {
-                return Err(CompilerError::UnsupportedFeature(
+                return Err(CompilerError::unsupported_feature(
                     "global declarations are not supported inside conditionals".to_owned(),
                 ));
             }
@@ -237,7 +237,7 @@ pub fn parse_multi_branch_conditional(
         }
     }
 
-    Err(CompilerError::InvalidSource(
+    Err(CompilerError::invalid_source(
         "unterminated conditional block".to_owned(),
     ))
 }
@@ -329,7 +329,7 @@ fn parse_switch_conditional(
             }
 
             let (case_text, rest) = header.split_once(':').ok_or_else(|| {
-                CompilerError::InvalidSource(
+                CompilerError::invalid_source(
                     "switch branch is missing ':' after case value".to_owned(),
                 )
             })?;
@@ -357,7 +357,7 @@ fn parse_switch_conditional(
             ParsedStatement::Global(_)
             | ParsedStatement::List(_)
             | ParsedStatement::ExternalFunction(_) => {
-                return Err(CompilerError::UnsupportedFeature(
+                return Err(CompilerError::unsupported_feature(
                     "global declarations are not supported inside switch conditionals".to_owned(),
                 ));
             }

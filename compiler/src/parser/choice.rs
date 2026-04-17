@@ -31,7 +31,7 @@ pub fn parse_choice(
     let marker = trimmed_start
         .chars()
         .next()
-        .ok_or_else(|| CompilerError::InvalidSource("expected choice marker".to_owned()))?;
+        .ok_or_else(|| CompilerError::invalid_source("expected choice marker".to_owned()))?;
     let once_only = marker == '*';
     // Count nesting level and strip all leading choice markers (e.g. "* * text" for nested
     // choices) — nesting is handled by indentation.
@@ -79,7 +79,7 @@ pub fn parse_choice(
             ParsedStatement::Global(_)
             | ParsedStatement::List(_)
             | ParsedStatement::ExternalFunction(_) => {
-                return Err(CompilerError::UnsupportedFeature(
+                return Err(CompilerError::unsupported_feature(
                     "global declarations are not supported inside choice bodies".to_owned(),
                 ))
             }
@@ -133,7 +133,7 @@ pub fn parse_choice_prefixes(
 
     if let Some(after_open) = remainder.strip_prefix('(') {
         let end = after_open.find(')').ok_or_else(|| {
-            CompilerError::InvalidSource("choice label is missing ')'".to_owned())
+            CompilerError::invalid_source("choice label is missing ')'".to_owned())
         })?;
         label = Some(after_open[..end].trim().to_owned());
         remainder = after_open[end + 1..].trim_start();
@@ -141,7 +141,7 @@ pub fn parse_choice_prefixes(
 
     while let Some(after_open) = remainder.strip_prefix('{') {
         let end = after_open.find('}').ok_or_else(|| {
-            CompilerError::InvalidSource("choice condition is missing '}'".to_owned())
+            CompilerError::invalid_source("choice condition is missing '}'".to_owned())
         })?;
         conditions.push(super::inline::parse_condition(after_open[..end].trim())?);
         remainder = after_open[end + 1..].trim_start();
@@ -175,7 +175,7 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
 
     if let Some(choice_only) = trimmed.strip_prefix('[') {
         let end = choice_only.find(']').ok_or_else(|| {
-            CompilerError::InvalidSource("choice label is missing closing ']'".to_owned())
+            CompilerError::invalid_source("choice label is missing closing ']'".to_owned())
         })?;
         let label = choice_only[..end].trim().to_owned();
         let after_label = choice_only[end + 1..].trim_start();

@@ -45,7 +45,7 @@ pub fn tokenize_inline_content(content: &str) -> Result<Vec<Node>, CompilerError
 
         if ch == '{' {
             let end = find_matching_brace(content, index).ok_or_else(|| {
-                CompilerError::InvalidSource("unterminated inline brace expression".to_owned())
+                CompilerError::invalid_source("unterminated inline brace expression".to_owned())
             })?;
 
             if !text.is_empty() {
@@ -95,7 +95,7 @@ pub fn parse_dynamic_string(input: &str) -> Result<DynamicString, CompilerError>
     while let Some((index, ch)) = chars.next() {
         if ch == '{' {
             let end = find_matching_brace(input, index).ok_or_else(|| {
-                CompilerError::InvalidSource("unterminated inline brace expression".to_owned())
+                CompilerError::invalid_source("unterminated inline brace expression".to_owned())
             })?;
 
             if !text.is_empty() {
@@ -157,7 +157,7 @@ pub fn parse_divert_line(input: &str) -> Result<Vec<Node>, CompilerError> {
         .collect();
 
     if segments.is_empty() {
-        return Err(CompilerError::InvalidSource(
+        return Err(CompilerError::invalid_source(
             "expected divert target after '->'".to_owned(),
         ));
     }

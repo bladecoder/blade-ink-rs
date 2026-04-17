@@ -51,7 +51,7 @@ pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
         if ch == '-' && chars.get(index + 1) == Some(&'>') {
             let rest = input[index + 2..].trim_start();
             let parsed = parse_path_identifier(rest).ok_or_else(|| {
-                CompilerError::InvalidSource("expected divert target after '->'".to_owned())
+                CompilerError::invalid_source("expected divert target after '->'".to_owned())
             })?;
             tokens.push(Token::DivertTarget(parsed.to_owned()));
             // advance past the arrow and the target identifier
@@ -150,7 +150,7 @@ pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
                     end += 1;
                 }
                 if end >= chars.len() {
-                    return Err(CompilerError::InvalidSource(
+                    return Err(CompilerError::invalid_source(
                         "unterminated string literal".to_owned(),
                     ));
                 }
@@ -169,12 +169,12 @@ pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
                         index += 1;
                     }
                     let value = input[start..index].parse::<f32>().map_err(|error| {
-                        CompilerError::InvalidSource(format!("invalid float literal: {error}"))
+                        CompilerError::invalid_source(format!("invalid float literal: {error}"))
                     })?;
                     tokens.push(Token::Float(value));
                 } else {
                     let value = input[start..index].parse::<i32>().map_err(|error| {
-                        CompilerError::InvalidSource(format!("invalid integer literal: {error}"))
+                        CompilerError::invalid_source(format!("invalid integer literal: {error}"))
                     })?;
                     tokens.push(Token::Int(value));
                 }
@@ -196,7 +196,7 @@ pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
                 }
             }
             _ => {
-                return Err(CompilerError::UnsupportedFeature(format!(
+                return Err(CompilerError::unsupported_feature(format!(
                     "unsupported token '{}' in expression",
                     ch
                 )))
@@ -213,7 +213,7 @@ pub fn parse_expression(input: &str) -> Result<Expression, CompilerError> {
     let expression = parser.parse_expression()?;
 
     if !parser.is_at_end() {
-        return Err(CompilerError::UnsupportedFeature(format!(
+        return Err(CompilerError::unsupported_feature(format!(
             "unexpected token in expression '{}'",
             input.trim()
         )));
@@ -226,7 +226,7 @@ pub fn parse_bool(value: &str) -> Result<bool, CompilerError> {
     match value {
         "true" => Ok(true),
         "false" => Ok(false),
-        _ => Err(CompilerError::UnsupportedFeature(format!(
+        _ => Err(CompilerError::unsupported_feature(format!(
             "unsupported boolean literal '{value}'"
         ))),
     }
@@ -254,15 +254,15 @@ pub fn parse_call_like(text: &str) -> Result<Option<(String, Vec<Expression>)>, 
     };
     let close = trimmed
         .rfind(')')
-        .ok_or_else(|| CompilerError::InvalidSource("missing ')' in divert target".to_owned()))?;
+        .ok_or_else(|| CompilerError::invalid_source("missing ')' in divert target".to_owned()))?;
     if close < open {
-        return Err(CompilerError::InvalidSource(
+        return Err(CompilerError::invalid_source(
             "invalid call-like syntax".to_owned(),
         ));
     }
 
     let name = parse_path_identifier(trimmed[..open].trim())
-        .ok_or_else(|| CompilerError::InvalidSource("invalid divert target".to_owned()))?
+        .ok_or_else(|| CompilerError::invalid_source("invalid divert target".to_owned()))?
         .to_owned();
     let mut arguments = Vec::new();
     for argument in split_top_level_commas(&trimmed[open + 1..close]) {
@@ -496,7 +496,7 @@ impl ExpressionParser {
 
     fn parse_primary(&mut self) -> Result<Expression, CompilerError> {
         let token = self.advance().ok_or_else(|| {
-            CompilerError::InvalidSource("expected expression but found end of input".to_owned())
+            CompilerError::invalid_source("expected expression but found end of input".to_owned())
         })?;
 
         match token {
@@ -518,7 +518,7 @@ impl ExpressionParser {
                         }
                     }
                     if !self.match_token(&Token::RightParen) {
-                        return Err(CompilerError::InvalidSource(
+                        return Err(CompilerError::invalid_source(
                             "missing ')' in function call".to_owned(),
                         ));
                     }
@@ -552,14 +552,14 @@ impl ExpressionParser {
                         }
                     }
                     if !self.match_token(&Token::RightParen) {
-                        return Err(CompilerError::InvalidSource(
+                        return Err(CompilerError::invalid_source(
                             "missing ')' in list literal".to_owned(),
                         ));
                     }
                     return Ok(Expression::ListItems(items));
                 }
                 if !self.match_token(&Token::RightParen) {
-                    return Err(CompilerError::InvalidSource(
+                    return Err(CompilerError::invalid_source(
                         "missing ')' in expression".to_owned(),
                     ));
                 }
@@ -570,7 +570,7 @@ impl ExpressionParser {
                 }
                 Ok(expression)
             }
-            _ => Err(CompilerError::UnsupportedFeature(
+            _ => Err(CompilerError::unsupported_feature(
                 "unsupported expression form".to_owned(),
             )),
         }
@@ -612,7 +612,7 @@ impl ExpressionParser {
 fn expr_to_list_item_name(expr: &Expression) -> Result<String, CompilerError> {
     match expr {
         Expression::Variable(name) => Ok(name.clone()),
-        _ => Err(CompilerError::InvalidSource(
+        _ => Err(CompilerError::invalid_source(
             "list literal items must be identifiers".to_owned(),
         )),
     }

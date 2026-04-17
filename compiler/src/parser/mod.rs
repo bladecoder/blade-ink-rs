@@ -68,7 +68,7 @@ impl<'a> Parser<'a> {
 
     pub fn parse(&self) -> Result<ParsedStory, CompilerError> {
         if self.source.is_empty() {
-            return Err(CompilerError::InvalidSource(
+            return Err(CompilerError::invalid_source(
                 "ink source is empty; expected at least one line of text".to_owned(),
             ));
         }
@@ -77,7 +77,7 @@ impl<'a> Parser<'a> {
         let lines = split_lines(&normalized);
 
         if lines.is_empty() {
-            return Err(CompilerError::InvalidSource(
+            return Err(CompilerError::invalid_source(
                 "ink source is empty; expected at least one line of text".to_owned(),
             ));
         }
@@ -92,10 +92,12 @@ impl<'a> Parser<'a> {
         let mut line_index = 0;
 
         while line_index < lines.len() {
+            let ln = line_index + 1;
             if let Some(header) = parse_header(lines[line_index].content) {
                 match header {
                     Header::Knot { name, parameters } => {
-                        finalize_stitch(&mut current_flow, &mut current_stitch)?;
+                        finalize_stitch(&mut current_flow, &mut current_stitch)
+                            .map_err(|e| e.with_line(ln))?;
                         if let Some(flow) = current_flow.take() {
                             flows.push(flow.build());
                         }
@@ -110,7 +112,8 @@ impl<'a> Parser<'a> {
                         });
                     }
                     Header::Function { name, parameters } => {
-                        finalize_stitch(&mut current_flow, &mut current_stitch)?;
+                        finalize_stitch(&mut current_flow, &mut current_stitch)
+                            .map_err(|e| e.with_line(ln))?;
                         if let Some(flow) = current_flow.take() {
                             flows.push(flow.build());
                         }
@@ -125,7 +128,8 @@ impl<'a> Parser<'a> {
                         });
                     }
                     Header::Stitch { name } => {
-                        finalize_stitch(&mut current_flow, &mut current_stitch)?;
+                        finalize_stitch(&mut current_flow, &mut current_stitch)
+                            .map_err(|e| e.with_line(ln))?;
                         let parent_is_root_stitch =
                             current_flow.as_ref().map_or(false, |f| f.is_root_stitch);
                         if current_flow.is_none() || parent_is_root_stitch {
@@ -201,7 +205,7 @@ fn finalize_stitch(
 ) -> Result<(), CompilerError> {
     if let Some(stitch) = current_stitch.take() {
         let flow = current_flow.as_mut().ok_or_else(|| {
-            CompilerError::InvalidSource("stitch declared without enclosing knot".to_owned())
+            CompilerError::invalid_source("stitch declared without enclosing knot".to_owned())
         })?;
         flow.children.push(stitch.build());
     }
@@ -277,6 +281,8 @@ pub fn parse_statement(
 ) -> Result<ParsedStatement, CompilerError> {
     let line = &lines[*line_index];
     let trimmed = line.content.trim();
+    // 1-based line number for error messages; captured before any sub-parser advances the index.
+    let ln = *line_index + 1;
 
     if trimmed.is_empty() || trimmed.starts_with("//") {
         *line_index += 1;
@@ -290,7 +296,8 @@ pub fn parse_statement(
             strip_leading_whitespace,
             &parse_statement,
         )
-        .map(ParsedStatement::Nodes);
+        .map(ParsedStatement::Nodes)
+        .map_err(|e| e.with_line(ln));
     }
 
     if looks_like_sequence(trimmed) {
@@ -300,7 +307,8 @@ pub fn parse_statement(
             strip_leading_whitespace,
             &parse_statement,
         )
-        .map(ParsedStatement::Nodes);
+        .map(ParsedStatement::Nodes)
+        .map_err(|e| e.with_line(ln));
     }
 
     if looks_like_conditional(trimmed) {
@@ -310,7 +318,8 @@ pub fn parse_statement(
             strip_leading_whitespace,
             &parse_statement,
         )
-        .map(ParsedStatement::Nodes);
+        .map(ParsedStatement::Nodes)
+        .map_err(|e| e.with_line(ln));
     }
 
     if let Some(rest) = trimmed.strip_prefix("EXTERNAL ") {
@@ -322,12 +331,16 @@ pub fn parse_statement(
 
     if let Some(rest) = trimmed.strip_prefix("VAR ") {
         *line_index += 1;
-        return Ok(ParsedStatement::Global(parse_global_assignment(rest)?));
+        return Ok(ParsedStatement::Global(
+            parse_global_assignment(rest).map_err(|e| e.with_line(ln))?,
+        ));
     }
 
     if let Some(rest) = trimmed.strip_prefix("LIST ") {
         *line_index += 1;
-        return Ok(ParsedStatement::List(parse_list_declaration(rest)?));
+        return Ok(ParsedStatement::List(
+            parse_list_declaration(rest).map_err(|e| e.with_line(ln))?,
+        ));
     }
 
     if let Some(rest) = trimmed.strip_prefix("~ return ") {
@@ -335,7 +348,7 @@ pub fn parse_statement(
         // Try as bool first (legacy), otherwise parse as expression
         let expr = match parse_bool(rest.trim()) {
             Ok(b) => Expression::Bool(b),
-            Err(_) => parse_expression(rest.trim())?,
+            Err(_) => parse_expression(rest.trim()).map_err(|e| e.with_line(ln))?,
         };
         return Ok(ParsedStatement::Nodes(vec![Node::ReturnExpr(expr)]));
     }
@@ -345,18 +358,20 @@ pub fn parse_statement(
         .or_else(|| trimmed.strip_prefix('~'))
     {
         *line_index += 1;
-        return Ok(ParsedStatement::Nodes(vec![parse_assignment(rest)?]));
+        return Ok(ParsedStatement::Nodes(vec![
+            parse_assignment(rest).map_err(|e| e.with_line(ln))?
+        ]));
     }
 
     if let Some(rest) = trimmed.strip_prefix('#') {
         *line_index += 1;
         return Ok(ParsedStatement::Nodes(vec![Node::Tag(
-            parse_dynamic_string(rest.trim_start())?,
+            parse_dynamic_string(rest.trim_start()).map_err(|e| e.with_line(ln))?,
         )]));
     }
 
     if trimmed.starts_with('*') || trimmed.starts_with('+') {
-        return parse_choice(lines, line_index, &parse_statement);
+        return parse_choice(lines, line_index, &parse_statement).map_err(|e| e.with_line(ln));
     }
 
     if !trimmed.starts_with("->") {
@@ -394,7 +409,7 @@ pub fn parse_statement(
                 // Don't emit a newline for a label-only gather line (no content after the label)
                 had_newline: line.had_newline && !gather_content.is_empty(),
             };
-            let mut nodes = parse_content_line(&gather_line, true)?;
+            let mut nodes = parse_content_line(&gather_line, true).map_err(|e| e.with_line(ln))?;
             if let Some(label) = gather_label {
                 nodes.insert(0, Node::GatherLabel(label));
             }
@@ -409,17 +424,21 @@ pub fn parse_statement(
 
     if let Some(rest) = trimmed.strip_prefix("<- ") {
         *line_index += 1;
-        let divert = parse_divert(rest.trim())?;
+        let divert = parse_divert(rest.trim()).map_err(|e| e.with_line(ln))?;
         return Ok(ParsedStatement::Nodes(vec![Node::ThreadDivert(divert)]));
     }
 
     if trimmed.starts_with("->") {
         *line_index += 1;
-        return Ok(ParsedStatement::Nodes(parse_divert_line(trimmed)?));
+        return Ok(ParsedStatement::Nodes(
+            parse_divert_line(trimmed).map_err(|e| e.with_line(ln))?,
+        ));
     }
 
     *line_index += 1;
-    parse_content_line(line, strip_leading_whitespace).map(ParsedStatement::Nodes)
+    parse_content_line(line, strip_leading_whitespace)
+        .map(ParsedStatement::Nodes)
+        .map_err(|e| e.with_line(ln))
 }
 
 fn parse_content_line(
@@ -458,7 +477,7 @@ fn parse_global_assignment(input: &str) -> Result<GlobalVariable, CompilerError>
 /// Parse `name = item1, (item2), item3, ...` into a ListDeclaration.
 fn parse_list_declaration(input: &str) -> Result<ListDeclaration, CompilerError> {
     let eq_pos = input.find('=').ok_or_else(|| {
-        CompilerError::InvalidSource(format!("LIST declaration missing '=': {input}"))
+        CompilerError::invalid_source(format!("LIST declaration missing '=': {input}"))
     })?;
     let name = input[..eq_pos].trim().to_owned();
     let rhs = input[eq_pos + 1..].trim();
@@ -481,7 +500,7 @@ fn parse_list_declaration(input: &str) -> Result<ListDeclaration, CompilerError>
         if let Some((item_name, item_value)) = inner.split_once('=') {
             let item_name = item_name.trim().to_owned();
             let explicit_value: u32 = item_value.trim().parse().map_err(|_| {
-                CompilerError::InvalidSource(format!(
+                CompilerError::invalid_source(format!(
                     "invalid LIST item value: '{}'",
                     item_value.trim()
                 ))
@@ -545,7 +564,7 @@ fn parse_assignment(input: &str) -> Result<Node, CompilerError> {
 
 fn split_assignment(input: &str, separator: &str) -> Result<(String, String), CompilerError> {
     let (name, expression) = input.split_once(separator).ok_or_else(|| {
-        CompilerError::InvalidSource(format!("expected assignment using '{separator}'"))
+        CompilerError::invalid_source(format!("expected assignment using '{separator}'"))
     })?;
 
     Ok((name.trim().to_owned(), expression.trim().to_owned()))

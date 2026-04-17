@@ -16,7 +16,7 @@ use crate::{
 pub fn story_to_json_string(story: &ParsedStory) -> Result<String, CompilerError> {
     let json = story_to_json_value(story)?;
     serde_json::to_string(&json).map_err(|error| {
-        CompilerError::InvalidSource(format!("failed to serialize compiled ink: {error}"))
+        CompilerError::invalid_source(format!("failed to serialize compiled ink: {error}"))
     })
 }
 
@@ -1342,7 +1342,7 @@ fn emit_condition(
             let mut call = BTreeMap::new();
             call.insert(format!("{name}()"), Value::String(name.clone()));
             out.push(serde_json::to_value(call).map_err(|error| {
-                CompilerError::InvalidSource(format!("failed to serialize function call: {error}"))
+                CompilerError::invalid_source(format!("failed to serialize function call: {error}"))
             })?);
         }
         Condition::Expression(Expression::Variable(name))
@@ -1538,7 +1538,7 @@ fn emit_switch_conditional(
             arr.insert(0, json!("pop"));
             Value::Array(arr)
         } else {
-            return Err(CompilerError::InvalidSource(
+            return Err(CompilerError::invalid_source(
                 "switch branch body should be an array".to_owned(),
             ));
         };

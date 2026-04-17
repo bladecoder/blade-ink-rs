@@ -28,7 +28,7 @@ pub fn parse_sequence_mode(input: &str) -> Result<SequenceMode, CompilerError> {
         "shuffle" => Ok(SequenceMode::Shuffle),
         "shuffle once" => Ok(SequenceMode::ShuffleOnce),
         "stopping shuffle" => Ok(SequenceMode::ShuffleStopping),
-        _ => Err(CompilerError::UnsupportedFeature(format!(
+        _ => Err(CompilerError::unsupported_feature(format!(
             "unsupported sequence mode '{input}'"
         ))),
     }
@@ -57,10 +57,10 @@ pub fn parse_sequence(
 
     let header = content
         .strip_prefix('{')
-        .ok_or_else(|| CompilerError::InvalidSource("expected sequence block".to_owned()))?;
+        .ok_or_else(|| CompilerError::invalid_source("expected sequence block".to_owned()))?;
     let (mode_text, _) = header
         .split_once(':')
-        .ok_or_else(|| CompilerError::InvalidSource("sequence block is missing ':'".to_owned()))?;
+        .ok_or_else(|| CompilerError::invalid_source("sequence block is missing ':'".to_owned()))?;
     let mode = parse_sequence_mode(mode_text.trim())?;
 
     *line_index += 1;
@@ -76,7 +76,7 @@ pub fn parse_sequence(
         }
 
         let branch_text = trimmed.strip_prefix('-').ok_or_else(|| {
-            CompilerError::InvalidSource("sequence branch must start with '-'".to_owned())
+            CompilerError::invalid_source("sequence branch must start with '-'".to_owned())
         })?;
         *line_index += 1;
 
@@ -105,7 +105,7 @@ pub fn parse_sequence(
                 ParsedStatement::Global(_)
                 | ParsedStatement::List(_)
                 | ParsedStatement::ExternalFunction(_) => {
-                    return Err(CompilerError::UnsupportedFeature(
+                    return Err(CompilerError::unsupported_feature(
                         "global declarations are not supported inside sequences".to_owned(),
                     ));
                 }
@@ -116,7 +116,7 @@ pub fn parse_sequence(
         branches.push(branch_nodes);
     }
 
-    Err(CompilerError::InvalidSource(
+    Err(CompilerError::invalid_source(
         "unterminated sequence block".to_owned(),
     ))
 }
@@ -143,7 +143,7 @@ pub fn parse_multi_branch_sequence(
         }
 
         let header = trimmed.strip_prefix('-').ok_or_else(|| {
-            CompilerError::InvalidSource("sequence branch must start with '-'".to_owned())
+            CompilerError::invalid_source("sequence branch must start with '-'".to_owned())
         })?;
         let header = header.trim_start();
         let (branch_mode, inline_text) =
@@ -187,7 +187,7 @@ pub fn parse_multi_branch_sequence(
                 ParsedStatement::Global(_)
                 | ParsedStatement::List(_)
                 | ParsedStatement::ExternalFunction(_) => {
-                    return Err(CompilerError::UnsupportedFeature(
+                    return Err(CompilerError::unsupported_feature(
                         "global declarations are not supported inside sequences".to_owned(),
                     ));
                 }
@@ -198,7 +198,7 @@ pub fn parse_multi_branch_sequence(
         branches.push(branch_nodes);
     }
 
-    Err(CompilerError::InvalidSource(
+    Err(CompilerError::invalid_source(
         "unterminated sequence block".to_owned(),
     ))
 }

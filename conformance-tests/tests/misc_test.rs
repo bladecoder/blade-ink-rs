@@ -119,7 +119,7 @@ fn include_basic_test() -> Result<(), Box<dyn Error>> {
         .compile_with_file_handler(&ink_source, |filename| {
             let path = base_dir.join(filename);
             std::fs::read_to_string(&path).map_err(|e| {
-                CompilerError::InvalidSource(format!(
+                CompilerError::invalid_source(format!(
                     "Failed to read included file '{}': {}",
                     filename, e
                 ))
