@@ -311,7 +311,7 @@ pub fn parse_statement(
         .map_err(|e| e.with_line(ln));
     }
 
-    if looks_like_conditional(trimmed) {
+    if looks_like_conditional(trimmed) && brace_spans_multiple_lines(trimmed) {
         return parse_conditional(
             lines,
             line_index,
@@ -403,6 +403,48 @@ pub fn parse_statement(
             } else {
                 (None, gather_content)
             };
+
+            // If gather_content starts a multi-line conditional or sequence, parse it as such.
+            // Build a synthetic slice: the first entry uses gather_content as its content, then
+            // the remaining (not-yet-consumed) lines follow.  We track how many lines the
+            // sub-parser consumed and advance the outer line_index accordingly.
+            if looks_like_conditional(gather_content) || looks_like_sequence(gather_content) {
+                // Synthetic opening line using gather_content.
+                let synthetic = Line {
+                    content: gather_content,
+                    indent: line.indent,
+                    had_newline: line.had_newline,
+                };
+                // Build the combined slice: [synthetic] ++ lines[*line_index..]
+                let mut combined: Vec<Line<'_>> = std::iter::once(synthetic)
+                    .chain(lines[*line_index..].iter().map(|l| Line {
+                        content: l.content,
+                        indent: l.indent,
+                        had_newline: l.had_newline,
+                    }))
+                    .collect();
+                let mut local_idx: usize = 0;
+                let nodes = if looks_like_sequence(gather_content) {
+                    parse_sequence(&combined, &mut local_idx, true, &parse_statement)
+                        .map_err(|e| e.with_line(ln))?
+                } else {
+                    parse_conditional(&combined, &mut local_idx, true, &parse_statement)
+                        .map_err(|e| e.with_line(ln))?
+                };
+                // local_idx now points past whatever the sub-parser consumed in `combined`.
+                // combined[0] was the synthetic gather line (already consumed above via += 1).
+                // combined[1..] maps to lines[*line_index..], so advance by local_idx - 1.
+                if local_idx > 0 {
+                    *line_index += local_idx - 1;
+                }
+                let mut result = Vec::new();
+                if let Some(label) = gather_label {
+                    result.push(Node::GatherLabel(label));
+                }
+                result.extend(nodes);
+                return Ok(ParsedStatement::Nodes(result));
+            }
+
             let gather_line = Line {
                 content: gather_content,
                 indent: line.indent,
@@ -560,6 +602,26 @@ fn parse_assignment(input: &str) -> Result<Node, CompilerError> {
             AssignMode::Set
         },
     })
+}
+
+/// Returns true if the leading `{` in `content` is NOT closed on the same line —
+/// meaning the block spans multiple lines and should be parsed by the conditional/sequence
+/// parser rather than the inline tokenizer.
+fn brace_spans_multiple_lines(content: &str) -> bool {
+    let mut depth: i32 = 0;
+    for ch in content.chars() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return false; // first '{' was closed on this line
+                }
+            }
+            _ => {}
+        }
+    }
+    true // '{' was never closed — spans multiple lines
 }
 
 fn split_assignment(input: &str, separator: &str) -> Result<(String, String), CompilerError> {

@@ -54,10 +54,18 @@ pub fn tokenize_inline_content(content: &str) -> Result<Vec<Node>, CompilerError
 
             let inline = &content[index..=end];
             if let Some((condition, branch_text)) = parse_inline_conditional(inline)? {
+                // Split on top-level '|' to get optional false branch.
+                let branches: Vec<&str> = split_top_level_pipe(branch_text);
+                let when_true = tokenize_inline_content(branches[0].trim())?;
+                let when_false = if branches.len() > 1 {
+                    Some(tokenize_inline_content(branches[1].trim())?)
+                } else {
+                    None
+                };
                 nodes.push(Node::Conditional {
                     condition,
-                    when_true: tokenize_inline_content(branch_text)?,
-                    when_false: None,
+                    when_true,
+                    when_false,
                 });
             } else if let Some(sequence) = parse_inline_sequence(&content[index + 1..end])? {
                 nodes.push(Node::Sequence(sequence));

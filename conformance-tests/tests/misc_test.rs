@@ -137,3 +137,9 @@ fn include_basic_test() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+#[test]
+fn the_intercept_compiles_test() {
+    let ink_source = common::get_file_string("inkfiles/TheIntercept.ink").unwrap();
+    Compiler::new().compile(&ink_source).unwrap();
+}

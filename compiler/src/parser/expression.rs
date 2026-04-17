@@ -192,6 +192,7 @@ pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
                     "true" => tokens.push(Token::Bool(true)),
                     "false" => tokens.push(Token::Bool(false)),
                     "and" => tokens.push(Token::AndAnd),
+                    "not" => tokens.push(Token::Bang),
                     _ => tokens.push(Token::Ident(ident.to_owned())),
                 }
             }
