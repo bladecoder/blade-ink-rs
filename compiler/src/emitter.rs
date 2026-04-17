@@ -591,26 +591,10 @@ fn emit_nodes_with_continuation(
                 for arg in args {
                     emit_expression_ctx(arg, &mut out.content, Some(context));
                 }
+                // Only SEED_RANDOM makes sense as a void call (it has a side effect).
+                // All other built-ins return a value and are meaningless as void statements.
                 let builtin_token: Option<&str> = match name.as_str() {
-                    "RANDOM" => Some("rnd"),
                     "SEED_RANDOM" => Some("srnd"),
-                    "POW" => Some("POW"),
-                    "FLOOR" => Some("FLOOR"),
-                    "CEILING" => Some("CEILING"),
-                    "INT" => Some("INT"),
-                    "FLOAT" => Some("FLOAT"),
-                    "MIN" => Some("MIN"),
-                    "MAX" => Some("MAX"),
-                    "READ_COUNT" => Some("readc"),
-                    "TURNS_SINCE" => Some("turns"),
-                    "LIST_VALUE" => Some("LIST_VALUE"),
-                    "LIST_ALL" => Some("LIST_ALL"),
-                    "LIST_INVERT" => Some("LIST_INVERT"),
-                    "LIST_COUNT" => Some("LIST_COUNT"),
-                    "LIST_MIN" => Some("LIST_MIN"),
-                    "LIST_MAX" => Some("LIST_MAX"),
-                    "LIST_RANGE" => Some("range"),
-                    "LIST_RANDOM" => Some("lrnd"),
                     _ => None,
                 };
                 if let Some(token) = builtin_token {
