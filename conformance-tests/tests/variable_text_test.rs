@@ -169,8 +169,8 @@ fn empty_elements_test() -> Result<(), StoryError> {
 
 #[test]
 fn list_in_choice_test() -> Result<(), StoryError> {
-    let json_string =
-        common::get_json_string("inkfiles/variabletext/list-in-choice.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/variabletext/list-in-choice.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 

@@ -10,7 +10,7 @@ use crate::{
         SequenceMode,
     },
     error::CompilerError,
-    parser::inline::tokenize_inline_content,
+    parser::inline::{parse_dynamic_string, tokenize_inline_content},
 };
 
 pub fn story_to_json_string(story: &ParsedStory) -> Result<String, CompilerError> {
@@ -85,11 +85,19 @@ struct EmitScope {
     /// before the content emitted by emit_nodes. This offset is added when
     /// computing absolute indices (e.g. conditional rejoin targets).
     param_offset: usize,
+    /// Parameter names for the current flow (used to detect variable diverts to params)
+    param_names: BTreeSet<String>,
 }
 
 struct EmitContext {
     global_variables: BTreeSet<String>,
     top_flow_names: BTreeSet<String>,
+    /// Set of LIST declaration names (to detect list-typed function calls)
+    list_names: BTreeSet<String>,
+    /// For each list name, a map from bare item name → (qualified name, value)
+    list_items: std::collections::BTreeMap<String, Vec<(String, u32)>>,
+    /// Set of EXTERNAL function declaration names
+    external_functions: BTreeSet<String>,
 }
 
 impl EmittedContainer {
@@ -132,10 +140,49 @@ impl EmittedContainer {
 
 impl EmitContext {
     fn new(story: &ParsedStory) -> Self {
+        let mut list_items = std::collections::BTreeMap::new();
+        for list_decl in story.list_declarations() {
+            let items: Vec<(String, u32)> = list_decl
+                .items
+                .iter()
+                .map(|(name, value, _)| (format!("{}.{}", list_decl.name, name), *value))
+                .collect();
+            list_items.insert(list_decl.name.clone(), items);
+        }
         Self {
             global_variables: story.globals().iter().map(|var| var.name.clone()).collect(),
             top_flow_names: story.flows().iter().map(|flow| flow.name.clone()).collect(),
+            list_names: story
+                .list_declarations()
+                .iter()
+                .map(|l| l.name.clone())
+                .collect(),
+            list_items,
+            external_functions: story.external_functions.iter().cloned().collect(),
         }
+    }
+
+    /// Look up a bare item name (e.g. "b") across all lists.
+    /// Returns the qualified name and value if found.
+    fn resolve_list_item(&self, bare_name: &str) -> Option<(String, u32)> {
+        // If already qualified (contains '.'), use as-is
+        if bare_name.contains('.') {
+            for items in self.list_items.values() {
+                if let Some((qname, val)) = items.iter().find(|(q, _)| q == bare_name) {
+                    return Some((qname.clone(), *val));
+                }
+            }
+            return None;
+        }
+        for items in self.list_items.values() {
+            if let Some((qname, val)) = items
+                .iter()
+                .find(|(q, _)| q.split('.').last() == Some(bare_name))
+            {
+                return Some((qname.clone(), *val));
+            }
+        }
+        None
     }
 }
 
@@ -147,6 +194,7 @@ impl EmitScope {
             child_flow_names: flows.iter().map(|flow| flow.name.clone()).collect(),
             choice_label_targets: BTreeMap::new(),
             param_offset: 0,
+            param_names: BTreeSet::new(),
         }
     }
 
@@ -170,6 +218,7 @@ impl EmitScope {
                 .collect(),
             choice_label_targets: BTreeMap::new(),
             param_offset: child.parameters.len(),
+            param_names: child.parameters.iter().cloned().collect(),
         }
     }
 
@@ -180,6 +229,7 @@ impl EmitScope {
             child_flow_names: self.child_flow_names.clone(),
             choice_label_targets: self.choice_label_targets.clone(),
             param_offset: 0,
+            param_names: self.param_names.clone(),
         }
     }
 
@@ -193,6 +243,7 @@ impl EmitScope {
             child_flow_names: self.child_flow_names.clone(),
             choice_label_targets: merged,
             param_offset: self.param_offset,
+            param_names: self.param_names.clone(),
         }
     }
 
@@ -219,7 +270,9 @@ impl EmitScope {
     }
 
     fn is_variable_divert(&self, target: &str, context: &EmitContext) -> bool {
-        context.global_variables.contains(target) && !context.top_flow_names.contains(target)
+        self.param_names.contains(target)
+            || (context.global_variables.contains(target)
+                && !context.top_flow_names.contains(target))
     }
 
     fn resolve_choice_label(&self, label: &str) -> Option<&str> {
@@ -248,7 +301,12 @@ fn emit_global_declarations(
                 selected.insert(key, json!(value));
             }
         }
-        container.push(json!({ "list": Value::Object(selected) }));
+        if selected.is_empty() {
+            // No selected items → include origins so the runtime knows which list this belongs to
+            container.push(json!({ "list": Value::Object(selected), "origins": [list_decl.name] }));
+        } else {
+            container.push(json!({ "list": Value::Object(selected) }));
+        }
         container.push(json!({ "VAR=": list_decl.name }));
     }
 
@@ -372,6 +430,10 @@ fn collect_choice_labels_recursive(
                 if !continuation.is_empty() {
                     let g_name = format!("g-{}", block_start_ci);
                     let child_scope = scope.choice_branch(&g_name);
+                    // If the continuation starts with a GatherLabel, add it as an alias for g-N
+                    if let Some(Node::GatherLabel(lbl)) = continuation.first() {
+                        labels.insert(lbl.clone(), format!("{}.{}", scope.path, g_name));
+                    }
                     let mut child_index = 0;
                     collect_choice_labels_recursive(
                         continuation,
@@ -381,6 +443,12 @@ fn collect_choice_labels_recursive(
                     );
                 }
                 return; // choice block consumes the rest via continuation
+            }
+            Node::GatherLabel(label) => {
+                // Standalone gather label (loop-back point): record its path so
+                // DivertTarget expressions can resolve it.
+                labels.insert(label.clone(), format!("{}.{}", scope.path, label));
+                i += 1;
             }
             _ => {
                 i += 1;
@@ -444,7 +512,7 @@ fn emit_nodes_with_continuation(
                 if !args.is_empty() {
                     out.push(json!("ev"));
                     for arg in args {
-                        emit_expression(arg, &mut out.content);
+                        emit_expression_ctx(arg, &mut out.content, Some(context));
                     }
                     out.push(json!("/ev"));
                 }
@@ -460,6 +528,25 @@ fn emit_nodes_with_continuation(
                 out.push(json!("/ev"));
                 out.push(json!("->->"));
             }
+            Node::ThreadDivert(divert) => {
+                // <- target(args): ev, arg1, arg2, ..., /ev, "thread", {->: target}
+                if !divert.arguments.is_empty() {
+                    out.push(json!("ev"));
+                    for arg in &divert.arguments {
+                        // Resolve DivertTarget arguments with full scope path
+                        if let Expression::DivertTarget(target) = arg {
+                            let resolved = scope.resolve_divert_target(target, context);
+                            out.push(json!({"^->": resolved}));
+                        } else {
+                            emit_expression_ctx(arg, &mut out.content, Some(context));
+                        }
+                    }
+                    out.push(json!("/ev"));
+                }
+                out.push(json!("thread"));
+                let resolved = scope.resolve_divert_target(&divert.target, context);
+                out.push(json!({"->": resolved}));
+            }
             Node::ReturnBool(value) => {
                 out.push(json!("ev"));
                 out.push(json!(value));
@@ -468,7 +555,7 @@ fn emit_nodes_with_continuation(
             }
             Node::ReturnExpr(expression) => {
                 out.push(json!("ev"));
-                emit_expression(expression, &mut out.content);
+                emit_expression_ctx(expression, &mut out.content, Some(context));
                 out.push(json!("/ev"));
                 out.push(json!("~ret"));
             }
@@ -484,15 +571,25 @@ fn emit_nodes_with_continuation(
                 out.content.len() + scope.param_offset,
                 context,
             )?),
+            Node::SwitchConditional { value, branches } => {
+                let switch_index = out.content.len() + scope.param_offset;
+                out.content.extend(emit_switch_conditional(
+                    value,
+                    branches,
+                    scope,
+                    switch_index,
+                    context,
+                )?)
+            }
             Node::Assignment {
                 variable_name,
                 expression,
                 mode,
-            } => emit_assignment(variable_name, expression, mode, &mut out),
+            } => emit_assignment(variable_name, expression, mode, &mut out, context),
             Node::VoidCall { name, args } => {
                 out.push(json!("ev"));
                 for arg in args {
-                    emit_expression(arg, &mut out.content);
+                    emit_expression_ctx(arg, &mut out.content, Some(context));
                 }
                 let builtin_token: Option<&str> = match name.as_str() {
                     "RANDOM" => Some("rnd"),
@@ -506,10 +603,25 @@ fn emit_nodes_with_continuation(
                     "MAX" => Some("MAX"),
                     "READ_COUNT" => Some("readc"),
                     "TURNS_SINCE" => Some("turns"),
+                    "LIST_VALUE" => Some("LIST_VALUE"),
+                    "LIST_ALL" => Some("LIST_ALL"),
+                    "LIST_INVERT" => Some("LIST_INVERT"),
+                    "LIST_COUNT" => Some("LIST_COUNT"),
+                    "LIST_MIN" => Some("LIST_MIN"),
+                    "LIST_MAX" => Some("LIST_MAX"),
+                    "LIST_RANGE" => Some("range"),
+                    "LIST_RANDOM" => Some("lrnd"),
                     _ => None,
                 };
                 if let Some(token) = builtin_token {
                     out.push(json!(token));
+                } else if context.external_functions.contains(name) {
+                    let ex_args = args.len() as i32;
+                    if ex_args > 0 {
+                        out.push(json!({"x()": name, "exArgs": ex_args}));
+                    } else {
+                        out.push(json!({"x()": name}));
+                    }
                 } else {
                     out.push(json!({"f()": name}));
                 }
@@ -533,7 +645,23 @@ fn emit_nodes_with_continuation(
                 )?;
                 break;
             }
-            Node::GatherLabel(_) => { /* directive only — skip, handled by emit_choice_block */ }
+            Node::GatherLabel(label) => {
+                // Standalone gather label (loop-back point before choices):
+                // Emit remaining nodes as an indexed sub-container with #n: label in its
+                // terminator. This makes the runtime enter it sequentially AND allows the
+                // label to be resolved as scope.path + "." + label via named_content lookup.
+                let remaining = &nodes[index + 1..];
+                let sub_scope = scope.choice_branch(label);
+                let sub_container = emit_nodes_with_continuation(
+                    remaining,
+                    &sub_scope,
+                    context,
+                    fallback_continuation,
+                )?;
+                let sub_value = sub_container.into_json_array(Some(label), Some(7))?;
+                out.push(sub_value); // push as indexed content (sequential execution)
+                break; // all remaining nodes consumed by the sub-container
+            }
         }
 
         index += 1;
@@ -582,9 +710,15 @@ fn emit_choice_block(
     } else {
         let name = format!("g-{}", *next_choice_index);
         let continuation_scope = block_scope.choice_branch(&name);
+        // Strip leading GatherLabel — it's already handled via into_json_array(gather_label)
+        let continuation_body = if gather_label.is_some() {
+            &continuation[1..]
+        } else {
+            continuation
+        };
         // Pass fallback through so the gather content can inherit the outer continuation
         let mut gather_container = emit_nodes_with_continuation(
-            continuation,
+            continuation_body,
             &continuation_scope,
             context,
             fallback_continuation,
@@ -592,10 +726,13 @@ fn emit_choice_block(
         // If the gather doesn't end terminally AND doesn't have nested choices,
         // append the fallback continuation divert.
         // If it has nested choices, those will carry the fallback themselves.
-        let has_nested_choices_in_continuation =
-            continuation.iter().any(|n| matches!(n, Node::Choice(_)));
+        let has_nested_choices_in_continuation = continuation_body
+            .iter()
+            .any(|n| matches!(n, Node::Choice(_)));
         if let Some(fb) = fallback_continuation {
-            if !branch_has_terminal_content(continuation) && !has_nested_choices_in_continuation {
+            if !branch_has_terminal_content(continuation_body)
+                && !has_nested_choices_in_continuation
+            {
                 gather_container.push(json!({"->": fb}));
             }
         }
@@ -738,7 +875,7 @@ fn emit_divert(
     if !divert.arguments.is_empty() {
         out.push(json!("ev"));
         for argument in &divert.arguments {
-            emit_expression(argument, &mut out.content);
+            emit_expression_ctx(argument, &mut out.content, Some(context));
         }
         out.push(json!("/ev"));
     }
@@ -755,22 +892,42 @@ fn emit_assignment(
     expression: &Expression,
     mode: &AssignMode,
     out: &mut EmittedContainer,
+    context: &EmitContext,
 ) {
     match mode {
         AssignMode::Set => {
             out.push(json!("ev"));
-            emit_expression(expression, &mut out.content);
+            emit_expression_ctx(expression, &mut out.content, Some(context));
             out.push(json!("/ev"));
             out.push(json!({"VAR=": variable_name, "re": true}));
         }
+        AssignMode::TempSet => {
+            out.push(json!("ev"));
+            emit_expression_ctx(expression, &mut out.content, Some(context));
+            out.push(json!("/ev"));
+            out.push(json!({"temp=": variable_name}));
+        }
         AssignMode::AddAssign => {
             out.push(json!("ev"));
-            emit_expression(
+            emit_expression_ctx(
                 &Expression::Variable(variable_name.to_owned()),
                 &mut out.content,
+                Some(context),
             );
-            emit_expression(expression, &mut out.content);
+            emit_expression_ctx(expression, &mut out.content, Some(context));
             out.push(json!("+"));
+            out.push(json!({"VAR=": variable_name, "re": true}));
+            out.push(json!("/ev"));
+        }
+        AssignMode::SubtractAssign => {
+            out.push(json!("ev"));
+            emit_expression_ctx(
+                &Expression::Variable(variable_name.to_owned()),
+                &mut out.content,
+                Some(context),
+            );
+            emit_expression_ctx(expression, &mut out.content, Some(context));
+            out.push(json!("-"));
             out.push(json!({"VAR=": variable_name, "re": true}));
             out.push(json!("/ev"));
         }
@@ -917,8 +1074,52 @@ fn emit_expression_ctx(
         Expression::Int(value) => out.push(json!(value)),
         Expression::Float(value) => out.push(json!(value)),
         Expression::Str(value) => {
+            // Parse the string content for {expr} interpolations
+            let dynamic = parse_dynamic_string(value).unwrap_or_else(|_| DynamicString {
+                parts: vec![DynamicStringPart::Text(value.clone())],
+            });
             out.push(json!("str"));
-            out.push(json!(format!("^{value}")));
+            // If there are no expression parts (plain string or empty), emit as literal text
+            let has_expressions = dynamic.parts.iter().any(|p| {
+                matches!(
+                    p,
+                    DynamicStringPart::Expression(_) | DynamicStringPart::Sequence(_)
+                )
+            });
+            if !has_expressions {
+                // Plain string (possibly empty) — emit as single text token
+                let text: String = dynamic
+                    .parts
+                    .iter()
+                    .filter_map(|p| {
+                        if let DynamicStringPart::Text(t) = p {
+                            Some(t.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                out.push(json!(format!("^{text}")));
+            } else {
+                for part in &dynamic.parts {
+                    match part {
+                        DynamicStringPart::Text(t) => {
+                            if !t.is_empty() {
+                                out.push(json!(format!("^{t}")));
+                            }
+                        }
+                        DynamicStringPart::Expression(expr) => {
+                            out.push(json!("ev"));
+                            emit_expression_ctx(expr, out, context);
+                            out.push(json!("out"));
+                        }
+                        DynamicStringPart::Sequence(_) => {
+                            // Sequences inside string literals not supported here; emit raw
+                            out.push(json!(format!("^{value}")));
+                        }
+                    }
+                }
+            }
             out.push(json!("/str"));
         }
         Expression::Variable(name) => {
@@ -934,6 +1135,25 @@ fn emit_expression_ctx(
             out.push(json!("_"));
         }
         Expression::FunctionCall { name, args } => {
+            // Check if this is a list-typed call: list_name(n) or list_name()
+            if context.map_or(false, |ctx| ctx.list_names.contains(name)) {
+                if args.is_empty() {
+                    // list() → empty list with origins
+                    out.push(json!({"list": {}, "origins": [name]}));
+                } else if args.len() == 1 {
+                    // list(n) → "^list_name", n, "listInt"
+                    out.push(json!(format!("^{name}")));
+                    emit_expression_ctx(&args[0], out, context);
+                    out.push(json!("listInt"));
+                } else {
+                    // Fallback: treat as user function call
+                    for arg in args {
+                        emit_expression_ctx(arg, out, context);
+                    }
+                    out.push(json!({"f()": name}));
+                }
+                return;
+            }
             // Map built-in Ink function names to runtime tokens
             // Built-ins are emitted as plain strings; user functions as {"f()": name}
             let builtin_token: Option<&str> = match name.as_str() {
@@ -950,6 +1170,14 @@ fn emit_expression_ctx(
                 "TURNS_SINCE" => Some("turns"),
                 "CHOICE_COUNT" => Some("CHOICE_COUNT"),
                 "TURNS" => Some("TURNS"),
+                "LIST_VALUE" => Some("LIST_VALUE"),
+                "LIST_ALL" => Some("LIST_ALL"),
+                "LIST_INVERT" => Some("LIST_INVERT"),
+                "LIST_COUNT" => Some("LIST_COUNT"),
+                "LIST_MIN" => Some("LIST_MIN"),
+                "LIST_MAX" => Some("LIST_MAX"),
+                "LIST_RANGE" => Some("range"),
+                "LIST_RANDOM" => Some("lrnd"),
                 _ => None,
             };
             for arg in args {
@@ -957,9 +1185,35 @@ fn emit_expression_ctx(
             }
             if let Some(token) = builtin_token {
                 out.push(json!(token));
+            } else if context.map_or(false, |ctx| ctx.external_functions.contains(name)) {
+                let ex_args = args.len() as i32;
+                if ex_args > 0 {
+                    out.push(json!({"x()": name, "exArgs": ex_args}));
+                } else {
+                    out.push(json!({"x()": name}));
+                }
+            } else if context.map_or(false, |ctx| ctx.global_variables.contains(name)) {
+                // Variable holding a divert target — call it as a variable function
+                out.push(json!({"f()": name, "var": true}));
             } else {
                 out.push(json!({"f()": name}));
             }
+        }
+        Expression::ListItems(items) => {
+            let mut list_map = serde_json::Map::new();
+            for bare_name in items {
+                if let Some((qname, val)) = context.and_then(|ctx| ctx.resolve_list_item(bare_name))
+                {
+                    list_map.insert(qname, json!(val));
+                } else {
+                    // Fallback: use bare name with value 0 (unknown list)
+                    list_map.insert(bare_name.clone(), json!(0));
+                }
+            }
+            out.push(json!({"list": list_map}));
+        }
+        Expression::EmptyList => {
+            out.push(json!({"list": {}}));
         }
         Expression::Binary {
             left,
@@ -982,6 +1236,9 @@ fn emit_expression_ctx(
                 BinaryOperator::GreaterEqual => ">=",
                 BinaryOperator::Less => "<",
                 BinaryOperator::LessEqual => "<=",
+                BinaryOperator::Has => "?",
+                BinaryOperator::Hasnt => "!?",
+                BinaryOperator::Intersect => "L^",
             }));
         }
     }
@@ -1015,7 +1272,7 @@ fn emit_dynamic_string_parts(
         }
         DynamicStringPart::Expression(expression) => {
             out.push(json!("ev"));
-            emit_expression(expression, out);
+            emit_expression_ctx(expression, out, Some(context));
             out.push(json!("out"));
             out.push(json!("/ev"));
             emit_dynamic_string_parts(&parts[1..], out, scope, context)
@@ -1052,7 +1309,19 @@ fn emit_choice_text_segment(
 
     out.push(json!("str"));
     if !text.is_empty() {
-        out.push(json!(format!("^{text}")));
+        // Parse the text for inline {expr} and {&sequence} interpolations
+        let dynamic = parse_dynamic_string(text).unwrap_or_else(|_| DynamicString {
+            parts: vec![DynamicStringPart::Text(text.to_owned())],
+        });
+        let has_inline = dynamic
+            .parts
+            .iter()
+            .any(|p| !matches!(p, DynamicStringPart::Text(_)));
+        if has_inline {
+            emit_dynamic_string_parts(&dynamic.parts, out, scope, context)?;
+        } else {
+            out.push(json!(format!("^{text}")));
+        }
     }
     for tag in tags {
         emit_tag(tag, out, scope, context)?;
@@ -1091,7 +1360,7 @@ fn emit_condition(
         Condition::Expression(Expression::Variable(name)) if name.contains('.') => {
             out.push(json!({"CNT?": name}));
         }
-        Condition::Expression(expression) => emit_expression(expression, out),
+        Condition::Expression(expression) => emit_expression_ctx(expression, out, Some(context)),
     }
 
     Ok(())
@@ -1220,6 +1489,80 @@ fn emit_conditional(
 
     out.push(json!("nop"));
 
+    Ok(out)
+}
+
+fn emit_switch_conditional(
+    value: &Expression,
+    branches: &[(Option<Expression>, Vec<Node>)],
+    scope: &EmitScope,
+    switch_index: usize,
+    context: &EmitContext,
+) -> Result<Vec<Value>, CompilerError> {
+    if branches.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Build value expression tokens: ev, <value_tokens>, /ev
+    let mut value_tokens = Vec::new();
+    emit_expression_ctx(value, &mut value_tokens, Some(context));
+    let preamble_len = value_tokens.len() + 2; // ev + value_tokens + /ev
+
+    let num_branches = branches.len();
+    // Layout: [preamble_len tokens] [N branch arrays] [nop]
+    let nop_index = switch_index + preamble_len + num_branches;
+    let exit_target = format!("{}.{}", scope.path, nop_index);
+
+    // Emit all branch bodies first (they all reference exit_target)
+    let mut branch_bodies: Vec<EmittedContainer> = Vec::new();
+    for (_, body_nodes) in branches {
+        let branch_scope = scope.choice_branch("b");
+        let mut body = emit_nodes(body_nodes, &branch_scope, context)?;
+        body.push(json!({"->": exit_target}));
+        branch_bodies.push(body);
+    }
+
+    // Build output
+    let mut out = Vec::new();
+    // Preamble: put the switch value on the stack
+    out.push(json!("ev"));
+    out.extend(value_tokens);
+    out.push(json!("/ev"));
+
+    // Each branch
+    for ((case_expr, _), body) in branches.iter().zip(branch_bodies.into_iter()) {
+        let mut named = Map::new();
+        let body_array = body.into_json_array(None, None)?;
+        // Insert pop at the start of the body array
+        let body_with_pop = if let Value::Array(mut arr) = body_array {
+            arr.insert(0, json!("pop"));
+            Value::Array(arr)
+        } else {
+            return Err(CompilerError::InvalidSource(
+                "switch branch body should be an array".to_owned(),
+            ));
+        };
+        named.insert("b".to_owned(), body_with_pop);
+
+        if let Some(case_expr) = case_expr {
+            // Case branch: [du, ev, case_tokens, ==, /ev, {->:.^.b, c:true}, {b:[...]}]
+            let mut case_tokens = Vec::new();
+            emit_expression_ctx(case_expr, &mut case_tokens, Some(context));
+            let mut branch_array = vec![json!("du"), json!("ev")];
+            branch_array.extend(case_tokens);
+            branch_array.push(json!("=="));
+            branch_array.push(json!("/ev"));
+            branch_array.push(json!({"->": ".^.b", "c": true}));
+            branch_array.push(Value::Object(named));
+            out.push(Value::Array(branch_array));
+        } else {
+            // Else branch: [{->:.^.b}, {b:[...]}]
+            let branch_array = vec![json!({"->": ".^.b"}), Value::Object(named)];
+            out.push(Value::Array(branch_array));
+        }
+    }
+
+    out.push(json!("nop"));
     Ok(out)
 }
 

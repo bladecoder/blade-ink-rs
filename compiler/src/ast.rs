@@ -20,6 +20,12 @@ pub enum BinaryOperator {
     And,
     Or,
     Greater,
+    /// List `?` (has / contains)
+    Has,
+    /// List `!?` (hasn't / doesn't contain)
+    Hasnt,
+    /// List `^` (intersect)
+    Intersect,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +41,10 @@ pub enum Expression {
         name: String,
         args: Vec<Expression>,
     },
+    /// A list literal: `(a, b, c)` — items are bare names (resolved to qualified names in emitter)
+    ListItems(Vec<String>),
+    /// A list literal that is already empty: `()`
+    EmptyList,
     Binary {
         left: Box<Expression>,
         operator: BinaryOperator,
@@ -57,7 +67,9 @@ pub struct DynamicString {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AssignMode {
     Set,
+    TempSet,
     AddAssign,
+    SubtractAssign,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -135,6 +147,14 @@ pub enum Node {
         when_true: Vec<Node>,
         when_false: Option<Vec<Node>>,
     },
+    /// A switch-style conditional: `{ expr: - Case1: body - Case2: body - else: body }`
+    /// Each branch is (Some(case_expr), body_nodes) for cases, or (None, body_nodes) for `else`.
+    SwitchConditional {
+        value: Expression,
+        branches: Vec<(Option<Expression>, Vec<Node>)>,
+    },
+    /// A thread divert: `<- target(args)`
+    ThreadDivert(Divert),
     ReturnBool(bool),
     /// Return with an arbitrary expression value
     ReturnExpr(Expression),
@@ -168,6 +188,7 @@ pub struct ParsedStory {
     pub(crate) list_declarations: Vec<ListDeclaration>,
     pub(crate) root: Vec<Node>,
     pub(crate) flows: Vec<Flow>,
+    pub(crate) external_functions: Vec<String>,
 }
 
 impl ParsedStory {
@@ -177,6 +198,7 @@ impl ParsedStory {
             list_declarations: Vec::new(),
             root,
             flows,
+            external_functions: Vec::new(),
         }
     }
 

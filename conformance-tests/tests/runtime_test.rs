@@ -45,7 +45,8 @@ impl ExternalFunction for ExtFunc4 {
 
 #[test]
 fn external_function() -> Result<(), Box<dyn Error>> {
-    let json_string = common::get_json_string("inkfiles/runtime/external-function-2-arg.ink.json")?;
+    let ink_source = common::get_file_string("inkfiles/runtime/external-function-2-arg.ink")?;
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -60,7 +61,8 @@ fn external_function() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn external_function_zero_arguments() -> Result<(), Box<dyn Error>> {
-    let json_string = common::get_json_string("inkfiles/runtime/external-function-0-arg.ink.json")?;
+    let ink_source = common::get_file_string("inkfiles/runtime/external-function-0-arg.ink")?;
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -75,7 +77,8 @@ fn external_function_zero_arguments() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn external_function_one_arguments() -> Result<(), Box<dyn Error>> {
-    let json_string = common::get_json_string("inkfiles/runtime/external-function-1-arg.ink.json")?;
+    let ink_source = common::get_file_string("inkfiles/runtime/external-function-1-arg.ink")?;
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -90,7 +93,8 @@ fn external_function_one_arguments() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn external_function_coerce_test() -> Result<(), Box<dyn Error>> {
-    let json_string = common::get_json_string("inkfiles/runtime/external-function-1-arg.ink.json")?;
+    let ink_source = common::get_file_string("inkfiles/runtime/external-function-1-arg.ink")?;
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -105,7 +109,8 @@ fn external_function_coerce_test() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn external_function_fallback_test() -> Result<(), Box<dyn Error>> {
-    let json_string = common::get_json_string("inkfiles/runtime/external-function-2-arg.ink.json")?;
+    let ink_source = common::get_file_string("inkfiles/runtime/external-function-2-arg.ink")?;
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -273,7 +278,8 @@ fn jump_stitch_test() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn read_visit_counts_test() -> Result<(), Box<dyn Error>> {
-    let json_string = common::get_json_string("inkfiles/runtime/read-visit-counts.ink.json")?;
+    let ink_source = common::get_file_string("inkfiles/runtime/read-visit-counts.ink")?;
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 

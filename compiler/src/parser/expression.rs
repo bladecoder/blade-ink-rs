@@ -28,6 +28,12 @@ pub enum Token {
     LeftParen,
     RightParen,
     Comma,
+    /// `?` list has operator
+    Has,
+    /// `!?` list hasn't operator
+    Hasnt,
+    /// `^` list intersect operator
+    Caret,
 }
 
 pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
@@ -82,6 +88,10 @@ pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
                 tokens.push(Token::NotEqual);
                 index += 2;
             }
+            '!' if chars.get(index + 1) == Some(&'?') => {
+                tokens.push(Token::Hasnt);
+                index += 2;
+            }
             '!' => {
                 tokens.push(Token::Bang);
                 index += 1;
@@ -124,6 +134,14 @@ pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
             }
             ',' => {
                 tokens.push(Token::Comma);
+                index += 1;
+            }
+            '?' => {
+                tokens.push(Token::Has);
+                index += 1;
+            }
+            '^' => {
+                tokens.push(Token::Caret);
                 index += 1;
             }
             '"' => {
@@ -386,6 +404,27 @@ impl ExpressionParser {
                     operator: BinaryOperator::LessEqual,
                     right: Box::new(right),
                 };
+            } else if self.match_token(&Token::Has) {
+                let right = self.parse_addition()?;
+                expression = Expression::Binary {
+                    left: Box::new(expression),
+                    operator: BinaryOperator::Has,
+                    right: Box::new(right),
+                };
+            } else if self.match_token(&Token::Hasnt) {
+                let right = self.parse_addition()?;
+                expression = Expression::Binary {
+                    left: Box::new(expression),
+                    operator: BinaryOperator::Hasnt,
+                    right: Box::new(right),
+                };
+            } else if self.match_token(&Token::Caret) {
+                let right = self.parse_addition()?;
+                expression = Expression::Binary {
+                    left: Box::new(expression),
+                    operator: BinaryOperator::Intersect,
+                    right: Box::new(right),
+                };
             } else {
                 break;
             }
@@ -494,11 +533,40 @@ impl ExpressionParser {
                 Ok(Expression::Negate(Box::new(expression)))
             }
             Token::LeftParen => {
+                // Check for empty list: ()
+                if self.match_token(&Token::RightParen) {
+                    return Ok(Expression::EmptyList);
+                }
                 let expression = self.parse_expression()?;
+                // If followed by a comma, this is a list literal: (a, b, c)
+                if self.match_token(&Token::Comma) {
+                    let mut items = vec![expr_to_list_item_name(&expression)?];
+                    loop {
+                        if self.peek() == Some(&Token::RightParen) {
+                            break;
+                        }
+                        let item_expr = self.parse_expression()?;
+                        items.push(expr_to_list_item_name(&item_expr)?);
+                        if !self.match_token(&Token::Comma) {
+                            break;
+                        }
+                    }
+                    if !self.match_token(&Token::RightParen) {
+                        return Err(CompilerError::InvalidSource(
+                            "missing ')' in list literal".to_owned(),
+                        ));
+                    }
+                    return Ok(Expression::ListItems(items));
+                }
                 if !self.match_token(&Token::RightParen) {
                     return Err(CompilerError::InvalidSource(
                         "missing ')' in expression".to_owned(),
                     ));
+                }
+                // Single-element list literal: (a) — treat as list with one item
+                // but only if the expression is a plain identifier
+                if let Expression::Variable(name) = &expression {
+                    return Ok(Expression::ListItems(vec![name.clone()]));
                 }
                 Ok(expression)
             }
@@ -537,5 +605,15 @@ impl ExpressionParser {
 
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.current)
+    }
+}
+
+/// Extract the name string from an expression for use in a list literal.
+fn expr_to_list_item_name(expr: &Expression) -> Result<String, CompilerError> {
+    match expr {
+        Expression::Variable(name) => Ok(name.clone()),
+        _ => Err(CompilerError::InvalidSource(
+            "list literal items must be identifiers".to_owned(),
+        )),
     }
 }

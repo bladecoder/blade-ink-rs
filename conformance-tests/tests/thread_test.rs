@@ -1,10 +1,12 @@
 use bladeink::{story::Story, story_error::StoryError};
+use bladeink_compiler::Compiler;
 
 mod common;
 
 #[test]
 fn thread_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/threads/thread-bug.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/threads/thread-bug.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 
@@ -30,7 +32,8 @@ fn thread_test() -> Result<(), StoryError> {
 
 #[test]
 fn thread_test_bug() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/threads/thread-bug.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/threads/thread-bug.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     println!("{}", story.build_string_of_hierarchy());
 

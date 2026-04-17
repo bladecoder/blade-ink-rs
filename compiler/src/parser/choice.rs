@@ -76,7 +76,9 @@ pub fn parse_choice(
 
         let statement = parse_stmt(lines, line_index, true)?;
         match statement {
-            ParsedStatement::Global(_) | ParsedStatement::List(_) => {
+            ParsedStatement::Global(_)
+            | ParsedStatement::List(_)
+            | ParsedStatement::ExternalFunction(_) => {
                 return Err(CompilerError::UnsupportedFeature(
                     "global declarations are not supported inside choice bodies".to_owned(),
                 ))

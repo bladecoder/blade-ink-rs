@@ -57,6 +57,7 @@ pub struct Parser<'a> {
 pub enum ParsedStatement {
     Global(GlobalVariable),
     List(ListDeclaration),
+    ExternalFunction(String),
     Nodes(Vec<Node>),
 }
 
@@ -83,6 +84,7 @@ impl<'a> Parser<'a> {
 
         let mut globals = Vec::new();
         let mut list_declarations = Vec::new();
+        let mut external_functions = Vec::new();
         let mut root = Vec::new();
         let mut flows = Vec::new();
         let mut current_flow: Option<FlowBuilder> = None;
@@ -160,6 +162,7 @@ impl<'a> Parser<'a> {
             match statement {
                 ParsedStatement::Global(global) => globals.push(global),
                 ParsedStatement::List(list_decl) => list_declarations.push(list_decl),
+                ParsedStatement::ExternalFunction(name) => external_functions.push(name),
                 ParsedStatement::Nodes(mut nodes) => {
                     target_nodes(&mut root, current_flow.as_mut(), current_stitch.as_mut())
                         .append(&mut nodes)
@@ -175,6 +178,7 @@ impl<'a> Parser<'a> {
         Ok({
             let mut story = ParsedStory::new(globals, root, flows);
             story.list_declarations = list_declarations;
+            story.external_functions = external_functions;
             story
         })
     }
@@ -224,6 +228,8 @@ pub fn split_lines(source: &str) -> Vec<Line<'_>> {
         .split_inclusive('\n')
         .map(|line| {
             let content = line.strip_suffix('\n').unwrap_or(line);
+            // Strip trailing inline comments (// ...) but not inside strings
+            let content = strip_inline_comment(content);
             Line {
                 content,
                 indent: content
@@ -244,6 +250,24 @@ pub fn split_lines(source: &str) -> Vec<Line<'_>> {
     }
 
     lines
+}
+
+/// Strip trailing `// comment` from a line, respecting string literals.
+fn strip_inline_comment(line: &str) -> &str {
+    let mut in_string = false;
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => in_string = !in_string,
+            b'/' if !in_string && i + 1 < bytes.len() && bytes[i + 1] == b'/' => {
+                return line[..i].trim_end();
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    line
 }
 
 pub fn parse_statement(
@@ -287,6 +311,13 @@ pub fn parse_statement(
             &parse_statement,
         )
         .map(ParsedStatement::Nodes);
+    }
+
+    if let Some(rest) = trimmed.strip_prefix("EXTERNAL ") {
+        *line_index += 1;
+        // Extract the function name from "funcName(params)"
+        let name = rest.split('(').next().unwrap_or(rest).trim().to_owned();
+        return Ok(ParsedStatement::ExternalFunction(name));
     }
 
     if let Some(rest) = trimmed.strip_prefix("VAR ") {
@@ -360,7 +391,8 @@ pub fn parse_statement(
             let gather_line = Line {
                 content: gather_content,
                 indent: line.indent,
-                had_newline: line.had_newline,
+                // Don't emit a newline for a label-only gather line (no content after the label)
+                had_newline: line.had_newline && !gather_content.is_empty(),
             };
             let mut nodes = parse_content_line(&gather_line, true)?;
             if let Some(label) = gather_label {
@@ -373,6 +405,12 @@ pub fn parse_statement(
     if trimmed == "->->" {
         *line_index += 1;
         return Ok(ParsedStatement::Nodes(vec![Node::TunnelReturn]));
+    }
+
+    if let Some(rest) = trimmed.strip_prefix("<- ") {
+        *line_index += 1;
+        let divert = parse_divert(rest.trim())?;
+        return Ok(ParsedStatement::Nodes(vec![Node::ThreadDivert(divert)]));
     }
 
     if trimmed.starts_with("->") {
@@ -432,10 +470,26 @@ fn parse_list_declaration(input: &str) -> Result<ListDeclaration, CompilerError>
         if item.is_empty() {
             continue;
         }
-        if let Some(inner) = item.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
-            items.push((inner.trim().to_owned(), value, true));
+        // Strip optional parens (marks the item as initially selected)
+        let (inner, selected) =
+            if let Some(inner) = item.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
+                (inner.trim(), true)
+            } else {
+                (item, false)
+            };
+        // Check for explicit value assignment: `name = number`
+        if let Some((item_name, item_value)) = inner.split_once('=') {
+            let item_name = item_name.trim().to_owned();
+            let explicit_value: u32 = item_value.trim().parse().map_err(|_| {
+                CompilerError::InvalidSource(format!(
+                    "invalid LIST item value: '{}'",
+                    item_value.trim()
+                ))
+            })?;
+            value = explicit_value;
+            items.push((item_name, value, selected));
         } else {
-            items.push((item.to_owned(), value, false));
+            items.push((inner.to_owned(), value, selected));
         }
         value += 1;
     }
@@ -444,6 +498,13 @@ fn parse_list_declaration(input: &str) -> Result<ListDeclaration, CompilerError>
 }
 
 fn parse_assignment(input: &str) -> Result<Node, CompilerError> {
+    // Strip optional `temp` keyword (marks the assignment as a local/temporary variable)
+    let (input, is_temp) = if let Some(rest) = input.strip_prefix("temp ") {
+        (rest.trim_start(), true)
+    } else {
+        (input, false)
+    };
+
     // Check for a standalone function call (no '=' in the statement, but has '()')
     // e.g. `~ derp(2, 3, 4)` or `~ merchant_init()`
     if !input.contains('=') {
@@ -461,11 +522,24 @@ fn parse_assignment(input: &str) -> Result<Node, CompilerError> {
         });
     }
 
+    if input.contains("-=") {
+        let (name, expression) = split_assignment(input, "-=")?;
+        return Ok(Node::Assignment {
+            variable_name: name,
+            expression: parse_expression(&expression)?,
+            mode: AssignMode::SubtractAssign,
+        });
+    }
+
     let (name, expression) = split_assignment(input, "=")?;
     Ok(Node::Assignment {
         variable_name: name,
         expression: parse_expression(&expression)?,
-        mode: AssignMode::Set,
+        mode: if is_temp {
+            AssignMode::TempSet
+        } else {
+            AssignMode::Set
+        },
     })
 }
 
@@ -514,7 +588,17 @@ fn parse_header_signature(text: &str) -> Option<(String, Vec<String>)> {
             let parameters = split_top_level_commas(&text[open + 1..close])
                 .into_iter()
                 .filter(|part| !part.trim().is_empty())
-                .map(|part| part.trim().to_owned())
+                .map(|part| {
+                    // Strip divert-type annotation: "-> paramName" → "paramName"
+                    let trimmed = part.trim();
+                    if let Some(name) = trimmed.strip_prefix("->").map(str::trim) {
+                        name.to_owned()
+                    } else if let Some(name) = trimmed.strip_prefix("ref ") {
+                        name.trim().to_owned()
+                    } else {
+                        trimmed.to_owned()
+                    }
+                })
                 .collect();
             Some((name, parameters))
         }

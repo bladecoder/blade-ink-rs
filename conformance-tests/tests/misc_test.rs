@@ -7,7 +7,8 @@ mod common;
 
 #[test]
 fn operations_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/misc/operations.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/misc/operations.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     assert_eq!(
@@ -20,7 +21,8 @@ fn operations_test() -> Result<(), StoryError> {
 
 #[test]
 fn read_counts_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/misc/read-counts.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/misc/read-counts.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     assert_eq!(
@@ -33,7 +35,8 @@ fn read_counts_test() -> Result<(), StoryError> {
 
 #[test]
 fn turns_since_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/misc/turns-since.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/misc/turns-since.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     assert_eq!("0\n0\n", &story.continue_maximally()?);
@@ -48,7 +51,8 @@ fn turns_since_test() -> Result<(), StoryError> {
  */
 #[test]
 fn issue15_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/misc/issue15.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/misc/issue15.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     assert_eq!("This is a test\n", story.cont()?);
@@ -69,7 +73,8 @@ fn issue15_test() -> Result<(), StoryError> {
 
 #[test]
 fn newlines_with_string_eval_test() -> Result<(), Box<dyn Error>> {
-    let json_string = common::get_json_string("inkfiles/misc/newlines_with_string_eval.ink.json")?;
+    let ink_source = common::get_file_string("inkfiles/misc/newlines_with_string_eval.ink")?;
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     assert_eq!("A\nB\nA\n3\nB\n", &story.continue_maximally()?);

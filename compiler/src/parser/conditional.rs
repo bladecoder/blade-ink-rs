@@ -1,6 +1,10 @@
-use crate::{ast::Node, error::CompilerError};
+use crate::{
+    ast::{Expression, Node},
+    error::CompilerError,
+};
 
 use super::{
+    expression::parse_expression,
     inline::{parse_condition, parse_inline_conditional, tokenize_inline_content},
     Line, ParsedStatement,
 };
@@ -24,10 +28,21 @@ pub fn parse_conditional(
 
     if let Some((condition, branch_text)) = parse_inline_conditional(content)? {
         *line_index += 1;
+
+        // Split the branch text by top-level `|` to get true and false branches
+        use super::inline::split_top_level_pipe;
+        let branches: Vec<&str> = split_top_level_pipe(branch_text);
+        let when_true = tokenize_inline_content(branches[0].trim())?;
+        let when_false = if branches.len() > 1 {
+            Some(tokenize_inline_content(branches[1].trim())?)
+        } else {
+            None
+        };
+
         let mut nodes = vec![Node::Conditional {
             condition,
-            when_true: tokenize_inline_content(branch_text)?,
-            when_false: None,
+            when_true,
+            when_false,
         }];
 
         if line.had_newline {
@@ -44,9 +59,24 @@ pub fn parse_conditional(
     let header = content
         .strip_prefix('{')
         .ok_or_else(|| CompilerError::InvalidSource("expected conditional block".to_owned()))?;
-    let (condition_text, _) = header.split_once(':').ok_or_else(|| {
+    let (condition_text, rest_after_colon) = header.split_once(':').ok_or_else(|| {
         CompilerError::InvalidSource("conditional block is missing ':'".to_owned())
     })?;
+
+    // Detect switch-style: `{ expr: \n - Case1: ... }` — look ahead at next body line
+    let first_body_line_index = *line_index + 1;
+    let is_switch = rest_after_colon.trim().is_empty() && first_body_line_index < lines.len() && {
+        let first_body = lines[first_body_line_index].content.trim();
+        first_body.starts_with('-')
+            && !first_body.starts_with("->")
+            && !first_body.starts_with("- else:")
+    };
+
+    if is_switch {
+        let value = parse_expression(condition_text.trim())?;
+        *line_index += 1; // skip the `{ expr:` line
+        return parse_switch_conditional(lines, line_index, value, parse_stmt);
+    }
 
     let condition = parse_condition(condition_text.trim())?;
     *line_index += 1;
@@ -99,7 +129,9 @@ pub fn parse_conditional(
             &mut when_true
         };
         match statement {
-            ParsedStatement::Global(_) | ParsedStatement::List(_) => {
+            ParsedStatement::Global(_)
+            | ParsedStatement::List(_)
+            | ParsedStatement::ExternalFunction(_) => {
                 return Err(CompilerError::UnsupportedFeature(
                     "global declarations are not supported inside conditionals".to_owned(),
                 ))
@@ -147,7 +179,9 @@ pub fn parse_multi_branch_conditional(
                 // This is a divert "-> target", not a branch header; parse as content
                 let statement = parse_stmt(lines, line_index, true)?;
                 match statement {
-                    ParsedStatement::Global(_) | ParsedStatement::List(_) => {
+                    ParsedStatement::Global(_)
+                    | ParsedStatement::List(_)
+                    | ParsedStatement::ExternalFunction(_) => {
                         return Err(CompilerError::UnsupportedFeature(
                             "global declarations are not supported inside conditionals".to_owned(),
                         ));
@@ -192,7 +226,9 @@ pub fn parse_multi_branch_conditional(
 
         let statement = parse_stmt(lines, line_index, true)?;
         match statement {
-            ParsedStatement::Global(_) | ParsedStatement::List(_) => {
+            ParsedStatement::Global(_)
+            | ParsedStatement::List(_)
+            | ParsedStatement::ExternalFunction(_) => {
                 return Err(CompilerError::UnsupportedFeature(
                     "global declarations are not supported inside conditionals".to_owned(),
                 ));
@@ -227,4 +263,111 @@ pub fn fold_conditional_branches(
     }
 
     Ok(accumulated_else.unwrap_or_default())
+}
+
+/// Parse a switch-style conditional `{ expr:\n - Case1: body\n - Case2: body\n - else: body\n }`.
+/// `line_index` points to the first body line (after `{ expr:`).
+fn parse_switch_conditional(
+    lines: &[Line<'_>],
+    line_index: &mut usize,
+    value: Expression,
+    parse_stmt: &impl Fn(&[Line<'_>], &mut usize, bool) -> Result<ParsedStatement, CompilerError>,
+) -> Result<Vec<Node>, CompilerError> {
+    let mut branches: Vec<(Option<Expression>, Vec<Node>)> = Vec::new();
+    let mut current_case: Option<Expression> = None;
+    let mut current_nodes: Vec<Node> = Vec::new();
+    let mut closing_had_newline = false;
+
+    while *line_index < lines.len() {
+        let line = &lines[*line_index];
+        let trimmed = line.content.trim();
+
+        if trimmed == "}" {
+            closing_had_newline = line.had_newline && (*line_index + 1) < lines.len();
+            *line_index += 1;
+            if current_case.is_some() || !current_nodes.is_empty() {
+                branches.push((current_case.take(), current_nodes));
+            }
+            break;
+        }
+
+        if let Some(header) = trimmed.strip_prefix('-') {
+            if header.starts_with('>') {
+                // It's a divert `->`, not a branch header
+                let statement = parse_stmt(lines, line_index, true)?;
+                if let ParsedStatement::Nodes(mut nodes) = statement {
+                    current_nodes.append(&mut nodes);
+                }
+                continue;
+            }
+
+            // Save previous branch
+            if current_case.is_some() || !current_nodes.is_empty() {
+                branches.push((current_case.take(), current_nodes));
+                current_nodes = Vec::new();
+            }
+
+            let header = header.trim_start();
+            if let Some(rest) = header.strip_prefix("else:") {
+                current_case = None; // else branch
+                let rest = rest.trim();
+                if !rest.is_empty() {
+                    let inline_line = Line {
+                        content: rest,
+                        had_newline: line.had_newline,
+                        indent: 0,
+                    };
+                    let inline_lines = std::slice::from_ref(&inline_line);
+                    let mut idx = 0;
+                    let statement = parse_stmt(inline_lines, &mut idx, true)?;
+                    if let ParsedStatement::Nodes(mut nodes) = statement {
+                        current_nodes.append(&mut nodes);
+                    }
+                }
+                *line_index += 1;
+                continue;
+            }
+
+            let (case_text, rest) = header.split_once(':').ok_or_else(|| {
+                CompilerError::InvalidSource(
+                    "switch branch is missing ':' after case value".to_owned(),
+                )
+            })?;
+            current_case = Some(parse_expression(case_text.trim())?);
+            let rest = rest.trim();
+            if !rest.is_empty() {
+                let inline_line = Line {
+                    content: rest,
+                    had_newline: line.had_newline,
+                    indent: 0,
+                };
+                let inline_lines = std::slice::from_ref(&inline_line);
+                let mut idx = 0;
+                let statement = parse_stmt(inline_lines, &mut idx, true)?;
+                if let ParsedStatement::Nodes(mut nodes) = statement {
+                    current_nodes.append(&mut nodes);
+                }
+            }
+            *line_index += 1;
+            continue;
+        }
+
+        let statement = parse_stmt(lines, line_index, true)?;
+        match statement {
+            ParsedStatement::Global(_)
+            | ParsedStatement::List(_)
+            | ParsedStatement::ExternalFunction(_) => {
+                return Err(CompilerError::UnsupportedFeature(
+                    "global declarations are not supported inside switch conditionals".to_owned(),
+                ));
+            }
+            ParsedStatement::Nodes(mut nodes) => current_nodes.append(&mut nodes),
+        }
+    }
+
+    let mut result = vec![Node::SwitchConditional { value, branches }];
+    if closing_had_newline {
+        result.push(Node::Newline);
+    }
+    Ok(result)
 }
