@@ -14,11 +14,20 @@ pub enum Token {
     Plus,
     Minus,
     Star,
+    Slash,
+    Percent,
     EqualEqual,
+    NotEqual,
     Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
     AndAnd,
+    OrOr,
+    Bang,
     LeftParen,
     RightParen,
+    Comma,
 }
 
 pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
@@ -55,16 +64,48 @@ pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
                 tokens.push(Token::Star);
                 index += 1;
             }
+            '/' => {
+                tokens.push(Token::Slash);
+                index += 1;
+            }
+            '%' => {
+                tokens.push(Token::Percent);
+                index += 1;
+            }
+            '!' if chars.get(index + 1) == Some(&'=') => {
+                tokens.push(Token::NotEqual);
+                index += 2;
+            }
+            '!' => {
+                tokens.push(Token::Bang);
+                index += 1;
+            }
             '&' if chars.get(index + 1) == Some(&'&') => {
                 tokens.push(Token::AndAnd);
+                index += 2;
+            }
+            '|' if chars.get(index + 1) == Some(&'|') => {
+                tokens.push(Token::OrOr);
                 index += 2;
             }
             '=' if chars.get(index + 1) == Some(&'=') => {
                 tokens.push(Token::EqualEqual);
                 index += 2;
             }
+            '>' if chars.get(index + 1) == Some(&'=') => {
+                tokens.push(Token::GreaterEqual);
+                index += 2;
+            }
             '>' => {
                 tokens.push(Token::Greater);
+                index += 1;
+            }
+            '<' if chars.get(index + 1) == Some(&'=') => {
+                tokens.push(Token::LessEqual);
+                index += 2;
+            }
+            '<' => {
+                tokens.push(Token::Less);
                 index += 1;
             }
             '(' => {
@@ -73,6 +114,10 @@ pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
             }
             ')' => {
                 tokens.push(Token::RightParen);
+                index += 1;
+            }
+            ',' => {
+                tokens.push(Token::Comma);
                 index += 1;
             }
             '"' => {
@@ -240,7 +285,22 @@ impl ExpressionParser {
     }
 
     fn parse_expression(&mut self) -> Result<Expression, CompilerError> {
-        self.parse_and()
+        self.parse_or()
+    }
+
+    fn parse_or(&mut self) -> Result<Expression, CompilerError> {
+        let mut expression = self.parse_and()?;
+
+        while self.match_token(&Token::OrOr) {
+            let right = self.parse_and()?;
+            expression = Expression::Binary {
+                left: Box::new(expression),
+                operator: BinaryOperator::Or,
+                right: Box::new(right),
+            };
+        }
+
+        Ok(expression)
     }
 
     fn parse_and(&mut self) -> Result<Expression, CompilerError> {
@@ -265,13 +325,24 @@ impl ExpressionParser {
     fn parse_equality(&mut self) -> Result<Expression, CompilerError> {
         let mut expression = self.parse_comparison()?;
 
-        while self.match_token(&Token::EqualEqual) {
-            let right = self.parse_comparison()?;
-            expression = Expression::Binary {
-                left: Box::new(expression),
-                operator: BinaryOperator::Equal,
-                right: Box::new(right),
-            };
+        loop {
+            if self.match_token(&Token::EqualEqual) {
+                let right = self.parse_comparison()?;
+                expression = Expression::Binary {
+                    left: Box::new(expression),
+                    operator: BinaryOperator::Equal,
+                    right: Box::new(right),
+                };
+            } else if self.match_token(&Token::NotEqual) {
+                let right = self.parse_comparison()?;
+                expression = Expression::Binary {
+                    left: Box::new(expression),
+                    operator: BinaryOperator::NotEqual,
+                    right: Box::new(right),
+                };
+            } else {
+                break;
+            }
         }
 
         Ok(expression)
@@ -280,13 +351,38 @@ impl ExpressionParser {
     fn parse_comparison(&mut self) -> Result<Expression, CompilerError> {
         let mut expression = self.parse_addition()?;
 
-        while self.match_token(&Token::Greater) {
-            let right = self.parse_addition()?;
-            expression = Expression::Binary {
-                left: Box::new(expression),
-                operator: BinaryOperator::Greater,
-                right: Box::new(right),
-            };
+        loop {
+            if self.match_token(&Token::Greater) {
+                let right = self.parse_addition()?;
+                expression = Expression::Binary {
+                    left: Box::new(expression),
+                    operator: BinaryOperator::Greater,
+                    right: Box::new(right),
+                };
+            } else if self.match_token(&Token::GreaterEqual) {
+                let right = self.parse_addition()?;
+                expression = Expression::Binary {
+                    left: Box::new(expression),
+                    operator: BinaryOperator::GreaterEqual,
+                    right: Box::new(right),
+                };
+            } else if self.match_token(&Token::Less) {
+                let right = self.parse_addition()?;
+                expression = Expression::Binary {
+                    left: Box::new(expression),
+                    operator: BinaryOperator::Less,
+                    right: Box::new(right),
+                };
+            } else if self.match_token(&Token::LessEqual) {
+                let right = self.parse_addition()?;
+                expression = Expression::Binary {
+                    left: Box::new(expression),
+                    operator: BinaryOperator::LessEqual,
+                    right: Box::new(right),
+                };
+            } else {
+                break;
+            }
         }
 
         Ok(expression)
@@ -308,18 +404,49 @@ impl ExpressionParser {
     }
 
     fn parse_multiplication(&mut self) -> Result<Expression, CompilerError> {
-        let mut expression = self.parse_primary()?;
+        let mut expression = self.parse_unary()?;
 
-        while self.match_token(&Token::Star) {
-            let right = self.parse_primary()?;
-            expression = Expression::Binary {
-                left: Box::new(expression),
-                operator: BinaryOperator::Multiply,
-                right: Box::new(right),
-            };
+        loop {
+            if self.match_token(&Token::Star) {
+                let right = self.parse_unary()?;
+                expression = Expression::Binary {
+                    left: Box::new(expression),
+                    operator: BinaryOperator::Multiply,
+                    right: Box::new(right),
+                };
+            } else if self.match_token(&Token::Slash) {
+                let right = self.parse_unary()?;
+                expression = Expression::Binary {
+                    left: Box::new(expression),
+                    operator: BinaryOperator::Divide,
+                    right: Box::new(right),
+                };
+            } else if self.match_token(&Token::Percent) {
+                let right = self.parse_unary()?;
+                expression = Expression::Binary {
+                    left: Box::new(expression),
+                    operator: BinaryOperator::Modulo,
+                    right: Box::new(right),
+                };
+            } else {
+                break;
+            }
         }
 
         Ok(expression)
+    }
+
+    fn parse_unary(&mut self) -> Result<Expression, CompilerError> {
+        if self.match_token(&Token::Bang) {
+            let expr = self.parse_primary()?;
+            // !x in Ink is equivalent to (x == 0)
+            return Ok(Expression::Binary {
+                left: Box::new(expr),
+                operator: BinaryOperator::Equal,
+                right: Box::new(Expression::Int(0)),
+            });
+        }
+        self.parse_primary()
     }
 
     fn parse_primary(&mut self) -> Result<Expression, CompilerError> {
@@ -332,7 +459,29 @@ impl ExpressionParser {
             Token::Int(value) => Ok(Expression::Int(value)),
             Token::Float(value) => Ok(Expression::Float(value)),
             Token::Str(value) => Ok(Expression::Str(value)),
-            Token::Ident(name) => Ok(Expression::Variable(name)),
+            Token::Ident(name) => {
+                // Check if it's a function call: Ident followed by '('
+                if self.match_token(&Token::LeftParen) {
+                    let mut args = Vec::new();
+                    // Parse arguments until ')'
+                    if self.peek() != Some(&Token::RightParen) {
+                        loop {
+                            args.push(self.parse_expression()?);
+                            if !self.match_token(&Token::Comma) {
+                                break;
+                            }
+                        }
+                    }
+                    if !self.match_token(&Token::RightParen) {
+                        return Err(CompilerError::InvalidSource(
+                            "missing ')' in function call".to_owned(),
+                        ));
+                    }
+                    Ok(Expression::FunctionCall { name, args })
+                } else {
+                    Ok(Expression::Variable(name))
+                }
+            }
             Token::DivertTarget(target) => Ok(Expression::DivertTarget(target)),
             Token::Minus => {
                 let expression = self.parse_primary()?;

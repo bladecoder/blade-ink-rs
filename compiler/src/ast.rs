@@ -10,8 +10,15 @@ pub enum BinaryOperator {
     Add,
     Subtract,
     Multiply,
+    Divide,
+    Modulo,
     Equal,
+    NotEqual,
+    Less,
+    LessEqual,
+    GreaterEqual,
     And,
+    Or,
     Greater,
 }
 
@@ -23,6 +30,10 @@ pub enum Expression {
     Str(String),
     Variable(String),
     DivertTarget(String),
+    FunctionCall {
+        name: String,
+        args: Vec<Expression>,
+    },
     Binary {
         left: Box<Expression>,
         operator: BinaryOperator,
@@ -120,6 +131,8 @@ pub enum Node {
         when_false: Option<Vec<Node>>,
     },
     ReturnBool(bool),
+    /// Return with an arbitrary expression value
+    ReturnExpr(Expression),
     Assignment {
         variable_name: String,
         expression: Expression,
@@ -128,6 +141,11 @@ pub enum Node {
     Choice(Choice),
     /// A gather point label `- (label)` — signals the emitter to name the next g-N container.
     GatherLabel(String),
+    /// A void function call statement: `~ funcname(args)`
+    VoidCall {
+        name: String,
+        args: Vec<Expression>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

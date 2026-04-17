@@ -81,6 +81,10 @@ struct EmitScope {
     top_flow_name: Option<String>,
     child_flow_names: BTreeSet<String>,
     choice_label_targets: BTreeMap<String, String>,
+    /// Number of tokens that will be prepended (e.g. function parameters)
+    /// before the content emitted by emit_nodes. This offset is added when
+    /// computing absolute indices (e.g. conditional rejoin targets).
+    param_offset: usize,
 }
 
 struct EmitContext {
@@ -142,6 +146,7 @@ impl EmitScope {
             top_flow_name: None,
             child_flow_names: flows.iter().map(|flow| flow.name.clone()).collect(),
             choice_label_targets: BTreeMap::new(),
+            param_offset: 0,
         }
     }
 
@@ -164,6 +169,7 @@ impl EmitScope {
                 .map(|nested| nested.name.clone())
                 .collect(),
             choice_label_targets: BTreeMap::new(),
+            param_offset: child.parameters.len(),
         }
     }
 
@@ -173,6 +179,7 @@ impl EmitScope {
             top_flow_name: self.top_flow_name.clone(),
             child_flow_names: self.child_flow_names.clone(),
             choice_label_targets: self.choice_label_targets.clone(),
+            param_offset: 0,
         }
     }
 
@@ -185,6 +192,7 @@ impl EmitScope {
             top_flow_name: self.top_flow_name.clone(),
             child_flow_names: self.child_flow_names.clone(),
             choice_label_targets: merged,
+            param_offset: self.param_offset,
         }
     }
 
@@ -444,6 +452,12 @@ fn emit_nodes_with_continuation(
                 out.push(json!("/ev"));
                 out.push(json!("~ret"));
             }
+            Node::ReturnExpr(expression) => {
+                out.push(json!("ev"));
+                emit_expression(expression, &mut out.content);
+                out.push(json!("/ev"));
+                out.push(json!("~ret"));
+            }
             Node::Conditional {
                 condition,
                 when_true,
@@ -453,7 +467,7 @@ fn emit_nodes_with_continuation(
                 when_true,
                 when_false.as_deref(),
                 scope,
-                out.content.len(),
+                out.content.len() + scope.param_offset,
                 context,
             )?),
             Node::Assignment {
@@ -461,6 +475,31 @@ fn emit_nodes_with_continuation(
                 expression,
                 mode,
             } => emit_assignment(variable_name, expression, mode, &mut out),
+            Node::VoidCall { name, args } => {
+                out.push(json!("ev"));
+                for arg in args {
+                    emit_expression(arg, &mut out.content);
+                }
+                let builtin_token: Option<&str> = match name.as_str() {
+                    "RANDOM" => Some("rnd"),
+                    "SEED_RANDOM" => Some("srnd"),
+                    "POW" => Some("pow"),
+                    "FLOOR" => Some("floor"),
+                    "CEILING" => Some("ceiling"),
+                    "INT" => Some("int"),
+                    "FLOAT" => Some("float"),
+                    "MIN" => Some("min"),
+                    "MAX" => Some("max"),
+                    _ => None,
+                };
+                if let Some(token) = builtin_token {
+                    out.push(json!(token));
+                } else {
+                    out.push(json!({"f()": name}));
+                }
+                out.push(json!("pop"));
+                out.push(json!("/ev"));
+            }
             Node::Choice(_) => {
                 let block_start = index;
                 while index < nodes.len() && matches!(nodes[index], Node::Choice(_)) {
@@ -860,6 +899,30 @@ fn emit_expression(expression: &Expression, out: &mut Vec<Value>) {
         }
         Expression::Variable(name) => out.push(json!({"VAR?": name})),
         Expression::DivertTarget(target) => out.push(json!({"^->": target})),
+        Expression::FunctionCall { name, args } => {
+            // Map built-in Ink function names to runtime tokens
+            // Built-ins are emitted as plain strings; user functions as {"f()": name}
+            let builtin_token: Option<&str> = match name.as_str() {
+                "RANDOM" => Some("rnd"),
+                "SEED_RANDOM" => Some("srnd"),
+                "POW" => Some("pow"),
+                "FLOOR" => Some("floor"),
+                "CEILING" => Some("ceiling"),
+                "INT" => Some("int"),
+                "FLOAT" => Some("float"),
+                "MIN" => Some("min"),
+                "MAX" => Some("max"),
+                _ => None,
+            };
+            for arg in args {
+                emit_expression(arg, out);
+            }
+            if let Some(token) = builtin_token {
+                out.push(json!(token));
+            } else {
+                out.push(json!({"f()": name}));
+            }
+        }
         Expression::Binary {
             left,
             operator,
@@ -871,9 +934,16 @@ fn emit_expression(expression: &Expression, out: &mut Vec<Value>) {
                 BinaryOperator::Add => "+",
                 BinaryOperator::Subtract => "-",
                 BinaryOperator::Multiply => "*",
+                BinaryOperator::Divide => "/",
+                BinaryOperator::Modulo => "%",
                 BinaryOperator::Equal => "==",
+                BinaryOperator::NotEqual => "!=",
                 BinaryOperator::And => "&&",
+                BinaryOperator::Or => "||",
                 BinaryOperator::Greater => ">",
+                BinaryOperator::GreaterEqual => ">=",
+                BinaryOperator::Less => "<",
+                BinaryOperator::LessEqual => "<=",
             }));
         }
     }
@@ -999,7 +1069,7 @@ fn branch_has_terminal_content(nodes: &[Node]) -> bool {
 
 fn node_is_terminal(node: &Node) -> bool {
     match node {
-        Node::Divert(_) | Node::TunnelReturn | Node::ReturnBool(_) => true,
+        Node::Divert(_) | Node::TunnelReturn | Node::ReturnBool(_) | Node::ReturnExpr(_) => true,
         Node::Choice(choice) => branch_has_terminal_content(&choice.body),
         _ => false,
     }
@@ -1043,19 +1113,71 @@ fn emit_conditional(
     conditional_index: usize,
     context: &EmitContext,
 ) -> Result<Vec<Value>, CompilerError> {
-    let mut out = Vec::new();
     let branches = flatten_conditional_branches(condition, when_true, when_false);
-    let rejoin_target = format!("{}.{}", scope.path, conditional_index + branches.len());
 
+    // First pass: emit all condition token sequences to know their sizes,
+    // so we can compute the correct absolute index of "nop".
+    struct BranchEmit {
+        cond_tokens: Option<Vec<Value>>,
+        branch_content: EmittedContainer,
+    }
+    let mut branch_emits: Vec<BranchEmit> = Vec::new();
     for (branch_index, (branch_condition, branch_nodes)) in branches.iter().enumerate() {
-        out.push(emit_conditional_branch(
-            *branch_condition,
-            branch_nodes,
-            scope,
-            branch_index,
-            &rejoin_target,
-            context,
-        )?);
+        let cond_tokens = if let Some(cond) = branch_condition {
+            let mut tokens = Vec::new();
+            emit_condition(cond, &mut tokens, scope, context)?;
+            Some(tokens)
+        } else {
+            None
+        };
+        let branch_scope = scope.choice_branch(&format!("cond-{branch_index}"));
+        let branch_content = emit_nodes(branch_nodes, &branch_scope, context)?;
+        branch_emits.push(BranchEmit {
+            cond_tokens,
+            branch_content,
+        });
+    }
+
+    // Count total tokens emitted before "nop":
+    // For each branch: (ev + cond_tokens + /ev) if has condition, then 1 array token.
+    let tokens_before_nop: usize = branch_emits
+        .iter()
+        .map(|b| {
+            let cond_overhead = if let Some(ref ct) = b.cond_tokens {
+                ct.len() + 2
+            } else {
+                0
+            };
+            cond_overhead + 1 // +1 for the array token
+        })
+        .sum();
+    let nop_index = conditional_index + tokens_before_nop;
+    let rejoin_target = format!("{}.{}", scope.path, nop_index);
+
+    // Second pass: build the output with the correct rejoin target.
+    let mut out = Vec::new();
+    for BranchEmit {
+        cond_tokens,
+        mut branch_content,
+    } in branch_emits
+    {
+        let has_condition = cond_tokens.is_some();
+        if let Some(tokens) = cond_tokens {
+            out.push(json!("ev"));
+            out.extend(tokens);
+            out.push(json!("/ev"));
+        }
+
+        branch_content.push(json!({"->": rejoin_target}));
+        let mut named = Map::new();
+        named.insert("b".to_owned(), branch_content.into_json_array(None, None)?);
+
+        let selector = if has_condition {
+            json!({"->": ".^.b", "c": true})
+        } else {
+            json!({"->": ".^.b"})
+        };
+        out.push(Value::Array(vec![selector, Value::Object(named)]));
     }
 
     out.push(json!("nop"));
@@ -1087,38 +1209,4 @@ fn flatten_conditional_branches<'a>(
     }
 
     branches
-}
-
-fn emit_conditional_branch(
-    condition: Option<&Condition>,
-    branch: &[Node],
-    scope: &EmitScope,
-    branch_index: usize,
-    rejoin_target: &str,
-    context: &EmitContext,
-) -> Result<Value, CompilerError> {
-    let mut out = Vec::new();
-
-    if let Some(condition) = condition {
-        out.push(json!("ev"));
-        emit_condition(condition, &mut out, scope, context)?;
-        out.push(json!("/ev"));
-    }
-
-    let branch_scope = scope.choice_branch(&format!("cond-{branch_index}"));
-    let mut branch_content = emit_nodes(branch, &branch_scope, context)?;
-    branch_content.push(json!({"->": rejoin_target}));
-
-    let mut named = Map::new();
-    named.insert("b".to_owned(), branch_content.into_json_array(None, None)?);
-
-    if condition.is_some() {
-        out.push(json!({"->": ".^.b", "c": true}));
-        out.push(Value::Object(named));
-    } else {
-        out.push(json!({"->": ".^.b"}));
-        out.push(Value::Object(named));
-    }
-
-    Ok(Value::Array(out))
 }

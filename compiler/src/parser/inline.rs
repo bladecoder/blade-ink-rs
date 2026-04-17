@@ -149,7 +149,7 @@ pub fn parse_divert_line(input: &str) -> Result<Vec<Node>, CompilerError> {
         ));
     }
 
-    if trimmed.ends_with("->") && segments.len() > 1 {
+    if trimmed.ends_with("->") {
         return Ok(segments
             .into_iter()
             .map(|segment| Node::TunnelDivert(segment.to_owned()))

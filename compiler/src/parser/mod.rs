@@ -5,14 +5,14 @@ pub mod inline;
 pub mod sequence;
 
 use crate::{
-    ast::{AssignMode, Flow, GlobalVariable, ListDeclaration, Node, ParsedStory},
+    ast::{AssignMode, Expression, Flow, GlobalVariable, ListDeclaration, Node, ParsedStory},
     error::CompilerError,
 };
 
 use self::{
     choice::parse_choice,
     conditional::{looks_like_conditional, parse_conditional},
-    expression::{parse_bool, parse_expression, parse_path_identifier},
+    expression::{parse_bool, parse_call_like, parse_expression, parse_path_identifier},
     inline::{
         parse_divert, parse_divert_line, parse_dynamic_string, split_inline_divert,
         tokenize_inline_content,
@@ -268,12 +268,18 @@ pub fn parse_statement(
 
     if let Some(rest) = trimmed.strip_prefix("~ return ") {
         *line_index += 1;
-        return Ok(ParsedStatement::Nodes(vec![Node::ReturnBool(parse_bool(
-            rest.trim(),
-        )?)]));
+        // Try as bool first (legacy), otherwise parse as expression
+        let expr = match parse_bool(rest.trim()) {
+            Ok(b) => Expression::Bool(b),
+            Err(_) => parse_expression(rest.trim())?,
+        };
+        return Ok(ParsedStatement::Nodes(vec![Node::ReturnExpr(expr)]));
     }
 
-    if let Some(rest) = trimmed.strip_prefix("~ ") {
+    if let Some(rest) = trimmed
+        .strip_prefix("~ ")
+        .or_else(|| trimmed.strip_prefix('~'))
+    {
         *line_index += 1;
         return Ok(ParsedStatement::Nodes(vec![parse_assignment(rest)?]));
     }
@@ -405,6 +411,14 @@ fn parse_list_declaration(input: &str) -> Result<ListDeclaration, CompilerError>
 }
 
 fn parse_assignment(input: &str) -> Result<Node, CompilerError> {
+    // Check for a standalone function call (no '=' in the statement, but has '()')
+    // e.g. `~ derp(2, 3, 4)` or `~ merchant_init()`
+    if !input.contains('=') {
+        if let Ok(Some((name, args))) = parse_call_like(input) {
+            return Ok(Node::VoidCall { name, args });
+        }
+    }
+
     if input.contains("+=") {
         let (name, expression) = split_assignment(input, "+=")?;
         return Ok(Node::Assignment {
