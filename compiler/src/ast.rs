@@ -117,6 +117,8 @@ pub enum Node {
         mode: AssignMode,
     },
     Choice(Choice),
+    /// A gather point label `- (label)` — signals the emitter to name the next g-N container.
+    GatherLabel(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -23,7 +23,10 @@ pub fn story_to_json_value(story: &ParsedStory) -> Result<Value, CompilerError> 
     let root_scope = EmitScope::root(story.flows());
 
     let mut root_container = emit_nodes(story.root(), &root_scope, &context)?;
-    root_container.push(json!(["done", {"#n": "g-0"}]));
+    // Only add the default done/g-0 container if choices haven't already created a g-0 continuation.
+    if !root_container.named.contains_key("g-0") {
+        root_container.push(json!(["done", {"#n": "g-0"}]));
+    }
 
     let mut named_content = Map::new();
 
@@ -161,11 +164,14 @@ impl EmitScope {
     }
 
     fn with_choice_labels(&self, labels: BTreeMap<String, String>) -> Self {
+        // Merge: start with existing labels and overlay the new ones
+        let mut merged = self.choice_label_targets.clone();
+        merged.extend(labels);
         Self {
             path: self.path.clone(),
             top_flow_name: self.top_flow_name.clone(),
             child_flow_names: self.child_flow_names.clone(),
-            choice_label_targets: labels,
+            choice_label_targets: merged,
         }
     }
 
@@ -175,7 +181,7 @@ impl EmitScope {
         }
 
         if let Some(choice_target) = self.resolve_choice_label(target) {
-            return format!(".^.{}", choice_target);
+            return choice_target.to_owned();
         }
 
         if context.global_variables.contains(target) && !context.top_flow_names.contains(target) {
@@ -284,6 +290,68 @@ fn prepend_parameters(container: &mut EmittedContainer, parameters: &[String]) {
     container.content = prefix;
 }
 
+/// Pre-scan all nodes (including continuations) to collect every choice label
+/// as an absolute path. This allows cross-block label references (e.g., {greet}
+/// in a second choice block referencing a label from the first block).
+fn collect_all_choice_labels(nodes: &[Node], scope: &EmitScope) -> BTreeMap<String, String> {
+    let mut labels = BTreeMap::new();
+    collect_choice_labels_recursive(nodes, scope, &mut labels, &mut 0);
+    labels
+}
+
+fn collect_choice_labels_recursive(
+    nodes: &[Node],
+    scope: &EmitScope,
+    labels: &mut BTreeMap<String, String>,
+    choice_index: &mut usize,
+) {
+    let mut i = 0;
+    while i < nodes.len() {
+        match &nodes[i] {
+            Node::Choice(choice) => {
+                if let Some(label) = &choice.label {
+                    labels.insert(label.clone(), format!("{}.c-{}", scope.path, *choice_index));
+                }
+                *choice_index += 1;
+                i += 1;
+
+                // Find where the choice block ends (non-Choice node)
+                let block_start_ci = *choice_index - 1; // index of first choice in block
+                                                        // collect any remaining adjacent choices
+                while i < nodes.len() && matches!(nodes[i], Node::Choice(_)) {
+                    if let Node::Choice(c) = &nodes[i] {
+                        if let Some(label) = &c.label {
+                            labels.insert(
+                                label.clone(),
+                                format!("{}.c-{}", scope.path, *choice_index),
+                            );
+                        }
+                    }
+                    *choice_index += 1;
+                    i += 1;
+                }
+                // Recurse into the continuation as g-<first_choice_in_block>
+                let continuation = &nodes[i..];
+                if !continuation.is_empty() {
+                    let g_name = format!("g-{}", block_start_ci);
+                    let child_scope = scope.choice_branch(&g_name);
+                    let mut child_index = 0;
+                    collect_choice_labels_recursive(
+                        continuation,
+                        &child_scope,
+                        labels,
+                        &mut child_index,
+                    );
+                }
+                return; // choice block consumes the rest via continuation
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+}
+
 fn emit_nodes(
     nodes: &[Node],
     scope: &EmitScope,
@@ -291,6 +359,11 @@ fn emit_nodes(
 ) -> Result<EmittedContainer, CompilerError> {
     let mut out = EmittedContainer::default();
     let mut next_choice_index = 0;
+
+    // Pre-scan all choice blocks to collect labels with absolute paths,
+    // so that labels from earlier blocks are available in later blocks.
+    let all_labels = collect_all_choice_labels(nodes, scope);
+    let scope = &scope.with_choice_labels(all_labels);
 
     let mut index = 0;
     while index < nodes.len() {
@@ -366,6 +439,7 @@ fn emit_nodes(
                 )?;
                 break;
             }
+            Node::GatherLabel(_) => { /* directive only — skip, handled by emit_choice_block */ }
         }
 
         index += 1;
@@ -388,9 +462,23 @@ fn emit_choice_block(
             continue;
         };
         if let Some(label) = &choice.label {
-            choice_labels.insert(label.clone(), format!("c-{}", *next_choice_index + offset));
+            // Store the absolute path so diverts to labels work regardless of scope depth
+            choice_labels.insert(
+                label.clone(),
+                format!("{}.c-{}", scope.path, *next_choice_index + offset),
+            );
         }
     }
+    // Detect gather label for the continuation so it can be added to choice_labels
+    let gather_label: Option<String> = if let Some(Node::GatherLabel(lbl)) = continuation.first() {
+        let g_name = format!("g-{}", *next_choice_index);
+        let path = format!("{}.{}", scope.path, g_name);
+        choice_labels.insert(lbl.clone(), path);
+        Some(lbl.clone())
+    } else {
+        None
+    };
+
     let block_scope = scope.with_choice_labels(choice_labels);
 
     let continuation_name = if continuation.is_empty() {
@@ -398,10 +486,10 @@ fn emit_choice_block(
     } else {
         let name = format!("g-{}", *next_choice_index);
         let continuation_scope = block_scope.choice_branch(&name);
-        let continuation_value =
-            emit_nodes(continuation, &continuation_scope, context)?.into_json_array(None, None)?;
+        let continuation_value = emit_nodes(continuation, &continuation_scope, context)?
+            .into_json_array(gather_label.as_deref(), None)?;
         out.insert_named(name.clone(), continuation_value);
-        Some((name.clone(), format!(".^.{}", name)))
+        Some((name.clone(), format!("{}.{}", scope.path, name)))
     };
 
     for choice in choices {
@@ -585,28 +673,36 @@ fn emit_choice(
     continuation_path: Option<&str>,
     context: &EmitContext,
 ) -> Result<(), CompilerError> {
-    out.push(json!("ev"));
-    emit_choice_text_segment(
-        &choice.start_text,
-        &choice.start_tags,
-        &mut out.content,
-        scope,
-        context,
-    )?;
-    emit_choice_text_segment(
-        &choice.choice_only_text,
-        &choice.choice_only_tags,
-        &mut out.content,
-        scope,
-        context,
-    )?;
-    for (index, condition) in choice.conditions.iter().enumerate() {
-        emit_condition(condition, &mut out.content, scope, context)?;
-        if index > 0 {
-            out.push(json!("&&"));
+    let has_ev_content = !choice.start_text.is_empty()
+        || !choice.start_tags.is_empty()
+        || !choice.choice_only_text.is_empty()
+        || !choice.choice_only_tags.is_empty()
+        || !choice.conditions.is_empty();
+
+    if has_ev_content {
+        out.push(json!("ev"));
+        emit_choice_text_segment(
+            &choice.start_text,
+            &choice.start_tags,
+            &mut out.content,
+            scope,
+            context,
+        )?;
+        emit_choice_text_segment(
+            &choice.choice_only_text,
+            &choice.choice_only_tags,
+            &mut out.content,
+            scope,
+            context,
+        )?;
+        for (index, condition) in choice.conditions.iter().enumerate() {
+            emit_condition(condition, &mut out.content, scope, context)?;
+            if index > 0 {
+                out.push(json!("&&"));
+            }
         }
+        out.push(json!("/ev"));
     }
-    out.push(json!("/ev"));
 
     let branch_name = format!("c-{choice_index}");
     let branch_scope = scope.choice_branch(&branch_name);
@@ -642,8 +738,15 @@ fn emit_choice(
             branch_nodes.push(Node::Text(selected_text.clone()));
         }
         branch_nodes.extend(choice.selected_tags.iter().cloned().map(Node::Tag));
-        if !matches!(choice.body.as_slice(), [Node::Divert(_)] | []) {
-            branch_nodes.push(Node::Newline);
+        if !body_already_emitted {
+            // Only skip the newline if the body is a terminal divert to END/DONE
+            let body_is_terminal_divert = matches!(
+                choice.body.as_slice(),
+                [Node::Divert(d)] if d.target == "END" || d.target == "DONE"
+            );
+            if !body_is_terminal_divert {
+                branch_nodes.push(Node::Newline);
+            }
         }
     } else if choice.has_choice_only_content
         && !choice.has_start_content
@@ -652,6 +755,7 @@ fn emit_choice(
         branch_nodes.push(Node::Text(" ".to_owned()));
         branch_nodes.extend(choice.body.clone());
         branch_nodes.push(Node::Newline);
+        body_already_emitted = true;
     } else if choice.has_choice_only_content
         && !choice.has_start_content
         && branch_nodes.is_empty()
@@ -800,12 +904,17 @@ fn emit_condition(
         Condition::Expression(Expression::Variable(name))
             if scope.resolve_choice_label(name).is_some() =>
         {
-            out.push(json!({"CNT?": format!(".^.{}", scope.resolve_choice_label(name).unwrap())}));
+            // Labels are stored as absolute paths now
+            out.push(json!({"CNT?": scope.resolve_choice_label(name).unwrap()}));
         }
         Condition::Expression(Expression::Variable(name))
             if context.top_flow_names.contains(name) || scope.child_flow_names.contains(name) =>
         {
             out.push(json!({"CNT?": scope.resolve_divert_target(name, context)}));
+        }
+        // Fully-qualified path like knot.stitch.label — treat as CNT? visit count
+        Condition::Expression(Expression::Variable(name)) if name.contains('.') => {
+            out.push(json!({"CNT?": name}));
         }
         Condition::Expression(expression) => emit_expression(expression, out),
     }

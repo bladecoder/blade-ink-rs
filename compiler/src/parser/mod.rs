@@ -280,15 +280,32 @@ pub fn parse_statement(
     if !trimmed.starts_with("->") {
         if let Some(gather_content) = trimmed.strip_prefix('-') {
             *line_index += 1;
-            if gather_content.trim().is_empty() {
+            let gather_content = gather_content.trim_start();
+            if gather_content.is_empty() {
                 return Ok(ParsedStatement::Nodes(Vec::new()));
             }
+            // Check for gather label: (label_name) at the start
+            let (gather_label, gather_content) = if gather_content.starts_with('(') {
+                if let Some(end) = gather_content.find(')') {
+                    let label = gather_content[1..end].trim().to_owned();
+                    let rest = gather_content[end + 1..].trim_start();
+                    (Some(label), rest)
+                } else {
+                    (None, gather_content)
+                }
+            } else {
+                (None, gather_content)
+            };
             let gather_line = Line {
-                content: gather_content.trim_start(),
+                content: gather_content,
                 indent: line.indent,
                 had_newline: line.had_newline,
             };
-            return parse_content_line(&gather_line, true).map(ParsedStatement::Nodes);
+            let mut nodes = parse_content_line(&gather_line, true)?;
+            if let Some(label) = gather_label {
+                nodes.insert(0, Node::GatherLabel(label));
+            }
+            return Ok(ParsedStatement::Nodes(nodes));
         }
     }
 

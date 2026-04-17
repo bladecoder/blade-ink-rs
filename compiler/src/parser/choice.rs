@@ -49,8 +49,14 @@ pub fn parse_choice(
     }
 
     while *line_index < lines.len() {
-        if super::parse_header(lines[*line_index].content).is_some()
-            || lines[*line_index].indent <= choice_indent
+        let body_line = &lines[*line_index];
+        let body_trimmed = body_line.content.trim();
+        // A gather point (starts with '-' but not '->') always terminates the choice body,
+        // regardless of indentation (handles mixed tab/space indentation edge cases).
+        let is_gather = body_trimmed.starts_with('-') && !body_trimmed.starts_with("->");
+        if super::parse_header(body_line.content).is_some()
+            || body_line.indent <= choice_indent
+            || is_gather
         {
             break;
         }
