@@ -56,6 +56,22 @@ impl CompilerError {
         }
     }
 
+    /// Override the line number unconditionally (used for remapping expanded lines).
+    pub fn with_line_override(self, line: usize) -> Self {
+        match self {
+            Self::InvalidSource { message, file, .. } => Self::InvalidSource {
+                message,
+                file,
+                line: Some(line),
+            },
+            Self::UnsupportedFeature { message, file, .. } => Self::UnsupportedFeature {
+                message,
+                file,
+                line: Some(line),
+            },
+        }
+    }
+
     /// Attach a filename to the error, if one is not already set.
     pub fn with_file(self, file: impl Into<String>) -> Self {
         match self {
