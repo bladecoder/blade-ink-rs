@@ -52,11 +52,12 @@ pub fn parse_conditional(
         return Ok(nodes);
     }
 
-    if content == "{" {
+    if content.trim() == "{" {
         return parse_multi_branch_conditional(lines, line_index, parse_stmt);
     }
 
     let header = content
+        .trim()
         .strip_prefix('{')
         .ok_or_else(|| CompilerError::invalid_source("expected conditional block".to_owned()))?;
     let (condition_text, rest_after_colon) = header.split_once(':').ok_or_else(|| {

@@ -159,6 +159,8 @@ pub enum Node {
     ReturnBool(bool),
     /// Return with an arbitrary expression value
     ReturnExpr(Expression),
+    /// Return void (bare `~ return` or `~return`)
+    ReturnVoid,
     Assignment {
         variable_name: String,
         expression: Expression,

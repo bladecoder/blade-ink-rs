@@ -342,6 +342,11 @@ pub fn parse_statement(
         ));
     }
 
+    if trimmed == "~ return" || trimmed == "~return" {
+        *line_index += 1;
+        return Ok(ParsedStatement::Nodes(vec![Node::ReturnVoid]));
+    }
+
     if let Some(rest) = trimmed
         .strip_prefix("~ return ")
         .or_else(|| trimmed.strip_prefix("~return "))

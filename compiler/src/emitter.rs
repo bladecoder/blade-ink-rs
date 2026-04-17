@@ -574,6 +574,12 @@ fn emit_nodes_with_continuation(
                 out.push(json!("/ev"));
                 out.push(json!("~ret"));
             }
+            Node::ReturnVoid => {
+                out.push(json!("ev"));
+                out.push(json!("void"));
+                out.push(json!("/ev"));
+                out.push(json!("~ret"));
+            }
             Node::ReturnExpr(expression) => {
                 out.push(json!("ev"));
                 emit_expression_ctx(expression, &mut out.content, Some(context));
