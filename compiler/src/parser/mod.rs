@@ -131,7 +131,7 @@ impl<'a> Parser<'a> {
                         finalize_stitch(&mut current_flow, &mut current_stitch)
                             .map_err(|e| e.with_line(ln))?;
                         let parent_is_root_stitch =
-                            current_flow.as_ref().map_or(false, |f| f.is_root_stitch);
+                            current_flow.as_ref().is_some_and(|f| f.is_root_stitch);
                         if current_flow.is_none() || parent_is_root_stitch {
                             // Top-level stitch (no parent knot, or sibling of another root stitch)
                             if let Some(flow) = current_flow.take() {
@@ -374,89 +374,87 @@ pub fn parse_statement(
         return parse_choice(lines, line_index, &parse_statement).map_err(|e| e.with_line(ln));
     }
 
-    if !trimmed.starts_with("->") {
-        if trimmed.starts_with('-') {
-            *line_index += 1;
-            // Strip all leading '-' markers (nested gathers like "- -" or "- - -") — nesting
-            // is handled by indentation, treated as a single gather point.
-            let mut gather_content = trimmed;
-            while let Some(rest) = gather_content.strip_prefix('-') {
-                let next = rest.trim_start();
-                if next.is_empty() || !next.starts_with('-') || next.starts_with("->") {
-                    gather_content = next;
-                    break;
-                }
+    if !trimmed.starts_with("->") && trimmed.starts_with('-') {
+        *line_index += 1;
+        // Strip all leading '-' markers (nested gathers like "- -" or "- - -") — nesting
+        // is handled by indentation, treated as a single gather point.
+        let mut gather_content = trimmed;
+        while let Some(rest) = gather_content.strip_prefix('-') {
+            let next = rest.trim_start();
+            if next.is_empty() || !next.starts_with('-') || next.starts_with("->") {
                 gather_content = next;
+                break;
             }
-            if gather_content.is_empty() {
-                return Ok(ParsedStatement::Nodes(Vec::new()));
-            }
-            // Check for gather label: (label_name) at the start
-            let (gather_label, gather_content) = if gather_content.starts_with('(') {
-                if let Some(end) = gather_content.find(')') {
-                    let label = gather_content[1..end].trim().to_owned();
-                    let rest = gather_content[end + 1..].trim_start();
-                    (Some(label), rest)
-                } else {
-                    (None, gather_content)
-                }
+            gather_content = next;
+        }
+        if gather_content.is_empty() {
+            return Ok(ParsedStatement::Nodes(Vec::new()));
+        }
+        // Check for gather label: (label_name) at the start
+        let (gather_label, gather_content) = if gather_content.starts_with('(') {
+            if let Some(end) = gather_content.find(')') {
+                let label = gather_content[1..end].trim().to_owned();
+                let rest = gather_content[end + 1..].trim_start();
+                (Some(label), rest)
             } else {
                 (None, gather_content)
-            };
-
-            // If gather_content starts a multi-line conditional or sequence, parse it as such.
-            // Build a synthetic slice: the first entry uses gather_content as its content, then
-            // the remaining (not-yet-consumed) lines follow.  We track how many lines the
-            // sub-parser consumed and advance the outer line_index accordingly.
-            if looks_like_conditional(gather_content) || looks_like_sequence(gather_content) {
-                // Synthetic opening line using gather_content.
-                let synthetic = Line {
-                    content: gather_content,
-                    indent: line.indent,
-                    had_newline: line.had_newline,
-                };
-                // Build the combined slice: [synthetic] ++ lines[*line_index..]
-                let mut combined: Vec<Line<'_>> = std::iter::once(synthetic)
-                    .chain(lines[*line_index..].iter().map(|l| Line {
-                        content: l.content,
-                        indent: l.indent,
-                        had_newline: l.had_newline,
-                    }))
-                    .collect();
-                let mut local_idx: usize = 0;
-                let nodes = if looks_like_sequence(gather_content) {
-                    parse_sequence(&combined, &mut local_idx, true, &parse_statement)
-                        .map_err(|e| e.with_line(ln))?
-                } else {
-                    parse_conditional(&combined, &mut local_idx, true, &parse_statement)
-                        .map_err(|e| e.with_line(ln))?
-                };
-                // local_idx now points past whatever the sub-parser consumed in `combined`.
-                // combined[0] was the synthetic gather line (already consumed above via += 1).
-                // combined[1..] maps to lines[*line_index..], so advance by local_idx - 1.
-                if local_idx > 0 {
-                    *line_index += local_idx - 1;
-                }
-                let mut result = Vec::new();
-                if let Some(label) = gather_label {
-                    result.push(Node::GatherLabel(label));
-                }
-                result.extend(nodes);
-                return Ok(ParsedStatement::Nodes(result));
             }
+        } else {
+            (None, gather_content)
+        };
 
-            let gather_line = Line {
+        // If gather_content starts a multi-line conditional or sequence, parse it as such.
+        // Build a synthetic slice: the first entry uses gather_content as its content, then
+        // the remaining (not-yet-consumed) lines follow.  We track how many lines the
+        // sub-parser consumed and advance the outer line_index accordingly.
+        if looks_like_conditional(gather_content) || looks_like_sequence(gather_content) {
+            // Synthetic opening line using gather_content.
+            let synthetic = Line {
                 content: gather_content,
                 indent: line.indent,
-                // Don't emit a newline for a label-only gather line (no content after the label)
-                had_newline: line.had_newline && !gather_content.is_empty(),
+                had_newline: line.had_newline,
             };
-            let mut nodes = parse_content_line(&gather_line, true).map_err(|e| e.with_line(ln))?;
-            if let Some(label) = gather_label {
-                nodes.insert(0, Node::GatherLabel(label));
+            // Build the combined slice: [synthetic] ++ lines[*line_index..]
+            let combined: Vec<Line<'_>> = std::iter::once(synthetic)
+                .chain(lines[*line_index..].iter().map(|l| Line {
+                    content: l.content,
+                    indent: l.indent,
+                    had_newline: l.had_newline,
+                }))
+                .collect();
+            let mut local_idx: usize = 0;
+            let nodes = if looks_like_sequence(gather_content) {
+                parse_sequence(&combined, &mut local_idx, true, &parse_statement)
+                    .map_err(|e| e.with_line(ln))?
+            } else {
+                parse_conditional(&combined, &mut local_idx, true, &parse_statement)
+                    .map_err(|e| e.with_line(ln))?
+            };
+            // local_idx now points past whatever the sub-parser consumed in `combined`.
+            // combined[0] was the synthetic gather line (already consumed above via += 1).
+            // combined[1..] maps to lines[*line_index..], so advance by local_idx - 1.
+            if local_idx > 0 {
+                *line_index += local_idx - 1;
             }
-            return Ok(ParsedStatement::Nodes(nodes));
+            let mut result = Vec::new();
+            if let Some(label) = gather_label {
+                result.push(Node::GatherLabel(label));
+            }
+            result.extend(nodes);
+            return Ok(ParsedStatement::Nodes(result));
         }
+
+        let gather_line = Line {
+            content: gather_content,
+            indent: line.indent,
+            // Don't emit a newline for a label-only gather line (no content after the label)
+            had_newline: line.had_newline && !gather_content.is_empty(),
+        };
+        let mut nodes = parse_content_line(&gather_line, true).map_err(|e| e.with_line(ln))?;
+        if let Some(label) = gather_label {
+            nodes.insert(0, Node::GatherLabel(label));
+        }
+        return Ok(ParsedStatement::Nodes(nodes));
     }
 
     if trimmed == "->->" {

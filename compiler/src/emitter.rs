@@ -177,7 +177,7 @@ impl EmitContext {
         for items in self.list_items.values() {
             if let Some((qname, val)) = items
                 .iter()
-                .find(|(q, _)| q.split('.').last() == Some(bare_name))
+                .find(|(q, _)| q.split('.').next_back() == Some(bare_name))
             {
                 return Some((qname.clone(), *val));
             }
@@ -1107,7 +1107,7 @@ fn emit_expression_ctx(
             out.push(json!("/str"));
         }
         Expression::Variable(name) => {
-            if context.map_or(false, |ctx| ctx.top_flow_names.contains(name)) {
+            if context.is_some_and(|ctx| ctx.top_flow_names.contains(name)) {
                 out.push(json!({"CNT?": name}))
             } else {
                 out.push(json!({"VAR?": name}))
@@ -1120,7 +1120,7 @@ fn emit_expression_ctx(
         }
         Expression::FunctionCall { name, args } => {
             // Check if this is a list-typed call: list_name(n) or list_name()
-            if context.map_or(false, |ctx| ctx.list_names.contains(name)) {
+            if context.is_some_and(|ctx| ctx.list_names.contains(name)) {
                 if args.is_empty() {
                     // list() → empty list with origins
                     out.push(json!({"list": {}, "origins": [name]}));
@@ -1169,14 +1169,14 @@ fn emit_expression_ctx(
             }
             if let Some(token) = builtin_token {
                 out.push(json!(token));
-            } else if context.map_or(false, |ctx| ctx.external_functions.contains(name)) {
+            } else if context.is_some_and(|ctx| ctx.external_functions.contains(name)) {
                 let ex_args = args.len() as i32;
                 if ex_args > 0 {
                     out.push(json!({"x()": name, "exArgs": ex_args}));
                 } else {
                     out.push(json!({"x()": name}));
                 }
-            } else if context.map_or(false, |ctx| ctx.global_variables.contains(name)) {
+            } else if context.is_some_and(|ctx| ctx.global_variables.contains(name)) {
                 // Variable holding a divert target — call it as a variable function
                 out.push(json!({"f()": name, "var": true}));
             } else {

@@ -2,6 +2,7 @@ mod ast;
 mod emitter;
 pub mod error;
 mod parser;
+pub mod stats;
 
 pub use error::CompilerError;
 
@@ -45,7 +46,37 @@ impl Compiler {
         })
     }
 
-    /// Compile ink source that may contain `INCLUDE` directives.
+    /// Parse the ink source and return story statistics without emitting JSON.
+    ///
+    /// Useful for the `-s` flag of `rinklecate`.
+    pub fn compile_to_stats(&self, source: &str) -> Result<stats::Stats, CompilerError> {
+        self.compile_to_stats_with_file_handler(source, |filename| {
+            Err(CompilerError::unsupported_feature(format!(
+                "INCLUDE directive found for '{}', but no file handler was provided.",
+                filename
+            )))
+        })
+    }
+
+    /// Parse the ink source (resolving INCLUDEs via `file_handler`) and return story statistics.
+    pub fn compile_to_stats_with_file_handler<F>(
+        &self,
+        source: &str,
+        file_handler: F,
+    ) -> Result<stats::Stats, CompilerError>
+    where
+        F: Fn(&str) -> Result<String, CompilerError>,
+    {
+        let expanded = expand_includes(source, &file_handler, 0)?;
+        let parsed_story = parser::Parser::new(&expanded).parse().map_err(|e| {
+            match &self.options.source_filename {
+                Some(filename) => e.with_file(filename.clone()),
+                None => e,
+            }
+        })?;
+        Ok(stats::Stats::generate(&parsed_story))
+    }
+
     ///
     /// `file_handler` receives the filename from each `INCLUDE` directive and
     /// must return the full contents of that file as a `String`.  The handler

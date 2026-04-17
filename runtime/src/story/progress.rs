@@ -214,53 +214,40 @@ impl Story {
 
                     self.reset_errors();
                 }
-                // Throw an exception since there's no error handler
+                // No error handler: throw for errors, silently discard warnings
                 None => {
-                    let mut sb = String::new();
-                    sb.push_str("Ink had ");
-
                     if self.get_state().has_error() {
+                        let mut sb = String::new();
+                        sb.push_str("Ink had ");
                         sb.push_str(&self.get_state().get_current_errors().len().to_string());
-
                         if self.get_state().get_current_errors().len() == 1 {
                             sb.push_str(" error");
                         } else {
                             sb.push_str(" errors");
                         }
-
                         if self.get_state().has_warning() {
                             sb.push_str(" and ");
+                            sb.push_str(
+                                self.get_state()
+                                    .get_current_warnings()
+                                    .len()
+                                    .to_string()
+                                    .as_str(),
+                            );
+                            if self.get_state().get_current_warnings().len() == 1 {
+                                sb.push_str(" warning");
+                            } else {
+                                sb.push_str(" warnings");
+                            }
                         }
-                    }
-
-                    if self.get_state().has_warning() {
-                        sb.push_str(
-                            self.get_state()
-                                .get_current_warnings()
-                                .len()
-                                .to_string()
-                                .as_str(),
-                        );
-                        if self.get_state().get_current_errors().len() == 1 {
-                            sb.push_str(" warning");
-                        } else {
-                            sb.push_str(" warnings");
-                        }
-                    }
-
-                    sb.push_str(". It is strongly suggested that you assign an error handler to story.onError. The first issue was: ");
-
-                    if self.get_state().has_error() {
+                        sb.push_str(". It is strongly suggested that you assign an error handler to story.onError. The first issue was: ");
                         sb.push_str(self.get_state().get_current_errors()[0].as_str());
-                    } else {
-                        sb.push_str(
-                            self.get_state().get_current_warnings()[0]
-                                .to_string()
-                                .as_str(),
-                        );
+                        return Err(StoryError::InvalidStoryState(sb));
                     }
-
-                    return Err(StoryError::InvalidStoryState(sb));
+                    // Only warnings and no handler: discard silently (consistent
+                    // with the C# reference implementation which does not throw
+                    // for warnings without a handler).
+                    self.reset_errors();
                 }
             }
         }
