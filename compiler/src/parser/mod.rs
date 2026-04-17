@@ -43,6 +43,8 @@ pub enum Header {
 #[derive(Default)]
 struct FlowBuilder {
     name: String,
+    is_function: bool,
+    is_root_stitch: bool,
     parameters: Vec<String>,
     nodes: Vec<Node>,
     children: Vec<Flow>,
@@ -90,7 +92,7 @@ impl<'a> Parser<'a> {
         while line_index < lines.len() {
             if let Some(header) = parse_header(lines[line_index].content) {
                 match header {
-                    Header::Knot { name, parameters } | Header::Function { name, parameters } => {
+                    Header::Knot { name, parameters } => {
                         finalize_stitch(&mut current_flow, &mut current_stitch)?;
                         if let Some(flow) = current_flow.take() {
                             flows.push(flow.build());
@@ -98,6 +100,23 @@ impl<'a> Parser<'a> {
 
                         current_flow = Some(FlowBuilder {
                             name,
+                            is_function: false,
+                            is_root_stitch: false,
+                            parameters,
+                            nodes: Vec::new(),
+                            children: Vec::new(),
+                        });
+                    }
+                    Header::Function { name, parameters } => {
+                        finalize_stitch(&mut current_flow, &mut current_stitch)?;
+                        if let Some(flow) = current_flow.take() {
+                            flows.push(flow.build());
+                        }
+
+                        current_flow = Some(FlowBuilder {
+                            name,
+                            is_function: true,
+                            is_root_stitch: false,
                             parameters,
                             nodes: Vec::new(),
                             children: Vec::new(),
@@ -105,17 +124,31 @@ impl<'a> Parser<'a> {
                     }
                     Header::Stitch { name } => {
                         finalize_stitch(&mut current_flow, &mut current_stitch)?;
-                        if current_flow.is_none() {
-                            return Err(CompilerError::InvalidSource(
-                                "stitch declared outside of a knot".to_owned(),
-                            ));
+                        let parent_is_root_stitch =
+                            current_flow.as_ref().map_or(false, |f| f.is_root_stitch);
+                        if current_flow.is_none() || parent_is_root_stitch {
+                            // Top-level stitch (no parent knot, or sibling of another root stitch)
+                            if let Some(flow) = current_flow.take() {
+                                flows.push(flow.build());
+                            }
+                            current_flow = Some(FlowBuilder {
+                                name,
+                                is_function: false,
+                                is_root_stitch: true,
+                                parameters: Vec::new(),
+                                nodes: Vec::new(),
+                                children: Vec::new(),
+                            });
+                        } else {
+                            current_stitch = Some(FlowBuilder {
+                                name,
+                                is_function: false,
+                                is_root_stitch: false,
+                                parameters: Vec::new(),
+                                nodes: Vec::new(),
+                                children: Vec::new(),
+                            });
                         }
-                        current_stitch = Some(FlowBuilder {
-                            name,
-                            parameters: Vec::new(),
-                            nodes: Vec::new(),
-                            children: Vec::new(),
-                        });
                     }
                 }
 
@@ -151,13 +184,13 @@ impl FlowBuilder {
     fn build(self) -> Flow {
         Flow {
             name: self.name,
+            is_function: self.is_function,
             parameters: self.parameters,
             nodes: self.nodes,
             children: self.children,
         }
     }
 }
-
 fn finalize_stitch(
     current_flow: &mut Option<FlowBuilder>,
     current_stitch: &mut Option<FlowBuilder>,
@@ -221,7 +254,7 @@ pub fn parse_statement(
     let line = &lines[*line_index];
     let trimmed = line.content.trim();
 
-    if trimmed.is_empty() {
+    if trimmed.is_empty() || trimmed.starts_with("//") {
         *line_index += 1;
         return Ok(ParsedStatement::Nodes(Vec::new()));
     }

@@ -281,7 +281,7 @@ fn emit_flow(flow: &Flow, context: &EmitContext) -> Result<Value, CompilerError>
         );
     }
 
-    container.into_json_array(None, Some(1))
+    container.into_json_array(None, Some(if flow.is_function { 1 } else { 3 }))
 }
 
 fn emit_nested_flow(
@@ -310,7 +310,7 @@ fn emit_nested_flow(
         );
     }
 
-    container.into_json_array(None, Some(1))
+    container.into_json_array(None, Some(if flow.is_function { 1 } else { 3 }))
 }
 
 fn prepend_parameters(container: &mut EmittedContainer, parameters: &[String]) {
@@ -417,7 +417,7 @@ fn emit_nodes_with_continuation(
             Node::Text(text) => out.push(json!(format!("^{text}"))),
             Node::OutputExpression(expression) => {
                 out.push(json!("ev"));
-                emit_expression(expression, &mut out.content);
+                emit_expression_ctx(expression, &mut out.content, Some(context));
                 out.push(json!("out"));
                 out.push(json!("/ev"));
             }
@@ -439,7 +439,21 @@ fn emit_nodes_with_continuation(
                 continue;
             }
             Node::Divert(divert) => emit_divert(&mut out, divert, scope, context),
-            Node::TunnelDivert(target) => out.push(json!({"->t->": target})),
+            Node::TunnelDivert { target, args, .. } => {
+                let is_var = !context.top_flow_names.contains(target);
+                if !args.is_empty() {
+                    out.push(json!("ev"));
+                    for arg in args {
+                        emit_expression(arg, &mut out.content);
+                    }
+                    out.push(json!("/ev"));
+                }
+                if is_var {
+                    out.push(json!({"->t->": target, "var": true}));
+                } else {
+                    out.push(json!({"->t->": target}));
+                }
+            }
             Node::TunnelReturn => {
                 out.push(json!("ev"));
                 out.push(json!("void"));
@@ -483,13 +497,15 @@ fn emit_nodes_with_continuation(
                 let builtin_token: Option<&str> = match name.as_str() {
                     "RANDOM" => Some("rnd"),
                     "SEED_RANDOM" => Some("srnd"),
-                    "POW" => Some("pow"),
-                    "FLOOR" => Some("floor"),
-                    "CEILING" => Some("ceiling"),
-                    "INT" => Some("int"),
-                    "FLOAT" => Some("float"),
-                    "MIN" => Some("min"),
-                    "MAX" => Some("max"),
+                    "POW" => Some("POW"),
+                    "FLOOR" => Some("FLOOR"),
+                    "CEILING" => Some("CEILING"),
+                    "INT" => Some("INT"),
+                    "FLOAT" => Some("FLOAT"),
+                    "MIN" => Some("MIN"),
+                    "MAX" => Some("MAX"),
+                    "READ_COUNT" => Some("readc"),
+                    "TURNS_SINCE" => Some("turns"),
                     _ => None,
                 };
                 if let Some(token) = builtin_token {
@@ -888,6 +904,14 @@ fn emit_choice(
 }
 
 fn emit_expression(expression: &Expression, out: &mut Vec<Value>) {
+    emit_expression_ctx(expression, out, None);
+}
+
+fn emit_expression_ctx(
+    expression: &Expression,
+    out: &mut Vec<Value>,
+    context: Option<&EmitContext>,
+) {
     match expression {
         Expression::Bool(value) => out.push(json!(value)),
         Expression::Int(value) => out.push(json!(value)),
@@ -897,25 +921,39 @@ fn emit_expression(expression: &Expression, out: &mut Vec<Value>) {
             out.push(json!(format!("^{value}")));
             out.push(json!("/str"));
         }
-        Expression::Variable(name) => out.push(json!({"VAR?": name})),
+        Expression::Variable(name) => {
+            if context.map_or(false, |ctx| ctx.top_flow_names.contains(name)) {
+                out.push(json!({"CNT?": name}))
+            } else {
+                out.push(json!({"VAR?": name}))
+            }
+        }
         Expression::DivertTarget(target) => out.push(json!({"^->": target})),
+        Expression::Negate(expr) => {
+            emit_expression_ctx(expr, out, context);
+            out.push(json!("_"));
+        }
         Expression::FunctionCall { name, args } => {
             // Map built-in Ink function names to runtime tokens
             // Built-ins are emitted as plain strings; user functions as {"f()": name}
             let builtin_token: Option<&str> = match name.as_str() {
                 "RANDOM" => Some("rnd"),
                 "SEED_RANDOM" => Some("srnd"),
-                "POW" => Some("pow"),
-                "FLOOR" => Some("floor"),
-                "CEILING" => Some("ceiling"),
-                "INT" => Some("int"),
-                "FLOAT" => Some("float"),
-                "MIN" => Some("min"),
-                "MAX" => Some("max"),
+                "POW" => Some("POW"),
+                "FLOOR" => Some("FLOOR"),
+                "CEILING" => Some("CEILING"),
+                "INT" => Some("INT"),
+                "FLOAT" => Some("FLOAT"),
+                "MIN" => Some("MIN"),
+                "MAX" => Some("MAX"),
+                "READ_COUNT" => Some("readc"),
+                "TURNS_SINCE" => Some("turns"),
+                "CHOICE_COUNT" => Some("CHOICE_COUNT"),
+                "TURNS" => Some("TURNS"),
                 _ => None,
             };
             for arg in args {
-                emit_expression(arg, out);
+                emit_expression_ctx(arg, out, context);
             }
             if let Some(token) = builtin_token {
                 out.push(json!(token));
@@ -928,8 +966,8 @@ fn emit_expression(expression: &Expression, out: &mut Vec<Value>) {
             operator,
             right,
         } => {
-            emit_expression(left, out);
-            emit_expression(right, out);
+            emit_expression_ctx(left, out, context);
+            emit_expression_ctx(right, out, context);
             out.push(json!(match operator {
                 BinaryOperator::Add => "+",
                 BinaryOperator::Subtract => "-",

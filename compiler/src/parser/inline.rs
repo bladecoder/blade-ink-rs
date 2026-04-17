@@ -150,19 +150,66 @@ pub fn parse_divert_line(input: &str) -> Result<Vec<Node>, CompilerError> {
     }
 
     if trimmed.ends_with("->") {
-        return Ok(segments
-            .into_iter()
-            .map(|segment| Node::TunnelDivert(segment.to_owned()))
-            .collect());
+        let mut tunnel_nodes = Vec::new();
+        for segment in &segments {
+            // segment may be "target" or "target (arg1, arg2)"
+            let (target_name, args) = if let Some(open) = segment.find('(') {
+                let close = segment.rfind(')').unwrap_or(segment.len() - 1);
+                let target = segment[..open].trim().to_owned();
+                let args_str = &segment[open + 1..close];
+                let mut args = Vec::new();
+                for arg_str in super::expression::split_top_level_commas(args_str) {
+                    if !arg_str.trim().is_empty() {
+                        args.push(parse_expression(arg_str.trim())?);
+                    }
+                }
+                (target, args)
+            } else {
+                (segment.to_string(), Vec::new())
+            };
+            // Determine if the target is a variable (lowercase first char, or single lowercase word)
+            // Ink convention: knot/stitch names start with lowercase; variables too.
+            // We can't distinguish at parse time, so we set is_variable based on context.
+            // For now, mark as variable — the emitter will emit "var": true.
+            // Literal knot tunnel calls like "-> tunnel ->" have no args and target is a known knot.
+            // We'll resolve this in the emitter using EmitContext.
+            tunnel_nodes.push(Node::TunnelDivert {
+                target: target_name,
+                is_variable: !args.is_empty(), // heuristic: if args, treat as variable target
+                args,
+            });
+        }
+        return Ok(tunnel_nodes);
     }
 
     Ok(vec![Node::Divert(parse_divert(segments[0])?)])
 }
 
 pub fn split_inline_divert(content: &str) -> Option<(&str, &str)> {
-    let index = content.rfind("->")?;
-    let (text, divert) = content.split_at(index);
-    let divert = divert.strip_prefix("->")?.trim();
+    // Find the last "->" that is not inside braces/parens
+    let bytes = content.as_bytes();
+    let len = content.len();
+    let mut depth = 0usize;
+    let mut arrow_pos: Option<usize> = None;
+
+    let mut i = 0;
+    while i < len {
+        match bytes[i] {
+            b'{' | b'(' => depth += 1,
+            b'}' | b')' => depth = depth.saturating_sub(1),
+            b'-' if depth == 0 && i + 1 < len && bytes[i + 1] == b'>' => {
+                arrow_pos = Some(i);
+                i += 2;
+                continue;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    let index = arrow_pos?;
+    let (text, rest) = content.split_at(index);
+    let divert = rest.strip_prefix("->")?.trim();
     if divert.is_empty() {
         None
     } else {

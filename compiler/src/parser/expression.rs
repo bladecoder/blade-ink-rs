@@ -43,12 +43,18 @@ pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
         }
 
         if ch == '-' && chars.get(index + 1) == Some(&'>') {
-            let target = input[index + 2..].trim();
-            let parsed = parse_path_identifier(target).ok_or_else(|| {
+            let rest = input[index + 2..].trim_start();
+            let parsed = parse_path_identifier(rest).ok_or_else(|| {
                 CompilerError::InvalidSource("expected divert target after '->'".to_owned())
             })?;
             tokens.push(Token::DivertTarget(parsed.to_owned()));
-            break;
+            // advance past the arrow and the target identifier
+            index += 2; // skip "->"
+            while index < chars.len() && chars[index].is_whitespace() {
+                index += 1;
+            }
+            index += parsed.len(); // skip the target name
+            continue;
         }
 
         match ch {
@@ -484,12 +490,8 @@ impl ExpressionParser {
             }
             Token::DivertTarget(target) => Ok(Expression::DivertTarget(target)),
             Token::Minus => {
-                let expression = self.parse_primary()?;
-                Ok(Expression::Binary {
-                    left: Box::new(Expression::Int(0)),
-                    operator: BinaryOperator::Subtract,
-                    right: Box::new(expression),
-                })
+                let expression = self.parse_unary()?;
+                Ok(Expression::Negate(Box::new(expression)))
             }
             Token::LeftParen => {
                 let expression = self.parse_expression()?;

@@ -142,6 +142,20 @@ pub fn parse_multi_branch_conditional(
         }
 
         if let Some(header) = trimmed.strip_prefix('-') {
+            // Ensure this is a branch header (- cond:) not a divert (->)
+            if header.starts_with('>') {
+                // This is a divert "-> target", not a branch header; parse as content
+                let statement = parse_stmt(lines, line_index, true)?;
+                match statement {
+                    ParsedStatement::Global(_) | ParsedStatement::List(_) => {
+                        return Err(CompilerError::UnsupportedFeature(
+                            "global declarations are not supported inside conditionals".to_owned(),
+                        ));
+                    }
+                    ParsedStatement::Nodes(mut nodes) => current_nodes.append(&mut nodes),
+                }
+                continue;
+            }
             if current_condition.is_some() || !current_nodes.is_empty() {
                 branches.push((current_condition.take(), current_nodes));
                 current_nodes = Vec::new();

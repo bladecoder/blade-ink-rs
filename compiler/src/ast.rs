@@ -30,6 +30,7 @@ pub enum Expression {
     Str(String),
     Variable(String),
     DivertTarget(String),
+    Negate(Box<Expression>),
     FunctionCall {
         name: String,
         args: Vec<Expression>,
@@ -123,7 +124,11 @@ pub enum Node {
     Glue,
     Sequence(Sequence),
     Divert(Divert),
-    TunnelDivert(String),
+    TunnelDivert {
+        target: String,
+        is_variable: bool,
+        args: Vec<Expression>,
+    },
     TunnelReturn,
     Conditional {
         condition: Condition,
@@ -151,6 +156,7 @@ pub enum Node {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Flow {
     pub name: String,
+    pub is_function: bool,
     pub parameters: Vec<String>,
     pub nodes: Vec<Node>,
     pub children: Vec<Flow>,
