@@ -152,7 +152,7 @@ fn print_all_messages(errors: &[String], warnings: &[String], json_output: bool)
             let all: Vec<String> = warnings
                 .iter()
                 .chain(errors.iter())
-                .map(|s| format!("\"{}\"", s.replace('"', "\\\"")))
+                .map(|s| serde_json::to_string(s).expect("serializing issue message to JSON"))
                 .collect();
             println!("{{\"issues\": [{}]}}", all.join(", "));
         }

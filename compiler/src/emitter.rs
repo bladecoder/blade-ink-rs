@@ -13,15 +13,21 @@ use crate::{
     parser::inline::{parse_dynamic_string, tokenize_inline_content},
 };
 
-pub fn story_to_json_string(story: &ParsedStory) -> Result<String, CompilerError> {
-    let json = story_to_json_value(story)?;
+pub fn story_to_json_string(
+    story: &ParsedStory,
+    count_all_visits: bool,
+) -> Result<String, CompilerError> {
+    let json = story_to_json_value(story, count_all_visits)?;
     serde_json::to_string(&json).map_err(|error| {
         CompilerError::invalid_source(format!("failed to serialize compiled ink: {error}"))
     })
 }
 
-pub fn story_to_json_value(story: &ParsedStory) -> Result<Value, CompilerError> {
-    let context = EmitContext::new(story);
+pub fn story_to_json_value(
+    story: &ParsedStory,
+    count_all_visits: bool,
+) -> Result<Value, CompilerError> {
+    let context = EmitContext::new(story, count_all_visits);
     let root_scope = EmitScope::root(story.flows());
 
     let mut root_container = emit_nodes(story.root(), &root_scope, &context)?;
@@ -92,6 +98,7 @@ struct EmitScope {
 struct EmitContext {
     global_variables: BTreeSet<String>,
     top_flow_names: BTreeSet<String>,
+    count_all_visits: bool,
     /// Set of LIST declaration names (to detect list-typed function calls)
     list_names: BTreeSet<String>,
     /// For each list name, a map from bare item name → (qualified name, value)
@@ -139,7 +146,7 @@ impl EmittedContainer {
 }
 
 impl EmitContext {
-    fn new(story: &ParsedStory) -> Self {
+    fn new(story: &ParsedStory, count_all_visits: bool) -> Self {
         let mut list_items = std::collections::BTreeMap::new();
         for list_decl in story.list_declarations() {
             let items: Vec<(String, u32)> = list_decl
@@ -152,6 +159,7 @@ impl EmitContext {
         Self {
             global_variables: story.globals().iter().map(|var| var.name.clone()).collect(),
             top_flow_names: story.flows().iter().map(|flow| flow.name.clone()).collect(),
+            count_all_visits,
             list_names: story
                 .list_declarations()
                 .iter()
@@ -339,7 +347,15 @@ fn emit_flow(flow: &Flow, context: &EmitContext) -> Result<Value, CompilerError>
         );
     }
 
-    container.into_json_array(None, Some(if flow.is_function { 1 } else { 3 }))
+    let count_flags = if flow.is_function {
+        1
+    } else if context.count_all_visits {
+        3
+    } else {
+        0
+    };
+
+    container.into_json_array(None, Some(count_flags))
 }
 
 fn emit_nested_flow(
@@ -368,7 +384,15 @@ fn emit_nested_flow(
         );
     }
 
-    container.into_json_array(None, Some(if flow.is_function { 1 } else { 3 }))
+    let count_flags = if flow.is_function {
+        1
+    } else if context.count_all_visits {
+        3
+    } else {
+        0
+    };
+
+    container.into_json_array(None, Some(count_flags))
 }
 
 fn prepend_parameters(container: &mut EmittedContainer, parameters: &[String]) {

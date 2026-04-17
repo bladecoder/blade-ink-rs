@@ -1,9 +1,11 @@
 use assert_cmd::prelude::*;
 use predicates::prelude::predicate;
 use std::{
+    fs,
     io::Write,
     path::Path,
     process::{Command, Stdio},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 /// Play mode from a pre-compiled .ink.json — mirrors binkplayer's basic_story_test.
@@ -72,5 +74,31 @@ fn story_not_found_test() -> Result<(), Box<dyn std::error::Error>> {
         .failure()
         .stderr(predicate::str::contains("Could not open file"));
 
+    Ok(())
+}
+
+#[test]
+fn json_issues_escape_backslashes_test() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("rinklecate")?;
+    let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!("blade-ink-rs-{unique}"));
+    fs::create_dir_all(&temp_dir)?;
+    let source_path = temp_dir.join("main.ink");
+    fs::write(&source_path, "INCLUDE missing\\\\story.ink\n")?;
+
+    let output = cmd.args(["-j", source_path.to_str().unwrap()]).output()?;
+    let stdout = String::from_utf8(output.stdout)?;
+
+    assert!(!output.status.success());
+    assert!(stdout.contains("{\"compile-success\": false}"));
+    let mut parsed_lines = Vec::new();
+    for line in stdout.lines() {
+        parsed_lines.push(serde_json::from_str::<serde_json::Value>(line)?);
+    }
+    let issues = parsed_lines[1]["issues"].as_array().unwrap();
+    let issue = issues[0].as_str().unwrap();
+    assert!(issue.contains(r#"missing\\story.ink"#));
+
+    fs::remove_dir_all(&temp_dir)?;
     Ok(())
 }

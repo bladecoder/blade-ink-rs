@@ -4,6 +4,8 @@ pub mod error;
 mod parser;
 pub mod stats;
 
+use std::path::{Path, PathBuf};
+
 pub use error::CompilerError;
 
 #[derive(Debug, Clone)]
@@ -67,7 +69,7 @@ impl Compiler {
     where
         F: Fn(&str) -> Result<String, CompilerError>,
     {
-        let expanded = expand_includes(source, &file_handler, 0)?;
+        let expanded = expand_includes(source, &file_handler, Path::new(""), 0)?;
         let parsed_story = parser::Parser::new(&expanded).parse().map_err(|e| {
             match &self.options.source_filename {
                 Some(filename) => e.with_file(filename.clone()),
@@ -90,15 +92,14 @@ impl Compiler {
     where
         F: Fn(&str) -> Result<String, CompilerError>,
     {
-        let _ = self.options.count_all_visits;
-        let expanded = expand_includes(source, &file_handler, 0)?;
+        let expanded = expand_includes(source, &file_handler, Path::new(""), 0)?;
         let parsed_story = parser::Parser::new(&expanded).parse().map_err(|e| {
             match &self.options.source_filename {
                 Some(filename) => e.with_file(filename.clone()),
                 None => e,
             }
         })?;
-        emitter::story_to_json_string(&parsed_story).map_err(|e| {
+        emitter::story_to_json_string(&parsed_story, self.options.count_all_visits).map_err(|e| {
             match &self.options.source_filename {
                 Some(filename) => e.with_file(filename.clone()),
                 None => e,
@@ -110,7 +111,12 @@ impl Compiler {
 /// Recursively expand `INCLUDE filename` directives by substituting the
 /// contents returned by `file_handler`.  Depth is limited to 32 to avoid
 /// infinite recursion in circular includes.
-fn expand_includes<F>(source: &str, file_handler: &F, depth: usize) -> Result<String, CompilerError>
+fn expand_includes<F>(
+    source: &str,
+    file_handler: &F,
+    current_dir: &Path,
+    depth: usize,
+) -> Result<String, CompilerError>
 where
     F: Fn(&str) -> Result<String, CompilerError>,
 {
@@ -126,8 +132,10 @@ where
         let trimmed = line.trim();
         if let Some(filename) = trimmed.strip_prefix("INCLUDE ") {
             let filename = filename.trim();
-            let included = file_handler(filename)?;
-            let expanded = expand_includes(&included, file_handler, depth + 1)?;
+            let include_path = normalize_include_path(current_dir, filename);
+            let included = file_handler(include_path.to_string_lossy().as_ref())?;
+            let next_dir = include_path.parent().unwrap_or_else(|| Path::new(""));
+            let expanded = expand_includes(&included, file_handler, next_dir, depth + 1)?;
             result.push_str(&expanded);
             // Ensure a trailing newline after the included content
             if !result.ends_with('\n') {
@@ -139,6 +147,15 @@ where
         }
     }
     Ok(result)
+}
+
+fn normalize_include_path(current_dir: &Path, filename: &str) -> PathBuf {
+    let include_path = Path::new(filename);
+    if include_path.is_absolute() || current_dir.as_os_str().is_empty() {
+        include_path.to_path_buf()
+    } else {
+        current_dir.join(include_path)
+    }
 }
 
 #[cfg(test)]

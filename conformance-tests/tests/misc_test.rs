@@ -1,7 +1,7 @@
 use std::{error::Error, path::Path};
 
 use bladeink::{story::Story, story_error::StoryError, value_type::ValueType};
-use bladeink_compiler::{Compiler, CompilerError};
+use bladeink_compiler::{Compiler, CompilerError, CompilerOptions};
 
 mod common;
 
@@ -180,6 +180,63 @@ fn include_basic_test() -> Result<(), Box<dyn Error>> {
     assert_eq!("This is main.", text[1]);
 
     Ok(())
+}
+
+#[test]
+fn include_nested_relative_paths_test() -> Result<(), Box<dyn Error>> {
+    let ink_source = common::get_file_string("inkfiles/include/nested/main.ink")?;
+    let base_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("inkfiles/include/nested");
+
+    let json_string = Compiler::new()
+        .compile_with_file_handler(&ink_source, |filename| {
+            let path = base_dir.join(filename);
+            std::fs::read_to_string(&path).map_err(|e| {
+                CompilerError::invalid_source(format!(
+                    "Failed to read included file '{}': {}",
+                    filename, e
+                ))
+            })
+        })
+        .unwrap();
+
+    let mut story = Story::new(&json_string)?;
+    let mut text: Vec<String> = Vec::new();
+    common::next_all(&mut story, &mut text)?;
+
+    assert_eq!(3, text.len());
+    assert_eq!("Leaf content.", text[0]);
+    assert_eq!("Scene content.", text[1]);
+    assert_eq!("Main content.", text[2]);
+
+    Ok(())
+}
+
+#[test]
+fn count_all_visits_option_changes_compiled_container_flags() {
+    let ink_source = "=== knot ===\nHello\n-> END\n";
+
+    let json_without_count_all_visits = Compiler::with_options(CompilerOptions {
+        count_all_visits: false,
+        source_filename: None,
+    })
+    .compile(ink_source)
+    .unwrap();
+
+    let json_with_count_all_visits = Compiler::with_options(CompilerOptions {
+        count_all_visits: true,
+        source_filename: None,
+    })
+    .compile(ink_source)
+    .unwrap();
+
+    assert!(
+        !json_without_count_all_visits.contains("\"knot\":[\"^Hello\",\"\\n\",\"end\",{\"#f\":3}]"),
+        "unexpected visit-count flags when count_all_visits=false: {json_without_count_all_visits}"
+    );
+    assert!(
+        json_with_count_all_visits.contains("\"knot\":[\"^Hello\",\"\\n\",\"end\",{\"#f\":3}]"),
+        "missing visit-count flags when count_all_visits=true: {json_with_count_all_visits}"
+    );
 }
 
 #[test]
