@@ -250,11 +250,9 @@ impl Story {
                         output_count_consumed += 1;
                         if let Some(command) =
                             obj.as_ref().as_any().downcast_ref::<ControlCommand>()
-                        {
-                            if command.command_type == CommandType::BeginString {
+                            && command.command_type == CommandType::BeginString {
                                 break;
                             }
-                        }
 
                         if obj.as_ref().as_any().downcast_ref::<Tag>().is_some() {
                             content_to_retain.push_back(obj.clone());

@@ -34,11 +34,10 @@ impl Container {
         let mut named_content = named_content;
 
         content.iter().for_each(|o| {
-            if let Ok(c) = o.clone().into_any().downcast::<Container>() {
-                if c.has_valid_name() {
+            if let Ok(c) = o.clone().into_any().downcast::<Container>()
+                && c.has_valid_name() {
                     named_content.insert(c.name.as_ref().unwrap().to_string(), c);
                 }
-            }
         });
 
         let (visits_should_be_counted, turn_index_should_be_counted, counting_at_start_only) =
@@ -82,13 +81,11 @@ impl Container {
             sb.push_str("})");
         }
 
-        if let Some(pointed_obj) = pointed_obj {
-            if let Some(c) = pointed_obj.downcast_ref::<Container>() {
-                if std::ptr::eq(c, self) {
+        if let Some(pointed_obj) = pointed_obj
+            && let Some(c) = pointed_obj.downcast_ref::<Container>()
+                && std::ptr::eq(c, self) {
                     sb.push_str("  <---");
                 }
-            }
-        }
 
         sb.push('\n');
         let indentation = indentation + 1;
@@ -114,15 +111,14 @@ impl Container {
                 sb.push(',');
             }
 
-            if let Some(pointed_obj) = pointed_obj {
-                if !pointed_obj.is::<Container>() {
+            if let Some(pointed_obj) = pointed_obj
+                && !pointed_obj.is::<Container>() {
                     let a = obj.as_ref() as *const _ as *const ();
                     let b = pointed_obj as *const _ as *const ();
                     if std::ptr::eq(a, b) {
                         sb.push_str("  <---");
                     }
                 }
-            }
 
             sb.push_str("  (");
             sb.push_str(&Object::get_path(obj.as_ref()).to_string());
@@ -268,11 +264,10 @@ impl Container {
 
     fn content_with_path_component(&self, component: &Component) -> Option<Rc<dyn RTObject>> {
         if component.is_index() {
-            if let Some(index) = component.index {
-                if index < self.content.len() {
+            if let Some(index) = component.index
+                && index < self.content.len() {
                     return Some(self.content[index].clone());
                 }
-            }
         } else if component.is_parent() {
             // When path is out of range, quietly return None
             // (useful as we step/increment forwards through content)
@@ -296,11 +291,10 @@ impl Container {
         }
 
         for c in &self.content {
-            if let Some(named) = c.as_any().downcast_ref::<Container>() {
-                if named.has_valid_name() {
+            if let Some(named) = c.as_any().downcast_ref::<Container>()
+                && named.has_valid_name() {
                     named_only_content_dict.remove(named.name.as_ref().unwrap());
                 }
-            }
         }
 
         named_only_content_dict

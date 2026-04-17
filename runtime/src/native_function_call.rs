@@ -306,13 +306,12 @@ impl NativeFunctionCall {
                 origin.get_name() == list_item.get_origin_name().unwrap_or(&"".to_owned())
             });
 
-            if let Some(item_origin) = item_origin {
-                if let Some(incremented_item) = item_origin.get_item_with_value(target_int) {
+            if let Some(item_origin) = item_origin
+                && let Some(incremented_item) = item_origin.get_item_with_value(target_int) {
                     result_raw_list
                         .items
                         .insert(incremented_item.clone(), target_int);
                 }
-            }
         }
 
         Rc::new(Value::new::<InkList>(result_raw_list))
@@ -366,11 +365,10 @@ impl NativeFunctionCall {
             // "higher level" types infect both so that binary operations
             // use the same type on both sides. e.g. binary operation of
             // int and float causes the int to be casted to a float.
-            if let Some(v) = obj.as_ref().as_any().downcast_ref::<Value>() {
-                if v.get_cast_ordinal() > dest_type {
+            if let Some(v) = obj.as_ref().as_any().downcast_ref::<Value>()
+                && v.get_cast_ordinal() > dest_type {
                     dest_type = v.get_cast_ordinal();
                 }
-            }
         }
 
         for obj in params.iter() {

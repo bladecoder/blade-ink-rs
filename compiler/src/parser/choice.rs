@@ -244,8 +244,8 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
         });
     }
 
-    if let Some(open) = trimmed.find('[') {
-        if let Some(close_rel) = trimmed[open + 1..].find(']') {
+    if let Some(open) = trimmed.find('[')
+        && let Some(close_rel) = trimmed[open + 1..].find(']') {
             let close = open + 1 + close_rel;
             let start = &trimmed[..open];
             let choice_only = trimmed[open + 1..close].trim();
@@ -277,7 +277,6 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
                 selected_tags,
             });
         }
-    }
 
     let (trimmed, inline_target) = split_inline_choice_divert(trimmed)?;
     let (start_text, start_tags) = split_text_and_tags(trimmed)?;

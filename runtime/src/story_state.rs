@@ -186,11 +186,10 @@ impl StoryState {
 
     pub fn in_string_evaluation(&self) -> bool {
         for e in self.get_output_stream().iter().rev() {
-            if let Some(cmd) = e.as_any().downcast_ref::<ControlCommand>() {
-                if cmd.command_type == CommandType::BeginString {
+            if let Some(cmd) = e.as_any().downcast_ref::<ControlCommand>()
+                && cmd.command_type == CommandType::BeginString {
                     return true;
                 }
-            }
         }
         false
     }
@@ -264,11 +263,10 @@ impl StoryState {
                     {
                         sb.push_str(&string_value.string);
                     }
-                    if let Some(tag) = output_obj.as_ref().as_any().downcast_ref::<Tag>() {
-                        if !tag.get_text().is_empty() {
+                    if let Some(tag) = output_obj.as_ref().as_any().downcast_ref::<Tag>()
+                        && !tag.get_text().is_empty() {
                             self.current_tags.push(tag.get_text().clone()); // tag.text has whitespace already cleaned
                         }
-                    }
                 }
             }
 
@@ -325,15 +323,14 @@ impl StoryState {
                     break;
                 }
 
-                if let Some(val) = e.as_any().downcast_ref::<Value>() {
-                    if let ValueType::String(text) = &val.value {
+                if let Some(val) = e.as_any().downcast_ref::<Value>()
+                    && let ValueType::String(text) = &val.value {
                         if text.is_newline {
                             return true;
                         } else if text.is_non_whitespace() {
                             break;
                         }
                     }
-                }
             }
         }
 
@@ -432,11 +429,10 @@ impl StoryState {
             return 0;
         }
 
-        if let Some(patch) = &self.patch {
-            if let Some(visit_count) = patch.get_visit_count(container) {
+        if let Some(patch) = &self.patch
+            && let Some(visit_count) = patch.get_visit_count(container) {
                 return visit_count;
             }
-        }
 
         let container_path_str = container.get_path().to_string();
 
@@ -681,11 +677,10 @@ impl StoryState {
 
     fn output_stream_contains_content(&self) -> bool {
         for content in self.get_output_stream() {
-            if let Some(v) = content.as_any().downcast_ref::<Value>() {
-                if let ValueType::String(_) = v.value {
+            if let Some(v) = content.as_any().downcast_ref::<Value>()
+                && let ValueType::String(_) = v.value {
                     return true;
                 }
-            }
         }
 
         false
@@ -1291,15 +1286,14 @@ impl StoryState {
             }
         };
 
-        if let Some(version) = j_save_version.as_i64() {
-            if version < MIN_COMPATIBLE_LOAD_VERSION as i64 {
+        if let Some(version) = j_save_version.as_i64()
+            && version < MIN_COMPATIBLE_LOAD_VERSION as i64 {
                 return Err(StoryError::BadJson(format!(
                     "Ink save format isn't compatible with the current version (saw '{}', but minimum is {}), so can't load.",
                     version,
                     MIN_COMPATIBLE_LOAD_VERSION
                 )));
             }
-        }
 
         // Flows: Always exists in latest format (even if there's just one default)
         // but this dictionary doesn't exist in prev format
@@ -1344,18 +1338,14 @@ impl StoryState {
                 }
             }
 
-            if let Some(named_flows) = &mut self.named_flows {
-                if named_flows.len() > 1 {
-                    if let Some(current_flow_name) = j_object.get("currentFlowName") {
-                        if let Some(curr_flow_name) = current_flow_name.as_str() {
-                            if let Some(curr_flow) = named_flows.get(curr_flow_name) {
+            if let Some(named_flows) = &mut self.named_flows
+                && named_flows.len() > 1
+                    && let Some(current_flow_name) = j_object.get("currentFlowName")
+                        && let Some(curr_flow_name) = current_flow_name.as_str()
+                            && let Some(curr_flow) = named_flows.get(curr_flow_name) {
                                 self.current_flow = curr_flow.clone();
                                 named_flows.remove(curr_flow_name);
                             }
-                        }
-                    }
-                }
-            }
         }
         // Old format: individually load up callstack, output stream, choices in
         // current/default flow

@@ -307,11 +307,10 @@ fn parse_input(input: &str) -> InputResult {
     }
 
     // Choice number (1-based)
-    if let Ok(n) = input.trim().parse::<usize>() {
-        if n >= 1 {
+    if let Ok(n) = input.trim().parse::<usize>()
+        && n >= 1 {
             return InputResult::Choice(n - 1);
         }
-    }
 
     InputResult::Unknown
 }

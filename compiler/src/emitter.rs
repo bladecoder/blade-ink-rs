@@ -268,11 +268,10 @@ impl EmitScope {
             return target.to_owned();
         }
 
-        if self.child_flow_names.contains(target) {
-            if let Some(top_flow_name) = &self.top_flow_name {
+        if self.child_flow_names.contains(target)
+            && let Some(top_flow_name) = &self.top_flow_name {
                 return format!("{top_flow_name}.{target}");
             }
-        }
 
         target.to_owned()
     }
@@ -438,14 +437,13 @@ fn collect_choice_labels_recursive(
                 let block_start_ci = *choice_index - 1; // index of first choice in block
                                                         // collect any remaining adjacent choices
                 while i < nodes.len() && matches!(nodes[i], Node::Choice(_)) {
-                    if let Node::Choice(c) = &nodes[i] {
-                        if let Some(label) = &c.label {
+                    if let Node::Choice(c) = &nodes[i]
+                        && let Some(label) = &c.label {
                             labels.insert(
                                 label.clone(),
                                 format!("{}.c-{}", scope.path, *choice_index),
                             );
                         }
-                    }
                     *choice_index += 1;
                     i += 1;
                 }
@@ -737,13 +735,12 @@ fn emit_choice_block(
         let has_nested_choices_in_continuation = continuation_body
             .iter()
             .any(|n| matches!(n, Node::Choice(_)));
-        if let Some(fb) = fallback_continuation {
-            if !branch_has_terminal_content(continuation_body)
+        if let Some(fb) = fallback_continuation
+            && !branch_has_terminal_content(continuation_body)
                 && !has_nested_choices_in_continuation
             {
                 gather_container.push(json!({"->": fb}));
             }
-        }
         let continuation_value = gather_container.into_json_array(gather_label.as_deref(), None)?;
         out.insert_named(name.clone(), continuation_value);
         Some(format!("{}.{}", scope.path, name))

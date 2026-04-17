@@ -269,8 +269,8 @@ impl Story {
     ) -> Result<(), StoryError> {
         let divert = o.clone().into_any().downcast::<Divert>().ok();
 
-        if let Some(divert) = divert {
-            if divert.is_external {
+        if let Some(divert) = divert
+            && divert.is_external {
                 let name = divert.get_target_path_string().unwrap();
 
                 if !self.externals.contains_key(&name) {
@@ -287,7 +287,6 @@ impl Story {
                     }
                 }
             }
-        }
 
         Ok(())
     }
