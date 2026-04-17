@@ -28,9 +28,9 @@ fn basics_test() -> Result<(), StoryError> {
 
 #[test]
 fn multiflow_save_load_threads() -> Result<(), StoryError> {
-    // TODO: migrate to compiler once thread diverts (<-) are implemented
-    let json_string =
-        common::get_json_string("inkfiles/runtime/multiflow-saveloadthreads.ink.json").unwrap();
+    let ink_source =
+        common::get_file_string("inkfiles/runtime/multiflow-saveloadthreads.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     // Default flow
