@@ -34,7 +34,7 @@ loop {
 }
 ```
 
-The `bladeink` library supports all the **Ink** language features, including threads, multi-flows, variable set/get from code, variable observing, external functions, tags on choices, etc. Examples of uses of all these features can be found in the `lib/tests` folder in the [source code](https://github.com/bladecoder/blade-ink-rs/tree/main/lib/tests).
+The `bladeink` library supports all the **Ink** language features, including threads, multi-flows, variable set/get from code, variable observing, external functions, tags on choices, etc. Examples of uses of all these features can be found in the `runtime/tests` folder in the [source code](https://github.com/bladecoder/blade-ink-rs/tree/main/runtime/tests).
 
 
 ## Running Ink stories with *binkplayer*

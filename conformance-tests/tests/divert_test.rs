@@ -1,10 +1,12 @@
 use bladeink::{story::Story, story_error::StoryError};
+use bladeink_compiler::Compiler;
 
 mod common;
 
 #[test]
 fn simple_divert_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/divert/simple-divert.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/divert/simple-divert.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     let mut text: Vec<String> = Vec::new();
@@ -21,7 +23,8 @@ fn simple_divert_test() -> Result<(), StoryError> {
 
 #[test]
 fn invisible_divert_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/divert/invisible-divert.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/divert/invisible-divert.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     let mut text: Vec<String> = Vec::new();
@@ -37,7 +40,8 @@ fn invisible_divert_test() -> Result<(), StoryError> {
 
 #[test]
 fn divert_on_choice_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/divert/divert-on-choice.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/divert/divert-on-choice.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     let mut text: Vec<String> = Vec::new();
@@ -55,8 +59,8 @@ fn divert_on_choice_test() -> Result<(), StoryError> {
 
 #[test]
 fn complex_branching1_test() -> Result<(), StoryError> {
-    let json_string =
-        common::get_json_string("inkfiles/divert/complex-branching.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/divert/complex-branching.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -78,8 +82,8 @@ fn complex_branching1_test() -> Result<(), StoryError> {
 
 #[test]
 fn complex_branching2_test() -> Result<(), StoryError> {
-    let json_string =
-        common::get_json_string("inkfiles/divert/complex-branching.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/divert/complex-branching.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 

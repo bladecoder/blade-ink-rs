@@ -3,6 +3,7 @@
 use std::{error::Error, fs, path::Path};
 
 use bladeink::{story::Story, story_error::StoryError};
+use bladeink_compiler::Compiler;
 use rand::Rng;
 
 pub fn next_all(story: &mut Story, text: &mut Vec<String>) -> Result<(), StoryError> {
@@ -22,7 +23,7 @@ pub fn next_all(story: &mut Story, text: &mut Vec<String>) -> Result<(), StoryEr
     Ok(())
 }
 
-pub fn join_text(text: &Vec<String>) -> String {
+pub fn join_text(text: &[String]) -> String {
     let mut sb = String::new();
 
     for s in text {
@@ -38,7 +39,12 @@ pub fn run_story(
     errors: &mut Vec<String>,
 ) -> Result<Vec<String>, StoryError> {
     // 1) Load story
-    let json = get_json_string(filename).unwrap();
+    let json = if filename.ends_with(".ink") {
+        let ink = get_file_string(filename).unwrap();
+        Compiler::new().compile(&ink).unwrap()
+    } else {
+        get_json_string(filename).unwrap()
+    };
 
     let mut story = Story::new(&json)?;
 
@@ -93,11 +99,15 @@ pub fn run_story(
     Ok(text)
 }
 
-pub fn get_json_string(filename: &str) -> Result<String, Box<dyn Error>> {
+pub fn get_file_string(filename: &str) -> Result<String, Box<dyn Error>> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(filename);
 
-    let json = fs::read_to_string(path)?;
-    Ok(json)
+    let content = fs::read_to_string(path)?;
+    Ok(content)
+}
+
+pub fn get_json_string(filename: &str) -> Result<String, Box<dyn Error>> {
+    get_file_string(filename)
 }
 
 pub fn is_ended(story: &Story) -> bool {

@@ -1,10 +1,12 @@
 use bladeink::{story::Story, story_error::StoryError};
+use bladeink_compiler::Compiler;
 
 mod common;
 
 #[test]
 fn simple_glue_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/glue/simple-glue.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/glue/simple-glue.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     let mut text: Vec<String> = Vec::new();
@@ -17,7 +19,8 @@ fn simple_glue_test() -> Result<(), StoryError> {
 
 #[test]
 fn glue_with_divert_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/glue/glue-with-divert.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/glue/glue-with-divert.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -34,8 +37,8 @@ fn glue_with_divert_test() -> Result<(), StoryError> {
 
 #[test]
 fn has_left_right_glue_matching_test() -> Result<(), StoryError> {
-    let json_string =
-        common::get_json_string("inkfiles/glue/left-right-glue-matching.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/glue/left-right-glue-matching.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -50,7 +53,8 @@ fn has_left_right_glue_matching_test() -> Result<(), StoryError> {
 
 #[test]
 fn bugfix1_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/glue/testbugfix1.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/glue/testbugfix1.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -65,7 +69,8 @@ fn bugfix1_test() -> Result<(), StoryError> {
 
 #[test]
 fn bugfix2_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/glue/testbugfix2.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/glue/testbugfix2.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
