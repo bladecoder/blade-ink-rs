@@ -1138,6 +1138,10 @@ fn emit_expression_ctx(
             emit_expression_ctx(expr, out, context);
             out.push(json!("_"));
         }
+        Expression::Not(expr) => {
+            emit_expression_ctx(expr, out, context);
+            out.push(json!("!"));
+        }
         Expression::FunctionCall { name, args } => {
             // Check if this is a list-typed call: list_name(n) or list_name()
             if context.is_some_and(|ctx| ctx.list_names.contains(name)) {

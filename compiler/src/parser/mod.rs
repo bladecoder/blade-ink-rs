@@ -342,7 +342,10 @@ pub fn parse_statement(
         ));
     }
 
-    if let Some(rest) = trimmed.strip_prefix("~ return ") {
+    if let Some(rest) = trimmed
+        .strip_prefix("~ return ")
+        .or_else(|| trimmed.strip_prefix("~return "))
+    {
         *line_index += 1;
         // Try as bool first (legacy), otherwise parse as expression
         let expr = match parse_bool(rest.trim()) {

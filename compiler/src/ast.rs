@@ -37,6 +37,7 @@ pub enum Expression {
     Variable(String),
     DivertTarget(String),
     Negate(Box<Expression>),
+    Not(Box<Expression>),
     FunctionCall {
         name: String,
         args: Vec<Expression>,

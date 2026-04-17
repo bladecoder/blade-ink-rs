@@ -192,6 +192,7 @@ pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
                     "true" => tokens.push(Token::Bool(true)),
                     "false" => tokens.push(Token::Bool(false)),
                     "and" => tokens.push(Token::AndAnd),
+                    "or" => tokens.push(Token::OrOr),
                     "not" => tokens.push(Token::Bang),
                     _ => tokens.push(Token::Ident(ident.to_owned())),
                 }
@@ -481,12 +482,7 @@ impl ExpressionParser {
     fn parse_unary(&mut self) -> Result<Expression, CompilerError> {
         if self.match_token(&Token::Bang) {
             let expr = self.parse_primary()?;
-            // !x in Ink is equivalent to (x == 0)
-            return Ok(Expression::Binary {
-                left: Box::new(expr),
-                operator: BinaryOperator::Equal,
-                right: Box::new(Expression::Int(0)),
-            });
+            return Ok(Expression::Not(Box::new(expr)));
         }
         self.parse_primary()
     }
