@@ -75,6 +75,12 @@ pub fn parse_sequence(
             return Ok(vec![Node::Sequence(Sequence { mode, branches })]);
         }
 
+        // Skip blank lines and comments between branches
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            *line_index += 1;
+            continue;
+        }
+
         let branch_text = trimmed.strip_prefix('-').ok_or_else(|| {
             CompilerError::invalid_source("sequence branch must start with '-'".to_owned())
         })?;
@@ -140,6 +146,12 @@ pub fn parse_multi_branch_sequence(
                 mode: mode.unwrap_or(SequenceMode::Stopping),
                 branches,
             })]);
+        }
+
+        // Skip blank lines and comments between branches
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            *line_index += 1;
+            continue;
         }
 
         let header = trimmed.strip_prefix('-').ok_or_else(|| {
