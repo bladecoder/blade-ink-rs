@@ -117,19 +117,21 @@ impl Divert {
 
     pub fn get_target_path(self: &Rc<Self>) -> Option<Path> {
         // Resolve any relative paths to global ones as we come across them
-        let target_path = self.target_path.borrow();
+        let current_target = self.target_path.borrow().clone();
 
-        match target_path.as_ref() {
+        match current_target {
             Some(target_path) => {
                 if target_path.is_relative() {
                     let target_obj = self.get_target_pointer().resolve();
 
                     if let Some(target_obj) = target_obj {
-                        self.target_path
-                            .replace(Some(Object::get_path(target_obj.as_ref())));
+                        let resolved = Object::get_path(target_obj.as_ref());
+                        self.target_path.replace(Some(resolved.clone()));
+                        return Some(resolved);
                     }
                 }
-                Some(self.target_path.borrow().as_ref().unwrap().clone())
+
+                Some(target_path)
             }
             None => None,
         }

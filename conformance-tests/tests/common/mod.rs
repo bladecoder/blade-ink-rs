@@ -3,6 +3,7 @@
 use std::{error::Error, fs, path::Path};
 
 use bladeink::{story::Story, story_error::StoryError};
+use bladeink_compiler::Compiler;
 use rand::Rng;
 
 pub fn next_all(story: &mut Story, text: &mut Vec<String>) -> Result<(), StoryError> {
@@ -38,7 +39,12 @@ pub fn run_story(
     errors: &mut Vec<String>,
 ) -> Result<Vec<String>, StoryError> {
     // 1) Load story
-    let json = get_json_string(filename).unwrap();
+    let json = if filename.ends_with(".ink") {
+        let ink = get_file_string(filename).unwrap();
+        Compiler::new().compile(&ink).unwrap()
+    } else {
+        get_json_string(filename).unwrap()
+    };
 
     let mut story = Story::new(&json)?;
 

@@ -101,6 +101,10 @@ impl Path {
         self.components.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.components.is_empty()
+    }
+
     pub fn get_self() -> Path {
         Path {
             is_relative: true,
@@ -133,8 +137,8 @@ impl Path {
             components.push(self.components.get(i).unwrap().clone());
         }
 
-        for i in upward_moves..self.components.len() {
-            components.push(self.components.get(i).unwrap().clone());
+        for i in upward_moves..path_to_append.components.len() {
+            components.push(path_to_append.components.get(i).unwrap().clone());
         }
 
         Path {

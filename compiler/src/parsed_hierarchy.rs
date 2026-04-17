@@ -18,6 +18,8 @@ pub enum BinaryOperator {
     Subtract,
     Multiply,
     Equal,
+    And,
+    Greater,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,6 +35,18 @@ pub enum Expression {
         operator: BinaryOperator,
         right: Box<Expression>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DynamicStringPart {
+    Text(String),
+    Expression(Expression),
+    Sequence(Sequence),
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct DynamicString {
+    pub parts: Vec<DynamicStringPart>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,6 +72,33 @@ pub struct Choice {
     pub display_text: String,
     pub selected_text: Option<String>,
     pub body: Vec<Node>,
+    pub start_text: String,
+    pub choice_only_text: String,
+    pub conditions: Vec<Condition>,
+    pub label: Option<String>,
+    pub once_only: bool,
+    pub is_invisible_default: bool,
+    pub has_start_content: bool,
+    pub has_choice_only_content: bool,
+    pub start_tags: Vec<DynamicString>,
+    pub choice_only_tags: Vec<DynamicString>,
+    pub selected_tags: Vec<DynamicString>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SequenceMode {
+    Stopping,
+    Once,
+    Cycle,
+    Shuffle,
+    ShuffleOnce,
+    ShuffleStopping,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Sequence {
+    pub mode: SequenceMode,
+    pub branches: Vec<Vec<Node>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -65,8 +106,12 @@ pub enum Node {
     Text(String),
     OutputExpression(Expression),
     Newline,
+    Tag(DynamicString),
     Glue,
+    Sequence(Sequence),
     Divert(Divert),
+    TunnelDivert(String),
+    TunnelReturn,
     Conditional {
         condition: Condition,
         when_true: Vec<Node>,
@@ -107,6 +152,7 @@ struct EmitScope {
     path: String,
     top_flow_name: Option<String>,
     child_flow_names: BTreeSet<String>,
+    choice_label_targets: BTreeMap<String, String>,
 }
 
 struct EmitContext {
@@ -202,6 +248,21 @@ impl ParsedStory {
             CompilerError::InvalidSource(format!("failed to serialize compiled ink: {error}"))
         })
     }
+
+    #[allow(dead_code)]
+    pub(crate) fn globals(&self) -> &[GlobalVariable] {
+        &self.globals
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn root(&self) -> &[Node] {
+        &self.root
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn flows(&self) -> &[Flow] {
+        &self.flows
+    }
 }
 
 impl EmitContext {
@@ -219,6 +280,7 @@ impl EmitScope {
             path: "0".to_owned(),
             top_flow_name: None,
             child_flow_names: flows.iter().map(|flow| flow.name.clone()).collect(),
+            choice_label_targets: BTreeMap::new(),
         }
     }
 
@@ -240,6 +302,7 @@ impl EmitScope {
                 .iter()
                 .map(|nested| nested.name.clone())
                 .collect(),
+            choice_label_targets: BTreeMap::new(),
         }
     }
 
@@ -248,12 +311,26 @@ impl EmitScope {
             path: format!("{}.{}", self.path, branch_name),
             top_flow_name: self.top_flow_name.clone(),
             child_flow_names: self.child_flow_names.clone(),
+            choice_label_targets: self.choice_label_targets.clone(),
+        }
+    }
+
+    fn with_choice_labels(&self, labels: BTreeMap<String, String>) -> Self {
+        Self {
+            path: self.path.clone(),
+            top_flow_name: self.top_flow_name.clone(),
+            child_flow_names: self.child_flow_names.clone(),
+            choice_label_targets: labels,
         }
     }
 
     fn resolve_divert_target(&self, target: &str, context: &EmitContext) -> String {
         if target == "END" || target == "DONE" || target.contains('.') {
             return target.to_owned();
+        }
+
+        if let Some(choice_target) = self.resolve_choice_label(target) {
+            return format!(".^.{}", choice_target);
         }
 
         if context.global_variables.contains(target) && !context.top_flow_names.contains(target) {
@@ -271,6 +348,10 @@ impl EmitScope {
 
     fn is_variable_divert(&self, target: &str, context: &EmitContext) -> bool {
         context.global_variables.contains(target) && !context.top_flow_names.contains(target)
+    }
+
+    fn resolve_choice_label(&self, label: &str) -> Option<&str> {
+        self.choice_label_targets.get(label).map(String::as_str)
     }
 }
 
@@ -312,7 +393,7 @@ fn emit_flow(flow: &Flow, context: &EmitContext) -> Result<Value, CompilerError>
         );
     }
 
-    container.into_json_array(None, None)
+    container.into_json_array(None, Some(1))
 }
 
 fn emit_nested_flow(
@@ -341,7 +422,7 @@ fn emit_nested_flow(
         );
     }
 
-    container.into_json_array(None, None)
+    container.into_json_array(None, Some(1))
 }
 
 fn prepend_parameters(container: &mut EmittedContainer, parameters: &[String]) {
@@ -366,8 +447,9 @@ fn emit_nodes(
     let mut out = EmittedContainer::default();
     let mut next_choice_index = 0;
 
-    for node in nodes {
-        match node {
+    let mut index = 0;
+    while index < nodes.len() {
+        match &nodes[index] {
             Node::Text(text) => out.push(json!(format!("^{text}"))),
             Node::OutputExpression(expression) => {
                 out.push(json!("ev"));
@@ -376,8 +458,30 @@ fn emit_nodes(
                 out.push(json!("/ev"));
             }
             Node::Newline => out.push(json!("\n")),
+            Node::Tag(tag) => emit_tag(tag, &mut out.content, scope, context)?,
             Node::Glue => out.push(json!("<>")),
+            Node::Sequence(_) => {
+                let block_start = index;
+                while index < nodes.len() && matches!(nodes[index], Node::Sequence(_)) {
+                    index += 1;
+                }
+                emit_sequence_block(
+                    &mut out,
+                    &nodes[block_start..index],
+                    scope,
+                    next_choice_index,
+                    context,
+                )?;
+                continue;
+            }
             Node::Divert(divert) => emit_divert(&mut out, divert, scope, context),
+            Node::TunnelDivert(target) => out.push(json!({"->t->": target})),
+            Node::TunnelReturn => {
+                out.push(json!("ev"));
+                out.push(json!("void"));
+                out.push(json!("/ev"));
+                out.push(json!("->->"));
+            }
             Node::ReturnBool(value) => {
                 out.push(json!("ev"));
                 out.push(json!(value));
@@ -388,7 +492,7 @@ fn emit_nodes(
                 condition,
                 when_true,
                 when_false,
-            } => out.push(emit_conditional(
+            } => out.content.extend(emit_conditional(
                 condition,
                 when_true,
                 when_false.as_deref(),
@@ -401,14 +505,171 @@ fn emit_nodes(
                 expression,
                 mode,
             } => emit_assignment(variable_name, expression, mode, &mut out),
-            Node::Choice(choice) => {
-                emit_choice(&mut out, choice, scope, next_choice_index, context)?;
-                next_choice_index += 1;
+            Node::Choice(_) => {
+                let block_start = index;
+                while index < nodes.len() && matches!(nodes[index], Node::Choice(_)) {
+                    index += 1;
+                }
+                let continuation = &nodes[index..];
+                emit_choice_block(
+                    &mut out,
+                    &nodes[block_start..index],
+                    continuation,
+                    scope,
+                    &mut next_choice_index,
+                    context,
+                )?;
+                break;
             }
         }
+
+        index += 1;
     }
 
     Ok(out)
+}
+
+fn emit_choice_block(
+    out: &mut EmittedContainer,
+    choices: &[Node],
+    continuation: &[Node],
+    scope: &EmitScope,
+    next_choice_index: &mut usize,
+    context: &EmitContext,
+) -> Result<(), CompilerError> {
+    let mut choice_labels = BTreeMap::new();
+    for (offset, choice) in choices.iter().enumerate() {
+        let Node::Choice(choice) = choice else {
+            continue;
+        };
+        if let Some(label) = &choice.label {
+            choice_labels.insert(label.clone(), format!("c-{}", *next_choice_index + offset));
+        }
+    }
+    let block_scope = scope.with_choice_labels(choice_labels);
+
+    let continuation_name = if continuation.is_empty() {
+        None
+    } else {
+        let name = format!("g-{}", *next_choice_index);
+        let continuation_scope = block_scope.choice_branch(&name);
+        let continuation_value =
+            emit_nodes(continuation, &continuation_scope, context)?.into_json_array(None, None)?;
+        out.insert_named(name.clone(), continuation_value);
+        Some((name.clone(), format!(".^.{}", name)))
+    };
+
+    for choice in choices {
+        let Node::Choice(choice) = choice else {
+            continue;
+        };
+        emit_choice(
+            out,
+            choice,
+            &block_scope,
+            *next_choice_index,
+            continuation_name.as_ref().map(|(_, path)| path.as_str()),
+            context,
+        )?;
+        *next_choice_index += 1;
+    }
+
+    Ok(())
+}
+
+fn emit_sequence_block(
+    out: &mut EmittedContainer,
+    sequences: &[Node],
+    scope: &EmitScope,
+    _next_index: usize,
+    context: &EmitContext,
+) -> Result<(), CompilerError> {
+    for sequence in sequences {
+        let Node::Sequence(sequence) = sequence else {
+            continue;
+        };
+        out.push(emit_sequence(sequence, scope, context)?);
+    }
+
+    Ok(())
+}
+
+fn emit_sequence(
+    sequence: &Sequence,
+    scope: &EmitScope,
+    context: &EmitContext,
+) -> Result<Value, CompilerError> {
+    let has_once_fallthrough = matches!(
+        sequence.mode,
+        SequenceMode::Once | SequenceMode::ShuffleOnce
+    );
+    let authored_branch_count = sequence.branches.len();
+    let branch_count = authored_branch_count + usize::from(has_once_fallthrough);
+    let max_index = branch_count.saturating_sub(1) as i32;
+    let mut out = vec![json!("ev"), json!("visit")];
+
+    match sequence.mode {
+        SequenceMode::Stopping | SequenceMode::Once => {
+            out.push(json!(max_index));
+            out.push(json!("MIN"));
+        }
+        SequenceMode::Cycle => {
+            out.push(json!(branch_count as i32));
+            out.push(json!("%"));
+        }
+        SequenceMode::Shuffle => {
+            out.push(json!(branch_count as i32));
+            out.push(json!("seq"));
+        }
+        SequenceMode::ShuffleOnce | SequenceMode::ShuffleStopping => {
+            out.push(json!(max_index));
+            out.push(json!("MIN"));
+            out.push(json!("du"));
+            out.push(json!(max_index));
+            out.push(json!("=="));
+            out.push(json!({"->": ".^.10", "c": true}));
+            out.push(json!(max_index));
+            out.push(json!("seq"));
+            out.push(json!("nop"));
+        }
+    }
+    out.push(json!("/ev"));
+
+    for (index, _) in sequence.branches.iter().enumerate() {
+        out.push(json!("ev"));
+        out.push(json!("du"));
+        out.push(json!(index as i32));
+        out.push(json!("=="));
+        out.push(json!("/ev"));
+        out.push(json!({"->": format!(".^.s{index}"), "c": true}));
+    }
+    let rejoin_index = out.len();
+    out.push(json!("nop"));
+
+    let mut named = Map::new();
+    for (index, branch) in sequence.branches.iter().enumerate() {
+        let branch_scope = scope.choice_branch(&format!("s{index}"));
+        let mut branch_container = emit_nodes(branch, &branch_scope, context)?;
+        branch_container.content.insert(0, json!("pop"));
+        branch_container.push(json!({"->": format!(".^.^.{rejoin_index}")}));
+        named.insert(
+            format!("s{index}"),
+            branch_container.into_json_array(None, None)?,
+        );
+    }
+    if has_once_fallthrough {
+        let mut branch_container = EmittedContainer::default();
+        branch_container.push(json!("pop"));
+        branch_container.push(json!({"->": format!(".^.^.{rejoin_index}")}));
+        named.insert(
+            format!("s{authored_branch_count}"),
+            branch_container.into_json_array(None, None)?,
+        );
+    }
+    named.insert("#f".to_owned(), json!(5));
+
+    out.push(Value::Object(named));
+    Ok(Value::Array(out))
 }
 
 fn emit_divert(
@@ -476,29 +737,93 @@ fn emit_choice(
     choice: &Choice,
     scope: &EmitScope,
     choice_index: usize,
+    continuation_path: Option<&str>,
     context: &EmitContext,
 ) -> Result<(), CompilerError> {
     out.push(json!("ev"));
-    out.push(json!("str"));
-    out.push(json!(format!("^{}", choice.display_text)));
-    out.push(json!("/str"));
+    emit_choice_text_segment(
+        &choice.start_text,
+        &choice.start_tags,
+        &mut out.content,
+        scope,
+        context,
+    )?;
+    emit_choice_text_segment(
+        &choice.choice_only_text,
+        &choice.choice_only_tags,
+        &mut out.content,
+        scope,
+        context,
+    )?;
+    for (index, condition) in choice.conditions.iter().enumerate() {
+        emit_condition(condition, &mut out.content, scope, context)?;
+        if index > 0 {
+            out.push(json!("&&"));
+        }
+    }
     out.push(json!("/ev"));
 
     let branch_name = format!("c-{choice_index}");
     let branch_scope = scope.choice_branch(&branch_name);
-    out.push(json!({
-        "*": branch_scope.path,
-        "flg": 20
-    }));
+    out.push(json!({"*": format!(".^.{}", branch_name), "flg": choice_flags(choice)}));
 
     let mut branch_nodes = Vec::new();
+    let mut body_already_emitted = false;
     if let Some(selected_text) = &choice.selected_text {
-        branch_nodes.push(Node::Text(selected_text.clone()));
-        branch_nodes.push(Node::Newline);
-    }
-    branch_nodes.extend(choice.body.clone());
+        let recovered_inline_divert = if choice.body.is_empty() {
+            recover_selected_text_inline_divert(selected_text)
+        } else {
+            None
+        };
 
-    let branch_container = emit_nodes(&branch_nodes, &branch_scope, context)?;
+        if choice.has_choice_only_content
+            && !choice.has_start_content
+            && matches!(choice.body.as_slice(), [Node::Divert(_)])
+        {
+            branch_nodes.push(Node::Text(format!(" {selected_text}")));
+            branch_nodes.extend(choice.body.clone());
+            branch_nodes.push(Node::Newline);
+            body_already_emitted = true;
+        } else if let Some((text, target)) = recovered_inline_divert {
+            if !text.is_empty() {
+                branch_nodes.push(Node::Text(text));
+            }
+            branch_nodes.push(Node::Divert(Divert {
+                target,
+                arguments: Vec::new(),
+            }));
+            body_already_emitted = true;
+        } else {
+            branch_nodes.push(Node::Text(selected_text.clone()));
+        }
+        branch_nodes.extend(choice.selected_tags.iter().cloned().map(Node::Tag));
+        if !matches!(choice.body.as_slice(), [Node::Divert(_)] | []) {
+            branch_nodes.push(Node::Newline);
+        }
+    } else if choice.has_choice_only_content
+        && !choice.has_start_content
+        && matches!(choice.body.as_slice(), [Node::Divert(_)])
+    {
+        branch_nodes.push(Node::Text(" ".to_owned()));
+        branch_nodes.extend(choice.body.clone());
+        branch_nodes.push(Node::Newline);
+    } else if choice.has_choice_only_content
+        && !choice.has_start_content
+        && branch_nodes.is_empty()
+        && !choice.body.is_empty()
+    {
+        branch_nodes.push(Node::Text(" ".to_owned()));
+        branch_nodes.extend(choice.body.clone());
+        body_already_emitted = true;
+    }
+    if !body_already_emitted {
+        branch_nodes.extend(choice.body.clone());
+    }
+
+    let mut branch_container = emit_nodes(&branch_nodes, &branch_scope, context)?;
+    if let Some(path) = continuation_path.filter(|_| !branch_has_terminal_content(&branch_nodes)) {
+        branch_container.push(json!({"->": path}));
+    }
     out.insert_named(
         branch_name,
         branch_container.into_json_array(None, Some(5))?,
@@ -531,12 +856,93 @@ fn emit_expression(expression: &Expression, out: &mut Vec<Value>) {
                 BinaryOperator::Subtract => "-",
                 BinaryOperator::Multiply => "*",
                 BinaryOperator::Equal => "==",
+                BinaryOperator::And => "&&",
+                BinaryOperator::Greater => ">",
             }));
         }
     }
 }
 
-fn emit_condition(condition: &Condition, out: &mut Vec<Value>) -> Result<(), CompilerError> {
+fn emit_dynamic_string(
+    dynamic: &DynamicString,
+    out: &mut Vec<Value>,
+    scope: &EmitScope,
+    context: &EmitContext,
+) -> Result<(), CompilerError> {
+    emit_dynamic_string_parts(&dynamic.parts, out, scope, context)
+}
+
+fn emit_dynamic_string_parts(
+    parts: &[DynamicStringPart],
+    out: &mut Vec<Value>,
+    scope: &EmitScope,
+    context: &EmitContext,
+) -> Result<(), CompilerError> {
+    if parts.is_empty() {
+        return Ok(());
+    }
+
+    match &parts[0] {
+        DynamicStringPart::Text(text) => {
+            if !text.is_empty() {
+                out.push(json!(format!("^{text}")));
+            }
+            emit_dynamic_string_parts(&parts[1..], out, scope, context)
+        }
+        DynamicStringPart::Expression(expression) => {
+            out.push(json!("ev"));
+            emit_expression(expression, out);
+            out.push(json!("out"));
+            out.push(json!("/ev"));
+            emit_dynamic_string_parts(&parts[1..], out, scope, context)
+        }
+        DynamicStringPart::Sequence(sequence) => {
+            out.push(emit_sequence(sequence, scope, context)?);
+            emit_dynamic_string_parts(&parts[1..], out, scope, context)
+        }
+    }
+}
+
+fn emit_tag(
+    tag: &DynamicString,
+    out: &mut Vec<Value>,
+    scope: &EmitScope,
+    context: &EmitContext,
+) -> Result<(), CompilerError> {
+    out.push(json!("#"));
+    emit_dynamic_string(tag, out, scope, context)?;
+    out.push(json!("/#"));
+    Ok(())
+}
+
+fn emit_choice_text_segment(
+    text: &str,
+    tags: &[DynamicString],
+    out: &mut Vec<Value>,
+    scope: &EmitScope,
+    context: &EmitContext,
+) -> Result<(), CompilerError> {
+    if text.is_empty() && tags.is_empty() {
+        return Ok(());
+    }
+
+    out.push(json!("str"));
+    if !text.is_empty() {
+        out.push(json!(format!("^{text}")));
+    }
+    for tag in tags {
+        emit_tag(tag, out, scope, context)?;
+    }
+    out.push(json!("/str"));
+    Ok(())
+}
+
+fn emit_condition(
+    condition: &Condition,
+    out: &mut Vec<Value>,
+    scope: &EmitScope,
+    context: &EmitContext,
+) -> Result<(), CompilerError> {
     match condition {
         Condition::Bool(value) => out.push(json!(value)),
         Condition::FunctionCall(name) => {
@@ -546,10 +952,66 @@ fn emit_condition(condition: &Condition, out: &mut Vec<Value>) -> Result<(), Com
                 CompilerError::InvalidSource(format!("failed to serialize function call: {error}"))
             })?);
         }
+        Condition::Expression(Expression::Variable(name))
+            if scope.resolve_choice_label(name).is_some() =>
+        {
+            out.push(json!({"CNT?": format!(".^.{}", scope.resolve_choice_label(name).unwrap())}));
+        }
+        Condition::Expression(Expression::Variable(name))
+            if context.top_flow_names.contains(name) || scope.child_flow_names.contains(name) =>
+        {
+            out.push(json!({"CNT?": scope.resolve_divert_target(name, context)}));
+        }
         Condition::Expression(expression) => emit_expression(expression, out),
     }
 
     Ok(())
+}
+
+fn branch_has_terminal_content(nodes: &[Node]) -> bool {
+    nodes
+        .iter()
+        .rev()
+        .find(|node| !matches!(node, Node::Newline))
+        .is_some_and(node_is_terminal)
+}
+
+fn node_is_terminal(node: &Node) -> bool {
+    match node {
+        Node::Divert(_) | Node::TunnelReturn | Node::ReturnBool(_) => true,
+        Node::Choice(choice) => branch_has_terminal_content(&choice.body),
+        _ => false,
+    }
+}
+
+fn recover_selected_text_inline_divert(selected_text: &str) -> Option<(String, String)> {
+    let (text, target) = selected_text.rsplit_once("->")?;
+    let target = target.trim();
+    if target.is_empty() || target.contains(' ') {
+        return None;
+    }
+
+    Some((text.trim_end().to_owned(), target.to_owned()))
+}
+
+fn choice_flags(choice: &Choice) -> i32 {
+    let mut flags = 0;
+    if !choice.conditions.is_empty() {
+        flags |= 1;
+    }
+    if choice.has_start_content {
+        flags |= 2;
+    }
+    if choice.has_choice_only_content {
+        flags |= 4;
+    }
+    if choice.is_invisible_default {
+        flags |= 8;
+    }
+    if choice.once_only {
+        flags |= 16;
+    }
+    flags
 }
 
 fn emit_conditional(
@@ -559,67 +1021,83 @@ fn emit_conditional(
     scope: &EmitScope,
     conditional_index: usize,
     context: &EmitContext,
-) -> Result<Value, CompilerError> {
+) -> Result<Vec<Value>, CompilerError> {
     let mut out = Vec::new();
+    let branches = flatten_conditional_branches(condition, when_true, when_false);
+    let rejoin_target = format!("{}.{}", scope.path, conditional_index + branches.len());
 
-    out.extend(emit_conditional_branch(
-        Some(condition),
-        when_true,
-        scope,
-        conditional_index,
-        0,
-        context,
-    )?);
-
-    if let Some(when_false) = when_false {
-        out.extend(emit_conditional_branch(
-            None,
-            when_false,
+    for (branch_index, (branch_condition, branch_nodes)) in branches.iter().enumerate() {
+        out.push(emit_conditional_branch(
+            *branch_condition,
+            branch_nodes,
             scope,
-            conditional_index,
-            1,
+            branch_index,
+            &rejoin_target,
             context,
         )?);
     }
 
     out.push(json!("nop"));
 
-    Ok(Value::Array(out))
+    Ok(out)
+}
+
+fn flatten_conditional_branches<'a>(
+    condition: &'a Condition,
+    when_true: &'a [Node],
+    when_false: Option<&'a [Node]>,
+) -> Vec<(Option<&'a Condition>, &'a [Node])> {
+    let mut branches = vec![(Some(condition), when_true)];
+    let mut current_false = when_false;
+
+    while let Some(nodes) = current_false {
+        if let [Node::Conditional {
+            condition,
+            when_true,
+            when_false,
+        }] = nodes
+        {
+            branches.push((Some(condition), when_true));
+            current_false = when_false.as_deref();
+        } else {
+            branches.push((None, nodes));
+            break;
+        }
+    }
+
+    branches
 }
 
 fn emit_conditional_branch(
     condition: Option<&Condition>,
     branch: &[Node],
     scope: &EmitScope,
-    conditional_index: usize,
-    _branch_index: usize,
+    branch_index: usize,
+    rejoin_target: &str,
     context: &EmitContext,
-) -> Result<Vec<Value>, CompilerError> {
+) -> Result<Value, CompilerError> {
     let mut out = Vec::new();
 
     if let Some(condition) = condition {
         out.push(json!("ev"));
-        emit_condition(condition, &mut out)?;
+        emit_condition(condition, &mut out, scope, context)?;
         out.push(json!("/ev"));
     }
 
-    let mut branch_content = emit_nodes(branch, scope, context)?;
-    branch_content.push(json!({"->": format!("{}.{}", scope.path, conditional_index + 1)}));
+    let branch_scope = scope.choice_branch(&format!("cond-{branch_index}"));
+    let mut branch_content = emit_nodes(branch, &branch_scope, context)?;
+    branch_content.push(json!({"->": rejoin_target}));
 
     let mut named = Map::new();
     named.insert("b".to_owned(), branch_content.into_json_array(None, None)?);
 
     if condition.is_some() {
-        out.push(Value::Array(vec![
-            json!({"->": ".^.b", "c": true}),
-            Value::Object(named),
-        ]));
+        out.push(json!({"->": ".^.b", "c": true}));
+        out.push(Value::Object(named));
     } else {
-        out.push(Value::Array(vec![
-            json!({"->": ".^.b"}),
-            Value::Object(named),
-        ]));
+        out.push(json!({"->": ".^.b"}));
+        out.push(Value::Object(named));
     }
 
-    Ok(out)
+    Ok(Value::Array(out))
 }

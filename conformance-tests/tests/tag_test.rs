@@ -1,10 +1,12 @@
 use bladeink::{story::Story, story_error::StoryError};
+use bladeink_compiler::Compiler;
 
 mod common;
 
 #[test]
 fn tags_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/tags/tags.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/tags/tags.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     let global_tags = story.get_global_tags()?;
@@ -42,7 +44,8 @@ fn tags_test() -> Result<(), StoryError> {
 
 #[test]
 fn tags_in_seq_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/tags/tagsInSeq.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/tags/tagsInSeq.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     assert_eq!("A red sequence.\n", story.cont()?);
@@ -60,7 +63,8 @@ fn tags_in_seq_test() -> Result<(), StoryError> {
 
 #[test]
 fn tags_in_choice_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/tags/tagsInChoice.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/tags/tagsInChoice.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     story.cont()?;
@@ -84,8 +88,8 @@ fn tags_in_choice_test() -> Result<(), StoryError> {
 
 #[test]
 fn tags_in_choice_dynamic_content_test() -> Result<(), StoryError> {
-    let json_string =
-        common::get_json_string("inkfiles/tags/tagsInChoiceDynamic.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/tags/tagsInChoiceDynamic.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     story.cont()?; // Avanzar una vez
@@ -109,7 +113,8 @@ fn tags_in_choice_dynamic_content_test() -> Result<(), StoryError> {
 
 #[test]
 fn tags_dynamic_content_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/tags/tagsDynamicContent.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/tags/tagsDynamicContent.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     assert_eq!("tag\n", story.cont()?);

@@ -247,7 +247,7 @@ impl Story {
         main_content_container: &Rc<Container>,
         path: &Path,
     ) -> Result<Pointer, StoryError> {
-        if path.len() == 0 {
+        if path.is_empty() {
             return Ok(pointer::NULL.clone());
         }
 

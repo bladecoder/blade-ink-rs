@@ -162,6 +162,7 @@ impl Object {
     }
 
     pub fn compact_path_string(rtobject: Rc<dyn RTObject>, other_path: &Path) -> String {
+        let _ = Object::get_path(rtobject.as_ref());
         let global_path_str: String;
         let relative_path_str: String;
 

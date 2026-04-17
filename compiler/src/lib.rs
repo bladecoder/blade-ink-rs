@@ -1,6 +1,8 @@
 pub mod error;
+mod legacy;
 mod parsed_hierarchy;
 mod parser;
+mod ported;
 
 pub use error::CompilerError;
 
@@ -32,12 +34,7 @@ impl Compiler {
     }
 
     pub fn compile(&self, source: &str) -> Result<String, CompilerError> {
-        let _ = self.options.count_all_visits;
-
-        let parsed_story = parser::Parser::new(source).parse()?;
-        parsed_story.to_json_string().map_err(|error| {
-            CompilerError::InvalidSource(format!("failed to serialize compiled ink: {error}"))
-        })
+        legacy::compile(source, self.options.count_all_visits)
     }
 }
 

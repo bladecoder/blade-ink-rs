@@ -48,6 +48,7 @@
 mod callstack;
 pub mod choice;
 mod choice_point;
+pub mod compiler_support;
 mod container;
 mod control_command;
 mod divert;

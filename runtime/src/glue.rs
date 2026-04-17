@@ -12,6 +12,12 @@ impl Glue {
     }
 }
 
+impl Default for Glue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RTObject for Glue {
     fn get_object(&self) -> &Object {
         &self.obj

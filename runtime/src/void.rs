@@ -12,6 +12,12 @@ impl Void {
     }
 }
 
+impl Default for Void {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RTObject for Void {
     fn get_object(&self) -> &Object {
         &self.obj
