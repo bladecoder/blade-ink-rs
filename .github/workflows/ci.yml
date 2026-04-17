@@ -8,24 +8,23 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
 
     - name: Set up Rust
-      uses: actions-rs/toolchain@v1
+      uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: stable
-        override: true
+        components: rustfmt, clippy
 
     - name: Build
       run: cargo build
-    
-    - name: Check Clippy
-      run: cargo clippy
 
     - name: Check fmt
       run: cargo fmt -- --check
-    
+
+    - name: Check Clippy
+      run: cargo clippy -- -D warnings
+
     - name: Test
       run: |
         cargo test
-        cargo test --features stream-json-parser
+        cargo test -p bladeink --features stream-json-parser
