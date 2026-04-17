@@ -82,6 +82,50 @@ fn newlines_with_string_eval_test() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[test]
+fn min_max_test() -> Result<(), StoryError> {
+    let ink_source = common::get_file_string("inkfiles/misc/min-max.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
+    let mut story = Story::new(&json_string)?;
+
+    assert_eq!(
+        "min_int:3\nmax_int:5\nmin_float:1.5\nmax_float:2.5\nmin_neg:-1\nmax_neg:1\n",
+        &story.continue_maximally()?
+    );
+
+    Ok(())
+}
+
+#[test]
+fn choice_count_test() -> Result<(), StoryError> {
+    let ink_source = common::get_file_string("inkfiles/misc/choice-count.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
+    let mut story = Story::new(&json_string)?;
+
+    story.continue_maximally()?;
+    // 4 choices: A, B, C, plus the conditional one which passes because CHOICE_COUNT() == 3
+    // when it is evaluated (3 choices already generated before it)
+    assert_eq!(4, story.get_current_choices().len());
+    // Choose the conditional choice (index 3: "All three available")
+    story.choose_choice_index(3)?;
+    story.continue_maximally()?;
+
+    Ok(())
+}
+
+#[test]
+fn turns_test() -> Result<(), StoryError> {
+    let ink_source = common::get_file_string("inkfiles/misc/turns.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
+    let mut story = Story::new(&json_string)?;
+
+    assert_eq!("Turn: 0\n", &story.continue_maximally()?);
+    story.choose_choice_index(0)?;
+    assert_eq!("Turn: 1\n", &story.continue_maximally()?);
+
+    Ok(())
+}
+
 /// Issue: https://github.com/bladecoder/blade-ink/issues/escape-hash
 #[test]
 fn escape_hash_compiles_test() -> Result<(), StoryError> {
