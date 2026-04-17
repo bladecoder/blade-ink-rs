@@ -1115,20 +1115,9 @@ impl StoryState {
             )));
         }
 
-        if self.patch.is_some()
-            && self
-                .patch
-                .as_ref()
-                .unwrap()
-                .get_turn_index(container)
-                .is_some()
+        if let Some(patch) = self.patch.as_ref()
+            && let Some(index) = patch.get_turn_index(container)
         {
-            let index = *self
-                .patch
-                .as_ref()
-                .unwrap()
-                .get_turn_index(container)
-                .unwrap();
             return Ok(self.current_turn_index - index);
         }
 
@@ -1177,7 +1166,7 @@ impl StoryState {
     pub fn visit_count_at_path_string(&self, path_string: &str) -> Result<i32, StoryError> {
         let mut visit_count_out;
 
-        if self.patch.is_some() {
+        if let Some(patch) = self.patch.as_ref() {
             let container = self
                 .main_content_container
                 .content_at_path(&Path::new_with_components_string(Some(path_string)), 0, -1)
@@ -1189,11 +1178,7 @@ impl StoryState {
                 )));
             }
 
-            visit_count_out = self
-                .patch
-                .as_ref()
-                .unwrap()
-                .get_visit_count(container.as_ref().unwrap());
+            visit_count_out = patch.get_visit_count(container.as_ref().unwrap());
             if let Some(visit_count_out) = visit_count_out {
                 return Ok(visit_count_out);
             }
