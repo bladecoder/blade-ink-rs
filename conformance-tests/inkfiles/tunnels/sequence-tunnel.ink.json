@@ -1,0 +1,1 @@
+{"inkVersion":21,"listDefs":{},"root":[[["done",{"#n":"g-0"}],null],"done",{"intro":["^Hello from tunnel.","\n","ev","void","/ev","->->",null],"start":[["ev","visit",1,"MIN","/ev","ev","du",0,"==","/ev",{"->":".^.s0","c":true},"nop",{"#f":5,"s0":["pop",{"->t->":"intro"},{"->":".^.^.11"},null],"s1":["pop",{"->":".^.^.11"},null]}],"\n","^Done.","\n","end",null]}]}

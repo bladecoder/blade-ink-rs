@@ -14,3 +14,17 @@ fn tunnel_onwards_divert_override_test() -> Result<(), StoryError> {
 
     Ok(())
 }
+
+#[test]
+fn sequence_tunnel_test() -> Result<(), StoryError> {
+    // Regression: a tunnel divert inside a once-only sequence {! ->knot->}
+    // was failing to compile with "expected divert target after '->'".
+    let ink_source =
+        common::get_file_string("inkfiles/tunnels/sequence-tunnel.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
+    let mut story = Story::new(&json_string)?;
+
+    assert_eq!("Hello from tunnel.\nDone.\n", story.continue_maximally()?);
+
+    Ok(())
+}

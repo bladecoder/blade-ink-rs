@@ -43,6 +43,18 @@ pub fn tokenize_inline_content(content: &str) -> Result<Vec<Node>, CompilerError
             continue;
         }
 
+        // Divert or tunnel: -> target  or  -> target ->
+        if ch == '-' && content[index..].starts_with("->") {
+            if !text.is_empty() {
+                nodes.push(Node::Text(std::mem::take(&mut text)));
+            }
+            let divert_str = content[index..].trim();
+            let mut divert_nodes = parse_divert_line(divert_str)?;
+            nodes.append(&mut divert_nodes);
+            // consume the rest of the input — divert always ends the content
+            break;
+        }
+
         if ch == '{' {
             let end = find_matching_brace(content, index).ok_or_else(|| {
                 CompilerError::invalid_source("unterminated inline brace expression".to_owned())
@@ -332,18 +344,23 @@ pub fn parse_condition(condition: &str) -> Result<crate::ast::Condition, Compile
 
 pub fn parse_inline_sequence(content: &str) -> Result<Option<Sequence>, CompilerError> {
     // Detect optional mode prefix: & = cycle, ! = once, ~ = shuffle
-    let (mode, rest) = if let Some(r) = content.strip_prefix('&') {
-        (SequenceMode::Cycle, r)
+    let (mode, explicit_mode, rest) = if let Some(r) = content.strip_prefix('&') {
+        (SequenceMode::Cycle, true, r)
     } else if let Some(r) = content.strip_prefix('!') {
-        (SequenceMode::Once, r)
+        (SequenceMode::Once, true, r)
     } else if let Some(r) = content.strip_prefix('~') {
-        (SequenceMode::Shuffle, r)
+        (SequenceMode::Shuffle, true, r)
     } else {
-        (SequenceMode::Stopping, content)
+        (SequenceMode::Stopping, false, content)
     };
 
     let parts = split_top_level_pipe(rest);
-    if parts.len() < 2 {
+    // A sequence needs at least 2 branches, UNLESS an explicit mode prefix was
+    // given (e.g. {! ->tunnel->}), in which case a single branch is valid.
+    if parts.len() < 2 && !explicit_mode {
+        return Ok(None);
+    }
+    if parts.len() < 1 {
         return Ok(None);
     }
 
