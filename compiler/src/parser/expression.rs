@@ -194,6 +194,8 @@ pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
                     "and" => tokens.push(Token::AndAnd),
                     "or" => tokens.push(Token::OrOr),
                     "not" => tokens.push(Token::Bang),
+                    "has" => tokens.push(Token::Has),
+                    "hasnt" => tokens.push(Token::Hasnt),
                     _ => tokens.push(Token::Ident(ident.to_owned())),
                 }
             }
