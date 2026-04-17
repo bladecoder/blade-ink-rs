@@ -54,6 +54,15 @@ pub struct GlobalVariable {
     pub initial_value: Expression,
 }
 
+/// A `LIST name = item1, (item2), ...` declaration.
+/// Items marked with `()` are the initially-selected values.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListDeclaration {
+    pub name: String,
+    /// All items in order: (item_name, value_number, initially_selected)
+    pub items: Vec<(String, u32, bool)>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Divert {
     pub target: String,
@@ -132,6 +141,7 @@ pub struct Flow {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct ParsedStory {
     pub(crate) globals: Vec<GlobalVariable>,
+    pub(crate) list_declarations: Vec<ListDeclaration>,
     pub(crate) root: Vec<Node>,
     pub(crate) flows: Vec<Flow>,
 }
@@ -140,6 +150,7 @@ impl ParsedStory {
     pub fn new(globals: Vec<GlobalVariable>, root: Vec<Node>, flows: Vec<Flow>) -> Self {
         Self {
             globals,
+            list_declarations: Vec::new(),
             root,
             flows,
         }
@@ -147,6 +158,10 @@ impl ParsedStory {
 
     pub fn globals(&self) -> &[GlobalVariable] {
         &self.globals
+    }
+
+    pub fn list_declarations(&self) -> &[ListDeclaration] {
+        &self.list_declarations
     }
 
     pub fn root(&self) -> &[Node] {

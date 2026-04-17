@@ -1,6 +1,7 @@
 use std::error::Error;
 
 use bladeink::story::Story;
+use bladeink_compiler::Compiler;
 
 mod common;
 
@@ -19,7 +20,8 @@ fn list_basic_operations_test() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn list_mixed_items_test() -> Result<(), Box<dyn Error>> {
-    let json_string = common::get_json_string("inkfiles/lists/list-mixed-items.ink.json")?;
+    let ink_source = common::get_file_string("inkfiles/lists/list-mixed-items.ink")?;
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     assert_eq!("a, y, c\n", &story.continue_maximally()?);

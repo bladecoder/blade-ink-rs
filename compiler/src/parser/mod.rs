@@ -5,7 +5,7 @@ pub mod inline;
 pub mod sequence;
 
 use crate::{
-    ast::{AssignMode, Flow, GlobalVariable, Node, ParsedStory},
+    ast::{AssignMode, Flow, GlobalVariable, ListDeclaration, Node, ParsedStory},
     error::CompilerError,
 };
 
@@ -54,6 +54,7 @@ pub struct Parser<'a> {
 
 pub enum ParsedStatement {
     Global(GlobalVariable),
+    List(ListDeclaration),
     Nodes(Vec<Node>),
 }
 
@@ -79,6 +80,7 @@ impl<'a> Parser<'a> {
         }
 
         let mut globals = Vec::new();
+        let mut list_declarations = Vec::new();
         let mut root = Vec::new();
         let mut flows = Vec::new();
         let mut current_flow: Option<FlowBuilder> = None;
@@ -124,6 +126,7 @@ impl<'a> Parser<'a> {
             let statement = parse_statement(&lines, &mut line_index, false)?;
             match statement {
                 ParsedStatement::Global(global) => globals.push(global),
+                ParsedStatement::List(list_decl) => list_declarations.push(list_decl),
                 ParsedStatement::Nodes(mut nodes) => {
                     target_nodes(&mut root, current_flow.as_mut(), current_stitch.as_mut())
                         .append(&mut nodes)
@@ -136,7 +139,11 @@ impl<'a> Parser<'a> {
             flows.push(flow.build());
         }
 
-        Ok(ParsedStory::new(globals, root, flows))
+        Ok({
+            let mut story = ParsedStory::new(globals, root, flows);
+            story.list_declarations = list_declarations;
+            story
+        })
     }
 }
 
@@ -254,6 +261,11 @@ pub fn parse_statement(
         return Ok(ParsedStatement::Global(parse_global_assignment(rest)?));
     }
 
+    if let Some(rest) = trimmed.strip_prefix("LIST ") {
+        *line_index += 1;
+        return Ok(ParsedStatement::List(parse_list_declaration(rest)?));
+    }
+
     if let Some(rest) = trimmed.strip_prefix("~ return ") {
         *line_index += 1;
         return Ok(ParsedStatement::Nodes(vec![Node::ReturnBool(parse_bool(
@@ -278,9 +290,19 @@ pub fn parse_statement(
     }
 
     if !trimmed.starts_with("->") {
-        if let Some(gather_content) = trimmed.strip_prefix('-') {
+        if trimmed.starts_with('-') {
             *line_index += 1;
-            let gather_content = gather_content.trim_start();
+            // Strip all leading '-' markers (nested gathers like "- -" or "- - -") — nesting
+            // is handled by indentation, treated as a single gather point.
+            let mut gather_content = trimmed;
+            while let Some(rest) = gather_content.strip_prefix('-') {
+                let next = rest.trim_start();
+                if next.is_empty() || !next.starts_with('-') || next.starts_with("->") {
+                    gather_content = next;
+                    break;
+                }
+                gather_content = next;
+            }
             if gather_content.is_empty() {
                 return Ok(ParsedStatement::Nodes(Vec::new()));
             }
@@ -354,6 +376,32 @@ fn parse_global_assignment(input: &str) -> Result<GlobalVariable, CompilerError>
         name,
         initial_value: parse_expression(&expression)?,
     })
+}
+
+/// Parse `name = item1, (item2), item3, ...` into a ListDeclaration.
+fn parse_list_declaration(input: &str) -> Result<ListDeclaration, CompilerError> {
+    let eq_pos = input.find('=').ok_or_else(|| {
+        CompilerError::InvalidSource(format!("LIST declaration missing '=': {input}"))
+    })?;
+    let name = input[..eq_pos].trim().to_owned();
+    let rhs = input[eq_pos + 1..].trim();
+
+    let mut items = Vec::new();
+    let mut value: u32 = 1;
+    for raw in rhs.split(',') {
+        let item = raw.trim();
+        if item.is_empty() {
+            continue;
+        }
+        if let Some(inner) = item.strip_prefix('(').and_then(|s| s.strip_suffix(')')) {
+            items.push((inner.trim().to_owned(), value, true));
+        } else {
+            items.push((item.to_owned(), value, false));
+        }
+        value += 1;
+    }
+
+    Ok(ListDeclaration { name, items })
 }
 
 fn parse_assignment(input: &str) -> Result<Node, CompilerError> {

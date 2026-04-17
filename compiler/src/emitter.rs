@@ -6,9 +6,11 @@ use serde_json::{json, Map, Value};
 use crate::{
     ast::{
         AssignMode, BinaryOperator, Choice, Condition, Divert, DynamicString, DynamicStringPart,
-        Expression, Flow, GlobalVariable, Node, ParsedStory, Sequence, SequenceMode,
+        Expression, Flow, GlobalVariable, ListDeclaration, Node, ParsedStory, Sequence,
+        SequenceMode,
     },
     error::CompilerError,
+    parser::inline::tokenize_inline_content,
 };
 
 pub fn story_to_json_string(story: &ParsedStory) -> Result<String, CompilerError> {
@@ -34,11 +36,22 @@ pub fn story_to_json_value(story: &ParsedStory) -> Result<Value, CompilerError> 
         named_content.insert(flow.name.clone(), emit_flow(flow, &context)?);
     }
 
-    if !story.globals().is_empty() {
+    if !story.globals().is_empty() || !story.list_declarations().is_empty() {
         named_content.insert(
             "global decl".to_owned(),
-            emit_global_declarations(story.globals())?.into_json_array(None, None)?,
+            emit_global_declarations(story.globals(), story.list_declarations())?
+                .into_json_array(None, None)?,
         );
+    }
+
+    // Build listDefs
+    let mut list_defs = Map::new();
+    for list_decl in story.list_declarations() {
+        let mut items = Map::new();
+        for (item_name, value, _selected) in &list_decl.items {
+            items.insert(item_name.clone(), json!(value));
+        }
+        list_defs.insert(list_decl.name.clone(), Value::Object(items));
     }
 
     Ok(json!({
@@ -52,7 +65,7 @@ pub fn story_to_json_value(story: &ParsedStory) -> Result<Value, CompilerError> 
                 Value::Object(named_content)
             }
         ],
-        "listDefs": {}
+        "listDefs": Value::Object(list_defs)
     }))
 }
 
@@ -206,13 +219,29 @@ impl EmitScope {
     }
 }
 
-fn emit_global_declarations(globals: &[GlobalVariable]) -> Result<EmittedContainer, CompilerError> {
+fn emit_global_declarations(
+    globals: &[GlobalVariable],
+    list_decls: &[ListDeclaration],
+) -> Result<EmittedContainer, CompilerError> {
     let mut container = EmittedContainer::default();
     container.push(json!("ev"));
 
     for global in globals {
         emit_expression(&global.initial_value, &mut container.content);
         container.push(json!({ "VAR=": global.name }));
+    }
+
+    for list_decl in list_decls {
+        // Emit the initial value: only the items that are marked as selected
+        let mut selected = Map::new();
+        for (item_name, value, initially_selected) in &list_decl.items {
+            if *initially_selected {
+                let key = format!("{}.{}", list_decl.name, item_name);
+                selected.insert(key, json!(value));
+            }
+        }
+        container.push(json!({ "list": Value::Object(selected) }));
+        container.push(json!({ "VAR=": list_decl.name }));
     }
 
     container.push(json!("/ev"));
@@ -357,6 +386,15 @@ fn emit_nodes(
     scope: &EmitScope,
     context: &EmitContext,
 ) -> Result<EmittedContainer, CompilerError> {
+    emit_nodes_with_continuation(nodes, scope, context, None)
+}
+
+fn emit_nodes_with_continuation(
+    nodes: &[Node],
+    scope: &EmitScope,
+    context: &EmitContext,
+    fallback_continuation: Option<&str>,
+) -> Result<EmittedContainer, CompilerError> {
     let mut out = EmittedContainer::default();
     let mut next_choice_index = 0;
 
@@ -436,6 +474,7 @@ fn emit_nodes(
                     scope,
                     &mut next_choice_index,
                     context,
+                    fallback_continuation,
                 )?;
                 break;
             }
@@ -455,6 +494,7 @@ fn emit_choice_block(
     scope: &EmitScope,
     next_choice_index: &mut usize,
     context: &EmitContext,
+    fallback_continuation: Option<&str>,
 ) -> Result<(), CompilerError> {
     let mut choice_labels = BTreeMap::new();
     for (offset, choice) in choices.iter().enumerate() {
@@ -481,15 +521,32 @@ fn emit_choice_block(
 
     let block_scope = scope.with_choice_labels(choice_labels);
 
-    let continuation_name = if continuation.is_empty() {
-        None
+    let continuation_path: Option<String> = if continuation.is_empty() {
+        // No explicit continuation nodes — use fallback (parent's continuation) if available
+        fallback_continuation.map(|s| s.to_owned())
     } else {
         let name = format!("g-{}", *next_choice_index);
         let continuation_scope = block_scope.choice_branch(&name);
-        let continuation_value = emit_nodes(continuation, &continuation_scope, context)?
-            .into_json_array(gather_label.as_deref(), None)?;
+        // Pass fallback through so the gather content can inherit the outer continuation
+        let mut gather_container = emit_nodes_with_continuation(
+            continuation,
+            &continuation_scope,
+            context,
+            fallback_continuation,
+        )?;
+        // If the gather doesn't end terminally AND doesn't have nested choices,
+        // append the fallback continuation divert.
+        // If it has nested choices, those will carry the fallback themselves.
+        let has_nested_choices_in_continuation =
+            continuation.iter().any(|n| matches!(n, Node::Choice(_)));
+        if let Some(fb) = fallback_continuation {
+            if !branch_has_terminal_content(continuation) && !has_nested_choices_in_continuation {
+                gather_container.push(json!({"->": fb}));
+            }
+        }
+        let continuation_value = gather_container.into_json_array(gather_label.as_deref(), None)?;
         out.insert_named(name.clone(), continuation_value);
-        Some((name.clone(), format!("{}.{}", scope.path, name)))
+        Some(format!("{}.{}", scope.path, name))
     };
 
     for choice in choices {
@@ -501,7 +558,7 @@ fn emit_choice_block(
             choice,
             &block_scope,
             *next_choice_index,
-            continuation_name.as_ref().map(|(_, path)| path.as_str()),
+            continuation_path.as_deref(),
             context,
         )?;
         *next_choice_index += 1;
@@ -721,13 +778,13 @@ fn emit_choice(
             && !choice.has_start_content
             && matches!(choice.body.as_slice(), [Node::Divert(_)])
         {
-            branch_nodes.push(Node::Text(format!(" {selected_text}")));
+            branch_nodes.extend(tokenize_inline_content(&format!(" {selected_text}"))?);
             branch_nodes.extend(choice.body.clone());
             branch_nodes.push(Node::Newline);
             body_already_emitted = true;
         } else if let Some((text, target)) = recovered_inline_divert {
             if !text.is_empty() {
-                branch_nodes.push(Node::Text(text));
+                branch_nodes.extend(tokenize_inline_content(&text)?);
             }
             branch_nodes.push(Node::Divert(Divert {
                 target,
@@ -735,7 +792,7 @@ fn emit_choice(
             }));
             body_already_emitted = true;
         } else {
-            branch_nodes.push(Node::Text(selected_text.clone()));
+            branch_nodes.extend(tokenize_inline_content(selected_text)?);
         }
         branch_nodes.extend(choice.selected_tags.iter().cloned().map(Node::Tag));
         if !body_already_emitted {
@@ -769,8 +826,18 @@ fn emit_choice(
         branch_nodes.extend(choice.body.clone());
     }
 
-    let mut branch_container = emit_nodes(&branch_nodes, &branch_scope, context)?;
-    if let Some(path) = continuation_path.filter(|_| !branch_has_terminal_content(&branch_nodes)) {
+    // Check if branch body contains nested choices (at any position)
+    let has_nested_choices = branch_nodes.iter().any(|n| matches!(n, Node::Choice(_)));
+    let mut branch_container = if has_nested_choices {
+        // Pass continuation_path as fallback so nested choice blocks and their
+        // gather continuations can inherit the outer continuation.
+        emit_nodes_with_continuation(&branch_nodes, &branch_scope, context, continuation_path)?
+    } else {
+        emit_nodes(&branch_nodes, &branch_scope, context)?
+    };
+    if let Some(path) = continuation_path
+        .filter(|_| !branch_has_terminal_content(&branch_nodes) && !has_nested_choices)
+    {
         branch_container.push(json!({"->": path}));
     }
     out.insert_named(

@@ -99,7 +99,7 @@ pub fn parse_conditional(
             &mut when_true
         };
         match statement {
-            ParsedStatement::Global(_) => {
+            ParsedStatement::Global(_) | ParsedStatement::List(_) => {
                 return Err(CompilerError::UnsupportedFeature(
                     "global declarations are not supported inside conditionals".to_owned(),
                 ))
@@ -178,7 +178,7 @@ pub fn parse_multi_branch_conditional(
 
         let statement = parse_stmt(lines, line_index, true)?;
         match statement {
-            ParsedStatement::Global(_) => {
+            ParsedStatement::Global(_) | ParsedStatement::List(_) => {
                 return Err(CompilerError::UnsupportedFeature(
                     "global declarations are not supported inside conditionals".to_owned(),
                 ));

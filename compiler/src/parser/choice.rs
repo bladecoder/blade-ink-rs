@@ -33,7 +33,15 @@ pub fn parse_choice(
         .next()
         .ok_or_else(|| CompilerError::InvalidSource("expected choice marker".to_owned()))?;
     let once_only = marker == '*';
-    let remainder = trimmed_start[marker.len_utf8()..].trim_start();
+    // Count nesting level and strip all leading choice markers (e.g. "* * text" for nested
+    // choices) — nesting is handled by indentation.
+    let after_first_marker = trimmed_start[marker.len_utf8()..].trim_start();
+    let mut nesting_level: usize = 1;
+    let mut remainder = after_first_marker;
+    while let Some(rest) = remainder.strip_prefix(|c| c == '*' || c == '+') {
+        remainder = rest.trim_start();
+        nesting_level += 1;
+    }
     let (label, conditions, remainder) = parse_choice_prefixes(remainder)?;
     let choice_text = parse_choice_text(remainder)?;
     let is_invisible_default =
@@ -51,19 +59,24 @@ pub fn parse_choice(
     while *line_index < lines.len() {
         let body_line = &lines[*line_index];
         let body_trimmed = body_line.content.trim();
-        // A gather point (starts with '-' but not '->') always terminates the choice body,
-        // regardless of indentation (handles mixed tab/space indentation edge cases).
-        let is_gather = body_trimmed.starts_with('-') && !body_trimmed.starts_with("->");
-        if super::parse_header(body_line.content).is_some()
-            || body_line.indent <= choice_indent
-            || is_gather
-        {
+        // Terminate on knot/stitch headers
+        if super::parse_header(body_line.content).is_some() {
             break;
+        }
+        // Terminate on lines at or shallower than our indent that are NOT nested gathers
+        if body_line.indent <= choice_indent {
+            // Allow nested gathers (- -) to be included inside the body when the gather
+            // level is greater than our choice nesting level (they are continuations for
+            // inner nested choices, not for us).
+            let gather_level = gather_nesting_level(body_trimmed);
+            if gather_level == 0 || gather_level <= nesting_level {
+                break;
+            }
         }
 
         let statement = parse_stmt(lines, line_index, true)?;
         match statement {
-            ParsedStatement::Global(_) => {
+            ParsedStatement::Global(_) | ParsedStatement::List(_) => {
                 return Err(CompilerError::UnsupportedFeature(
                     "global declarations are not supported inside choice bodies".to_owned(),
                 ))
@@ -88,6 +101,25 @@ pub fn parse_choice(
         choice_only_tags: choice_text.choice_only_tags,
         selected_tags: choice_text.selected_tags,
     })]))
+}
+
+/// Count the gather nesting level of a trimmed line (e.g. "- text" = 1, "- - text" = 2).
+/// Returns 0 if the line is not a gather (doesn't start with '-' or starts with '->').
+fn gather_nesting_level(trimmed: &str) -> usize {
+    if trimmed.starts_with("->") {
+        return 0;
+    }
+    let mut s = trimmed;
+    let mut level = 0;
+    while let Some(rest) = s.strip_prefix('-') {
+        level += 1;
+        let next = rest.trim_start();
+        if next.starts_with("->") || !next.starts_with('-') {
+            break;
+        }
+        s = next;
+    }
+    level
 }
 
 pub fn parse_choice_prefixes(
@@ -189,6 +221,8 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
         let (start_text, start_tags) = split_text_and_tags(&display)?;
         let selected = if suffix.is_empty() {
             Some(display.clone())
+        } else if suffix.starts_with(|c: char| c.is_ascii_punctuation() && c != '"' && c != '\'') {
+            Some(format!("{display}{suffix}"))
         } else {
             Some(format!("{display} {suffix}"))
         };

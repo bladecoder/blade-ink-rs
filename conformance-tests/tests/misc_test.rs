@@ -1,6 +1,7 @@
 use std::error::Error;
 
 use bladeink::{story::Story, story_error::StoryError, value_type::ValueType};
+use bladeink_compiler::Compiler;
 
 mod common;
 
@@ -78,7 +79,8 @@ fn newlines_with_string_eval_test() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn i18n() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/misc/i18n.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/misc/i18n.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
 
     assert_eq!("áéíóú ñ\n", story.cont()?);

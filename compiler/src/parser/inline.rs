@@ -263,8 +263,18 @@ pub fn parse_condition(condition: &str) -> Result<crate::ast::Condition, Compile
 }
 
 pub fn parse_inline_sequence(content: &str) -> Result<Option<Sequence>, CompilerError> {
-    let mode = SequenceMode::Stopping;
-    let parts = split_top_level_pipe(content);
+    // Detect optional mode prefix: & = cycle, ! = once, ~ = shuffle
+    let (mode, rest) = if let Some(r) = content.strip_prefix('&') {
+        (SequenceMode::Cycle, r)
+    } else if let Some(r) = content.strip_prefix('!') {
+        (SequenceMode::Once, r)
+    } else if let Some(r) = content.strip_prefix('~') {
+        (SequenceMode::Shuffle, r)
+    } else {
+        (SequenceMode::Stopping, content)
+    };
+
+    let parts = split_top_level_pipe(rest);
     if parts.len() < 2 {
         return Ok(None);
     }

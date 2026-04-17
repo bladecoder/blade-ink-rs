@@ -1,10 +1,12 @@
 use bladeink::{story::Story, story_error::StoryError};
+use bladeink_compiler::Compiler;
 
 mod common;
 
 #[test]
 fn sequence_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/variabletext/sequence.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/variabletext/sequence.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -52,7 +54,8 @@ fn sequence_test() -> Result<(), StoryError> {
 
 #[test]
 fn cycle_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/variabletext/cycle.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/variabletext/cycle.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -94,7 +97,8 @@ fn cycle_test() -> Result<(), StoryError> {
 
 #[test]
 fn once_test() -> Result<(), StoryError> {
-    let json_string = common::get_json_string("inkfiles/variabletext/once.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/variabletext/once.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
@@ -136,8 +140,8 @@ fn once_test() -> Result<(), StoryError> {
 
 #[test]
 fn empty_elements_test() -> Result<(), StoryError> {
-    let json_string =
-        common::get_json_string("inkfiles/variabletext/empty-elements.ink.json").unwrap();
+    let ink_source = common::get_file_string("inkfiles/variabletext/empty-elements.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
