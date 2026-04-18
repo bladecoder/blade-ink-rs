@@ -244,3 +244,32 @@ fn the_intercept_compiles_test() {
     let ink_source = common::get_file_string("inkfiles/TheIntercept.ink").unwrap();
     Compiler::new().compile(&ink_source).unwrap();
 }
+
+// --- Tests ported from the official Ink C# suite (../ink/tests/Tests.cs) ---
+
+// TestReadCountAcrossCallstack (Tests.cs:1651)
+#[test]
+fn read_count_across_callstack_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> first
+
+== first ==
+1) Seen first {first} times.
+-> second ->
+2) Seen first {first} times.
+-> DONE
+
+== second ==
+In second.
+->->
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!(
+        "1) Seen first 1 times.\nIn second.\n2) Seen first 1 times.\n",
+        &story.continue_maximally()?
+    );
+
+    Ok(())
+}

@@ -397,6 +397,7 @@ pub fn parse_statement(
         if gather_content.is_empty() {
             return Ok(ParsedStatement::Nodes(vec![Node::GatherPoint]));
         }
+
         // Check for gather label: (label_name) at the start
         let (gather_label, gather_content) = if gather_content.starts_with('(') {
             if let Some(end) = gather_content.find(')') {
@@ -409,6 +410,43 @@ pub fn parse_statement(
         } else {
             (None, gather_content)
         };
+
+        // Handle "- * choice" or "- + choice": a gather point immediately followed by a
+        // choice on the same line.  *line_index has already been advanced past this line,
+        // so we build a synthetic slice with the choice content as line 0, followed by
+        // the remaining (not-yet-consumed) lines, and call parse_choice on it.
+        if gather_content.starts_with('*') || gather_content.starts_with('+') {
+            let synthetic = Line {
+                content: gather_content,
+                indent: line.indent,
+                had_newline: line.had_newline,
+            };
+            let tail: Vec<Line<'_>> = lines[*line_index..]
+                .iter()
+                .map(|l| Line {
+                    content: l.content,
+                    indent: l.indent,
+                    had_newline: l.had_newline,
+                })
+                .collect();
+            let combined: Vec<Line<'_>> = std::iter::once(synthetic).chain(tail).collect();
+            let mut local_idx: usize = 0;
+            let choice_stmt = parse_choice(&combined, &mut local_idx, &parse_statement)
+                .map_err(|e| e.with_line(ln))?;
+            // local_idx lines were consumed from `combined`; combined[0] mapped to the
+            // already-consumed original line, combined[1..] maps to lines[*line_index..].
+            *line_index += local_idx.saturating_sub(1);
+            let choice_nodes = match choice_stmt {
+                ParsedStatement::Nodes(ns) => ns,
+                other => return Ok(other),
+            };
+            let mut result = vec![Node::GatherPoint];
+            if let Some(label) = gather_label {
+                result.push(Node::GatherLabel(label));
+            }
+            result.extend(choice_nodes);
+            return Ok(ParsedStatement::Nodes(result));
+        }
 
         // If gather_content starts a multi-line conditional or sequence, parse it as such.
         // Build a synthetic slice: the first entry uses gather_content as its content, then

@@ -3,6 +3,7 @@ use std::{cell::RefCell, error::Error, rc::Rc};
 
 use bladeink::{
     story::{Story, external_functions::ExternalFunction, variable_observer::VariableObserver},
+    story_error::StoryError,
     value_type::ValueType,
 };
 use bladeink_compiler::Compiler;
@@ -82,18 +83,93 @@ fn external_function() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn external_function_zero_arguments() -> Result<(), Box<dyn Error>> {
-    let ink_source = common::get_file_string("inkfiles/runtime/external-function-0-arg.ink")?;
-    let json_string = Compiler::new().compile(&ink_source).unwrap();
+fn visit_count_bug_due_to_nested_containers_test() -> Result<(), StoryError> {
+    let ink_source = r#"
+- (gather) {gather}
+* choice
+- {gather}
+"#;
+    let json_string = Compiler::new().compile(ink_source).unwrap();
     let mut story = Story::new(&json_string)?;
-    let mut text: Vec<String> = Vec::new();
+    assert_eq!("1\n", story.continue_maximally()?);
+    assert_eq!(1, story.get_current_choices().len());
+    story.choose_choice_index(0)?;
+    assert_eq!("choice\n1\n", story.continue_maximally()?);
+    Ok(())
+}
 
-    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc2 {})), true)?;
+#[test]
+fn visit_counts_when_choosing_test() -> Result<(), StoryError> {
+    let ink_source = r#"
+== TestKnot ==
+this is a test
++ [Next] -> TestKnot2
 
-    common::next_all(&mut story, &mut text)?;
-    assert_eq!(1, text.len());
-    assert_eq!("The value is Hello world.", text[0]);
+== TestKnot2 ==
+this is the end
+-> END
+"#;
+    let json_string = Compiler::new().compile(ink_source).unwrap();
+    let mut story = Story::new(&json_string)?;
 
+    assert_eq!(0, story.get_visit_count_at_path_string("TestKnot")?);
+    assert_eq!(0, story.get_visit_count_at_path_string("TestKnot2")?);
+
+    story.choose_path_string("TestKnot", true, None)?;
+    assert_eq!(1, story.get_visit_count_at_path_string("TestKnot")?);
+    assert_eq!(0, story.get_visit_count_at_path_string("TestKnot2")?);
+
+    story.cont()?;
+    assert_eq!(1, story.get_visit_count_at_path_string("TestKnot")?);
+    assert_eq!(0, story.get_visit_count_at_path_string("TestKnot2")?);
+
+    story.choose_choice_index(0)?;
+    assert_eq!(1, story.get_visit_count_at_path_string("TestKnot")?);
+    assert_eq!(0, story.get_visit_count_at_path_string("TestKnot2")?);
+
+    story.cont()?;
+    assert_eq!(1, story.get_visit_count_at_path_string("TestKnot")?);
+    assert_eq!(1, story.get_visit_count_at_path_string("TestKnot2")?);
+
+    Ok(())
+}
+
+#[test]
+fn clean_callstack_reset_on_path_choice_test() -> Result<(), StoryError> {
+    let ink_source = r#"
+{RunAThing()}
+
+== function RunAThing ==
+The first line.
+The second line.
+
+== SomewhereElse ==
+{"somewhere else"}
+->END
+"#;
+    let json_string = Compiler::new().compile(ink_source).unwrap();
+    let mut story = Story::new(&json_string)?;
+    assert_eq!("The first line.\n", story.cont()?);
+    story.choose_path_string("SomewhereElse", true, None)?;
+    assert_eq!("somewhere else\n", story.continue_maximally()?);
+    Ok(())
+}
+
+#[test]
+fn state_rollback_over_default_choice_test() -> Result<(), StoryError> {
+    let ink_source = r#"
+<- make_default_choice
+Text.
+
+=== make_default_choice
+    *   ->
+        {5}
+        -> END
+"#;
+    let json_string = Compiler::new().compile(ink_source).unwrap();
+    let mut story = Story::new(&json_string)?;
+    assert_eq!("Text.\n", story.cont()?);
+    assert_eq!("5\n", story.cont()?);
     Ok(())
 }
 

@@ -370,3 +370,118 @@ fn nested_choice_test() -> Result<(), StoryError> {
 
     Ok(())
 }
+
+// --- Tests ported from the official Ink C# suite (../ink/tests/Tests.cs) ---
+
+// TestChoiceDivertsToDone (Tests.cs:277)
+#[test]
+fn choice_diverts_to_done_test() -> Result<(), StoryError> {
+    let ink = "* choice -> DONE";
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    story.cont()?;
+
+    assert_eq!(1, story.get_current_choices().len());
+    story.choose_choice_index(0)?;
+
+    assert_eq!("choice", story.cont()?.trim());
+
+    Ok(())
+}
+
+// TestChoiceWithBracketsOnly (Tests.cs:290)
+#[test]
+fn choice_with_brackets_only_test() -> Result<(), StoryError> {
+    let ink = "*   [Option]\n    Text";
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    story.cont()?;
+
+    assert_eq!(1, story.get_current_choices().len());
+    assert_eq!("Option", story.get_current_choices()[0].text);
+
+    story.choose_choice_index(0)?;
+
+    assert_eq!("Text\n", story.cont()?);
+
+    Ok(())
+}
+
+// TestOnceOnlyChoicesCanLinkBackToSelf (Tests.cs:1453)
+#[test]
+fn once_only_choices_can_link_back_to_self_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> opts
+= opts
+*   (firstOpt) [First choice]   ->  opts
+*   {firstOpt} [Second choice]  ->  opts
+* -> end
+
+- (end)
+    -> END
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    story.continue_maximally()?;
+
+    assert_eq!(1, story.get_current_choices().len());
+    assert_eq!("First choice", story.get_current_choices()[0].text);
+
+    story.choose_choice_index(0)?;
+    story.continue_maximally()?;
+
+    assert_eq!(1, story.get_current_choices().len());
+    assert_eq!("Second choice", story.get_current_choices()[0].text);
+
+    story.choose_choice_index(0)?;
+    story.continue_maximally()?;
+
+    assert_eq!(0, story.get_current_choices().len());
+
+    Ok(())
+}
+
+// TestOnceOnlyChoicesWithOwnContent (Tests.cs:1484)
+#[test]
+fn once_only_choices_with_own_content_test() -> Result<(), StoryError> {
+    let ink = r#"
+VAR times = 3
+-> home
+
+== home ==
+~ times = times - 1
+{times >= 0:-> eat}
+I've finished eating now.
+-> END
+
+== eat ==
+This is the {first|second|third} time.
+ * Eat ice-cream[]
+ * Drink coke[]
+ * Munch cookies[]
+-
+-> home
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    story.continue_maximally()?;
+    assert_eq!(3, story.get_current_choices().len());
+
+    story.choose_choice_index(0)?;
+    story.continue_maximally()?;
+    assert_eq!(2, story.get_current_choices().len());
+
+    story.choose_choice_index(0)?;
+    story.continue_maximally()?;
+    assert_eq!(1, story.get_current_choices().len());
+
+    story.choose_choice_index(0)?;
+    story.continue_maximally()?;
+    assert_eq!(0, story.get_current_choices().len());
+
+    Ok(())
+}

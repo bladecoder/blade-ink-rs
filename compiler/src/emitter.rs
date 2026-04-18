@@ -30,7 +30,8 @@ pub fn story_to_json_value(
     let context = EmitContext::new(story, count_all_visits);
     let root_scope = EmitScope::root(story.flows());
 
-    let mut root_container = emit_nodes(story.root(), &root_scope, &context)?;
+    let mut root_container =
+        emit_nodes_with_continuation(story.root(), &root_scope, &context, Some("0.g-0"))?;
     // Only add the default done/g-0 container if choices haven't already created a g-0 continuation.
     if !root_container.named.contains_key("g-0") {
         root_container.push(json!(["done", {"#n": "g-0"}]));
@@ -626,7 +627,7 @@ fn emit_nodes_with_continuation(
             Node::Text(text) => out.push(json!(format!("^{text}"))),
             Node::OutputExpression(expression) => {
                 out.push(json!("ev"));
-                emit_expression_ctx(expression, &mut out.content, Some(context));
+                emit_expression_ctx(expression, &mut out.content, Some(context), Some(scope));
                 out.push(json!("out"));
                 out.push(json!("/ev"));
             }
@@ -653,7 +654,7 @@ fn emit_nodes_with_continuation(
                 if !args.is_empty() {
                     out.push(json!("ev"));
                     for arg in args {
-                        emit_expression_ctx(arg, &mut out.content, Some(context));
+                        emit_expression_ctx(arg, &mut out.content, Some(context), Some(scope));
                     }
                     out.push(json!("/ev"));
                 }
@@ -679,7 +680,7 @@ fn emit_nodes_with_continuation(
                             let resolved = scope.resolve_divert_target(target, context);
                             out.push(json!({"^->": resolved}));
                         } else {
-                            emit_expression_ctx(arg, &mut out.content, Some(context));
+                            emit_expression_ctx(arg, &mut out.content, Some(context), Some(scope));
                         }
                     }
                     out.push(json!("/ev"));
@@ -702,7 +703,7 @@ fn emit_nodes_with_continuation(
             }
             Node::ReturnExpr(expression) => {
                 out.push(json!("ev"));
-                emit_expression_ctx(expression, &mut out.content, Some(context));
+                emit_expression_ctx(expression, &mut out.content, Some(context), Some(scope));
                 out.push(json!("/ev"));
                 out.push(json!("~ret"));
             }
@@ -736,7 +737,7 @@ fn emit_nodes_with_continuation(
             Node::VoidCall { name, args } => {
                 out.push(json!("ev"));
                 for arg in args {
-                    emit_expression_ctx(arg, &mut out.content, Some(context));
+                    emit_expression_ctx(arg, &mut out.content, Some(context), Some(scope));
                 }
                 // Only SEED_RANDOM makes sense as a void call (it has a side effect).
                 // All other built-ins return a value and are meaningless as void statements.
@@ -1012,7 +1013,7 @@ fn emit_divert(
     if !divert.arguments.is_empty() {
         out.push(json!("ev"));
         for argument in &divert.arguments {
-            emit_expression_ctx(argument, &mut out.content, Some(context));
+            emit_expression_ctx(argument, &mut out.content, Some(context), Some(scope));
         }
         out.push(json!("/ev"));
     }
@@ -1034,13 +1035,13 @@ fn emit_assignment(
     match mode {
         AssignMode::Set => {
             out.push(json!("ev"));
-            emit_expression_ctx(expression, &mut out.content, Some(context));
+            emit_expression_ctx(expression, &mut out.content, Some(context), None);
             out.push(json!("/ev"));
             out.push(json!({"VAR=": variable_name, "re": true}));
         }
         AssignMode::TempSet => {
             out.push(json!("ev"));
-            emit_expression_ctx(expression, &mut out.content, Some(context));
+            emit_expression_ctx(expression, &mut out.content, Some(context), None);
             out.push(json!("/ev"));
             out.push(json!({"temp=": variable_name}));
         }
@@ -1050,8 +1051,9 @@ fn emit_assignment(
                 &Expression::Variable(variable_name.to_owned()),
                 &mut out.content,
                 Some(context),
+                None,
             );
-            emit_expression_ctx(expression, &mut out.content, Some(context));
+            emit_expression_ctx(expression, &mut out.content, Some(context), None);
             out.push(json!("+"));
             out.push(json!({"VAR=": variable_name, "re": true}));
             out.push(json!("/ev"));
@@ -1062,8 +1064,9 @@ fn emit_assignment(
                 &Expression::Variable(variable_name.to_owned()),
                 &mut out.content,
                 Some(context),
+                None,
             );
-            emit_expression_ctx(expression, &mut out.content, Some(context));
+            emit_expression_ctx(expression, &mut out.content, Some(context), None);
             out.push(json!("-"));
             out.push(json!({"VAR=": variable_name, "re": true}));
             out.push(json!("/ev"));
@@ -1198,13 +1201,14 @@ fn emit_choice(
 }
 
 fn emit_expression(expression: &Expression, out: &mut Vec<Value>) {
-    emit_expression_ctx(expression, out, None);
+    emit_expression_ctx(expression, out, None, None);
 }
 
 fn emit_expression_ctx(
     expression: &Expression,
     out: &mut Vec<Value>,
     context: Option<&EmitContext>,
+    scope: Option<&EmitScope>,
 ) {
     match expression {
         Expression::Bool(value) => out.push(json!(value)),
@@ -1247,7 +1251,7 @@ fn emit_expression_ctx(
                         }
                         DynamicStringPart::Expression(expr) => {
                             out.push(json!("ev"));
-                            emit_expression_ctx(expr, out, context);
+                            emit_expression_ctx(expr, out, context, scope);
                             out.push(json!("out"));
                         }
                         DynamicStringPart::Sequence(_) => {
@@ -1260,7 +1264,13 @@ fn emit_expression_ctx(
             out.push(json!("/str"));
         }
         Expression::Variable(name) => {
-            if context.is_some_and(|ctx| ctx.top_flow_names.contains(name)) {
+            if let Some(path) = scope.and_then(|s| s.resolve_choice_label(name)) {
+                out.push(json!({"CNT?": path}))
+            } else if let (Some(s), Some(ctx)) = (scope, context)
+                && (ctx.top_flow_names.contains(name) || s.child_flow_names.contains(name))
+            {
+                out.push(json!({"CNT?": s.resolve_divert_target(name, ctx)}))
+            } else if context.is_some_and(|ctx| ctx.top_flow_names.contains(name)) {
                 out.push(json!({"CNT?": name}))
             } else {
                 out.push(json!({"VAR?": name}))
@@ -1268,11 +1278,11 @@ fn emit_expression_ctx(
         }
         Expression::DivertTarget(target) => out.push(json!({"^->": target})),
         Expression::Negate(expr) => {
-            emit_expression_ctx(expr, out, context);
+            emit_expression_ctx(expr, out, context, scope);
             out.push(json!("_"));
         }
         Expression::Not(expr) => {
-            emit_expression_ctx(expr, out, context);
+            emit_expression_ctx(expr, out, context, scope);
             out.push(json!("!"));
         }
         Expression::FunctionCall { name, args } => {
@@ -1284,12 +1294,12 @@ fn emit_expression_ctx(
                 } else if args.len() == 1 {
                     // list(n) → "^list_name", n, "listInt"
                     out.push(json!(format!("^{name}")));
-                    emit_expression_ctx(&args[0], out, context);
+                    emit_expression_ctx(&args[0], out, context, scope);
                     out.push(json!("listInt"));
                 } else {
                     // Fallback: treat as user function call
                     for arg in args {
-                        emit_expression_ctx(arg, out, context);
+                        emit_expression_ctx(arg, out, context, scope);
                     }
                     out.push(json!({"f()": name}));
                 }
@@ -1322,7 +1332,7 @@ fn emit_expression_ctx(
                 _ => None,
             };
             for arg in args {
-                emit_expression_ctx(arg, out, context);
+                emit_expression_ctx(arg, out, context, scope);
             }
             if let Some(token) = builtin_token {
                 out.push(json!(token));
@@ -1361,8 +1371,8 @@ fn emit_expression_ctx(
             operator,
             right,
         } => {
-            emit_expression_ctx(left, out, context);
-            emit_expression_ctx(right, out, context);
+            emit_expression_ctx(left, out, context, scope);
+            emit_expression_ctx(right, out, context, scope);
             out.push(json!(match operator {
                 BinaryOperator::Add => "+",
                 BinaryOperator::Subtract => "-",
@@ -1413,7 +1423,7 @@ fn emit_dynamic_string_parts(
         }
         DynamicStringPart::Expression(expression) => {
             out.push(json!("ev"));
-            emit_expression_ctx(expression, out, Some(context));
+            emit_expression_ctx(expression, out, Some(context), Some(scope));
             out.push(json!("out"));
             out.push(json!("/ev"));
             emit_dynamic_string_parts(&parts[1..], out, scope, context)
@@ -1501,7 +1511,9 @@ fn emit_condition(
         Condition::Expression(Expression::Variable(name)) if name.contains('.') => {
             out.push(json!({"CNT?": name}));
         }
-        Condition::Expression(expression) => emit_expression_ctx(expression, out, Some(context)),
+        Condition::Expression(expression) => {
+            emit_expression_ctx(expression, out, Some(context), Some(scope))
+        }
     }
 
     Ok(())
@@ -1646,7 +1658,7 @@ fn emit_switch_conditional(
 
     // Build value expression tokens: ev, <value_tokens>, /ev
     let mut value_tokens = Vec::new();
-    emit_expression_ctx(value, &mut value_tokens, Some(context));
+    emit_expression_ctx(value, &mut value_tokens, Some(context), Some(scope));
     let preamble_len = value_tokens.len() + 2; // ev + value_tokens + /ev
 
     let num_branches = branches.len();
@@ -1688,7 +1700,7 @@ fn emit_switch_conditional(
         if let Some(case_expr) = case_expr {
             // Case branch: [du, ev, case_tokens, ==, /ev, {->:.^.b, c:true}, {b:[...]}]
             let mut case_tokens = Vec::new();
-            emit_expression_ctx(case_expr, &mut case_tokens, Some(context));
+            emit_expression_ctx(case_expr, &mut case_tokens, Some(context), Some(scope));
             let mut branch_array = vec![json!("du"), json!("ev")];
             branch_array.extend(case_tokens);
             branch_array.push(json!("=="));

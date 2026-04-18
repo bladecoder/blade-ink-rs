@@ -173,3 +173,50 @@ fn complex_flow2_test() -> Result<(), StoryError> {
 
     Ok(())
 }
+
+// --- Tests ported from the official Ink C# suite (../ink/tests/Tests.cs) ---
+
+// TestGatherChoiceSameLine (Tests.cs:1017)
+#[test]
+fn gather_choice_same_line_test() -> Result<(), StoryError> {
+    let ink = "- * hello\n- * world";
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    story.cont()?;
+    assert_eq!("hello", story.get_current_choices()[0].text);
+
+    story.choose_choice_index(0)?;
+    story.cont()?;
+    assert_eq!("world", story.get_current_choices()[0].text);
+
+    Ok(())
+}
+
+// TestShouldntGatherDueToChoice (Tests.cs:1756)
+#[test]
+fn shouldnt_gather_due_to_choice_test() -> Result<(), StoryError> {
+    let ink = "* opt\n    - - text\n    * * {false} impossible\n    * * -> END\n- gather";
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    story.continue_maximally()?;
+    story.choose_choice_index(0)?;
+
+    // Should NOT fall through to "gather"
+    let output = story.continue_maximally()?;
+    assert!(
+        output.contains("opt"),
+        "expected 'opt' in output, got: {output}"
+    );
+    assert!(
+        output.contains("text"),
+        "expected 'text' in output, got: {output}"
+    );
+    assert!(
+        !output.contains("gather"),
+        "should NOT contain 'gather', got: {output}"
+    );
+
+    Ok(())
+}
