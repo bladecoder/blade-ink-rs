@@ -112,6 +112,8 @@ pub struct Choice {
     pub selected_tags: Vec<DynamicString>,
     /// Nesting level of this choice: 1 for `*`/`+`, 2 for `**`/`++`, etc.
     pub nesting_level: usize,
+    /// True when the divert in body came from an inline `-> target` on the choice line itself.
+    pub body_divert_is_inline: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

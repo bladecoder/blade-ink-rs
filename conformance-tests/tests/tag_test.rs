@@ -117,3 +117,26 @@ fn tags_dynamic_content_test() -> Result<(), StoryError> {
 
     Ok(())
 }
+
+// TestTagsInSeq (Tests.cs)
+#[test]
+fn tags_in_seq_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> knot -> knot ->
+== knot
+A {red #red|white #white|blue #blue|green #green} sequence.
+->->
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!("A red sequence.\n", story.cont()?);
+    let tags = story.get_current_tags()?;
+    assert_eq!(vec!["red".to_string()], tags);
+
+    assert_eq!("A white sequence.\n", story.cont()?);
+    let tags = story.get_current_tags()?;
+    assert_eq!(vec!["white".to_string()], tags);
+
+    Ok(())
+}

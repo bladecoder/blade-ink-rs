@@ -982,3 +982,326 @@ fn choice_thread_forking_test() -> Result<(), StoryError> {
     );
     Ok(())
 }
+
+// TestAllSwitchBranchesFailIsClean (Tests.cs)
+// When no switch branch matches, evaluation stack should be clean after continue.
+#[test]
+fn all_switch_branches_fail_is_clean_test() -> Result<(), StoryError> {
+    let ink = r#"
+{ 1:
+    - 2: x
+    - 3: y
+}
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    // Should not produce output and not panic
+    story.cont()?;
+    Ok(())
+}
+
+// TestNestedChoiceError (Tests.cs)
+// A choice nested directly inside a conditional without a weave should be an error.
+#[test]
+#[ignore = "compiler does not yet validate choices nested inside conditionals"]
+fn nested_choice_error_test() {
+    let ink = r#"
+{ true:
+    * choice
+}
+"#;
+    let result = Compiler::new().compile(ink);
+    assert!(
+        result.is_err(),
+        "expected compile error for choice inside conditional"
+    );
+    let err = result.unwrap_err();
+    assert!(
+        err.message().contains("divert") || err.message().contains("choice"),
+        "unexpected error message: {}",
+        err.message()
+    );
+}
+
+// TestStitchNamingCollision (Tests.cs)
+// A stitch with the same name as a VAR should be an error.
+#[test]
+#[ignore = "compiler does not yet validate stitch names colliding with vars"]
+fn stitch_naming_collision_test() {
+    let ink = r#"
+VAR stitch = 0
+
+== knot ==
+= stitch
+->DONE
+"#;
+    let result = Compiler::new().compile(ink);
+    assert!(
+        result.is_err(),
+        "expected compile error for stitch colliding with var name"
+    );
+    let err = result.unwrap_err();
+    assert!(
+        err.message().contains("var") || err.message().contains("already"),
+        "unexpected error message: {}",
+        err.message()
+    );
+}
+
+// TestWeavePointNamingCollision (Tests.cs)
+// Two gathers with the same label in the same scope should error.
+#[test]
+#[ignore = "compiler does not yet validate duplicate gather labels"]
+fn weave_point_naming_collision_test() {
+    let ink = r#"
+-(opts)
+opts1
+-(opts)
+opts1
+-> END
+"#;
+    let result = Compiler::new().compile(ink);
+    assert!(
+        result.is_err(),
+        "expected compile error for duplicate gather label"
+    );
+    let err = result.unwrap_err();
+    assert!(
+        err.message().contains("label") || err.message().contains("same"),
+        "unexpected error message: {}",
+        err.message()
+    );
+}
+
+// TestVariableNamingCollisionWithFlow (Tests.cs)
+// A temp variable with the same name as a function should error.
+#[test]
+#[ignore = "compiler does not yet validate temp variable names colliding with functions"]
+fn variable_naming_collision_with_flow_test() {
+    let ink = r#"
+LIST someList = A, B
+
+~temp heldItems = (A)
+{LIST_COUNT(heldItems)}
+
+=== function heldItems ()
+~ return (A)
+"#;
+    let result = Compiler::new().compile(ink);
+    assert!(
+        result.is_err(),
+        "expected compile error for variable naming collision with function"
+    );
+    let err = result.unwrap_err();
+    assert!(
+        err.message().contains("function") || err.message().contains("already"),
+        "unexpected error message: {}",
+        err.message()
+    );
+}
+
+// TestVariableNamingCollisionWithArg (Tests.cs)
+// A temp variable inside a function with the same name as the parameter should error.
+#[test]
+#[ignore = "compiler does not yet validate temp variable names colliding with function args"]
+fn variable_naming_collision_with_arg_test() {
+    let ink = "=== function knot (a)\n    ~temp a = 1";
+    let result = Compiler::new().compile(ink);
+    assert!(
+        result.is_err(),
+        "expected compile error for temp variable collision with function argument"
+    );
+    let err = result.unwrap_err();
+    assert!(
+        err.message().contains("already") || err.message().contains("parameter"),
+        "unexpected error message: {}",
+        err.message()
+    );
+}
+
+// TestWrongVariableDivertTargetReference (Tests.cs)
+// Passing -> b to a function that already expects a divert target should error.
+#[test]
+#[ignore = "compiler does not yet validate passing -> to already-typed divert target params"]
+fn wrong_variable_divert_target_reference_test() {
+    let ink = r#"
+-> go_to_broken(-> SOMEWHERE)
+
+== go_to_broken(-> b)
+ -> go_to(-> b)
+
+== go_to(-> a)
+  -> a
+
+== SOMEWHERE ==
+Should be able to get here!
+-> DONE
+"#;
+    let result = Compiler::new().compile(ink);
+    assert!(
+        result.is_err(),
+        "expected compile error for wrong variable divert target reference"
+    );
+    let err = result.unwrap_err();
+    assert!(
+        err.message().contains("->") || err.message().contains("divert"),
+        "unexpected error message: {}",
+        err.message()
+    );
+}
+
+// TestArgumentNameCollisions (Tests.cs)
+// A function argument with the same name as an existing knot/var should error.
+#[test]
+#[ignore = "compiler does not yet validate function argument names colliding with existing knots/vars"]
+fn argument_name_collisions_test() {
+    let ink = r#"
+VAR global_var = 5
+
+~ pass_divert(-> knot_name)
+{variable_param_test(10)}
+
+=== function aTarget() ===
+   ~ return true
+
+=== function pass_divert(aTarget) ===
+    Should be a divert target, but is a read count:- {aTarget}
+
+=== function variable_param_test(global_var) ===
+    ~ return global_var
+
+=== knot_name ===
+    -> END
+"#;
+    let result = Compiler::new().compile(ink);
+    assert!(
+        result.is_err(),
+        "expected compile error for argument name collision"
+    );
+    let err = result.unwrap_err();
+    assert!(
+        err.message().contains("already")
+            || err.message().contains("function")
+            || err.message().contains("var"),
+        "unexpected error message: {}",
+        err.message()
+    );
+}
+
+// TestEmptyListOriginAfterAssignment (Tests.cs)
+// After assigning an empty list, LIST_ALL should still return all items.
+#[test]
+fn empty_list_origin_after_assignment_test() -> Result<(), StoryError> {
+    let ink = r#"
+LIST x = a, b, c
+~ x = ()
+{LIST_ALL(x)}
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("a, b, c\n", story.continue_maximally()?);
+    Ok(())
+}
+
+// TestPathToSelf (Tests.cs)
+// A gather that loops back to itself via a tunnel should not crash.
+#[test]
+fn path_to_self_test() -> Result<(), StoryError> {
+    let ink = r#"
+- (dododo)
+-> tunnel ->
+-> dododo
+
+== tunnel
++ A
+->->
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    story.cont()?;
+    story.choose_choice_index(0)?;
+    story.cont()?;
+    story.choose_choice_index(0)?;
+    Ok(())
+}
+
+// TestEvaluatingInkFunctionsFromGame (Tests.cs)
+// EvaluateFunction should return a divert target as a string path.
+#[test]
+fn evaluating_ink_functions_from_game_test() -> Result<(), StoryError> {
+    let ink = r#"
+Top level content
+* choice
+
+== somewhere ==
+= here
+-> DONE
+
+== function test ==
+~ return -> somewhere.here
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    story.cont()?;
+    let mut text_output = String::new();
+    let result = story.evaluate_function("test", None, &mut text_output)?;
+    // Divert target returned as string path
+    let val = result.unwrap();
+    // DivertTarget does not implement coerce_to_string; match the variant directly
+    let path_str = if let bladeink::value_type::ValueType::DivertTarget(path) = &val {
+        path.to_string()
+    } else {
+        val.coerce_to_string().unwrap()
+    };
+    assert_eq!("somewhere.here", path_str);
+    Ok(())
+}
+
+// TestEvaluatingInkFunctionsFromGame2 (Tests.cs)
+// EvaluateFunction should correctly return values and text output for various function types.
+#[test]
+fn evaluating_ink_functions_from_game2_test() -> Result<(), StoryError> {
+    let ink = r#"
+One
+Two
+Three
+
+== function func1 ==
+This is a function
+~ return 5
+
+== function func2 ==
+This is a function without a return value
+~ return
+
+== function add(x,y) ==
+x = {x}, y = {y}
+~ return x + y
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    let mut text_output = String::new();
+    let result = story.evaluate_function("func1", None, &mut text_output)?;
+    assert_eq!("This is a function\n", text_output);
+    assert_eq!(5, result.unwrap().get::<i32>().unwrap());
+
+    assert_eq!("One\n", story.cont()?);
+
+    text_output.clear();
+    let result = story.evaluate_function("func2", None, &mut text_output)?;
+    assert_eq!("This is a function without a return value\n", text_output);
+    assert!(result.is_none());
+
+    assert_eq!("Two\n", story.cont()?);
+
+    text_output.clear();
+    let args = vec![ValueType::Int(1), ValueType::Int(2)];
+    let result = story.evaluate_function("add", Some(&args), &mut text_output)?;
+    assert_eq!("x = 1, y = 2\n", text_output);
+    assert_eq!(3, result.unwrap().get::<i32>().unwrap());
+
+    assert_eq!("Three\n", story.cont()?);
+
+    Ok(())
+}

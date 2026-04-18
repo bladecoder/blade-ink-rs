@@ -206,3 +206,22 @@ This is place 2.
 
     Ok(())
 }
+
+// TestFallbackChoiceOnThread (Tests.cs)
+// A fallback choice (-> only) on a thread should capture its temp variables correctly.
+#[test]
+fn fallback_choice_on_thread_test() -> Result<(), StoryError> {
+    let ink = r#"
+<- knot
+
+== knot
+   ~ temp x = 1
+   *   ->
+       Should be 1 not 0: {x}.
+       -> DONE
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("Should be 1 not 0: 1.\n", story.cont()?);
+    Ok(())
+}

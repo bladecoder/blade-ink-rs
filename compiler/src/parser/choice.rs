@@ -200,6 +200,7 @@ pub fn parse_choice(
         choice_only_tags: choice_text.choice_only_tags,
         selected_tags: choice_text.selected_tags,
         nesting_level,
+        body_divert_is_inline: choice_text.inline_target.is_some(),
     })]))
 }
 

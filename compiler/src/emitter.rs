@@ -460,11 +460,8 @@ fn emit_global_declarations(
     let mut container = EmittedContainer::default();
     container.push(json!("ev"));
 
-    for global in globals {
-        emit_expression(&global.initial_value, &mut container.content);
-        container.push(json!({ "VAR=": global.name }));
-    }
-
+    // Emit list declarations before regular var declarations
+    // (inklecate emits LIST decls before VAR decls in global decl)
     for list_decl in list_decls {
         // Emit the initial value: only the items that are marked as selected
         let mut selected = Map::new();
@@ -481,6 +478,11 @@ fn emit_global_declarations(
             container.push(json!({ "list": Value::Object(selected) }));
         }
         container.push(json!({ "VAR=": list_decl.name }));
+    }
+
+    for global in globals {
+        emit_expression(&global.initial_value, &mut container.content);
+        container.push(json!({ "VAR=": global.name }));
     }
 
     container.push(json!("/ev"));
@@ -1329,16 +1331,25 @@ fn emit_choice(
         && !choice.has_start_content
         && matches!(choice.body.as_slice(), [Node::Divert(_)])
     {
-        branch_nodes.push(Node::Text(" ".to_owned()));
-        branch_nodes.extend(choice.body.clone());
-        branch_nodes.push(Node::Newline);
+        // choice-only with single divert body:
+        // - inline divert (same line): "^ " then divert then "\n" (inklecate behavior)
+        // - body divert (indented line): "\n" then divert
+        if choice.body_divert_is_inline {
+            branch_nodes.push(Node::Text(" ".to_owned()));
+            branch_nodes.extend(choice.body.clone());
+            branch_nodes.push(Node::Newline);
+        } else {
+            branch_nodes.push(Node::Newline);
+            branch_nodes.extend(choice.body.clone());
+        }
         body_already_emitted = true;
     } else if choice.has_choice_only_content
         && !choice.has_start_content
         && branch_nodes.is_empty()
         && !choice.body.is_empty()
     {
-        branch_nodes.push(Node::Text(" ".to_owned()));
+        // choice-only with multi-node body: "\n" then body
+        branch_nodes.push(Node::Newline);
         branch_nodes.extend(choice.body.clone());
         body_already_emitted = true;
     }

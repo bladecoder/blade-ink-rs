@@ -143,3 +143,22 @@ C
 
     Ok(())
 }
+
+// TestLeftRightGlueMatching (Tests.cs)
+#[test]
+fn left_right_glue_matching_test() -> Result<(), StoryError> {
+    let ink = r#"
+A line.
+{ f():
+    Another line.
+}
+
+== function f ==
+{false:nothing}
+~ return true
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("A line.\nAnother line.\n", story.continue_maximally()?);
+    Ok(())
+}
