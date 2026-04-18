@@ -184,6 +184,53 @@ fn has_read_on_choice_test() -> Result<(), StoryError> {
     Ok(())
 }
 
+// TestNonTextInChoiceInnerContent (Tests.cs:1431)
+#[test]
+fn non_text_in_choice_inner_content_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> knot
+== knot
+   *   option text[]. {true: Conditional bit.} -> next
+   -> DONE
+
+== next
+    Next.
+    -> DONE
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    story.cont()?;
+    story.choose_choice_index(0)?;
+    assert_eq!("option text. Conditional bit. Next.\n", story.cont()?);
+
+    Ok(())
+}
+
+// TestLogicInChoices (Tests.cs:1326)
+#[test]
+fn logic_in_choices_test() -> Result<(), StoryError> {
+    let ink = r#"
+* 'Hello {name()}[, your name is {name()}.],' I said, knowing full well that his name was {name()}.
+-> DONE
+
+== function name ==
+Joe
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    story.continue_maximally()?;
+    assert_eq!("'Hello Joe, your name is Joe.'", story.get_current_choices()[0].text);
+    story.choose_choice_index(0)?;
+    assert_eq!(
+        "'Hello Joe,' I said, knowing full well that his name was Joe.\n",
+        story.continue_maximally()?
+    );
+
+    Ok(())
+}
+
 #[test]
 fn sticky_choice_test() -> Result<(), StoryError> {
     let ink_source = common::get_file_string("inkfiles/choices/sticky-choice.ink").unwrap();

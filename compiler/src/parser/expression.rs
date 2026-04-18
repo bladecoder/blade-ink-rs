@@ -146,7 +146,14 @@ pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
             }
             '"' => {
                 let mut end = index + 1;
-                while end < chars.len() && chars[end] != '"' {
+                let mut brace_depth = 0usize;
+                while end < chars.len() {
+                    match chars[end] {
+                        '{' => brace_depth += 1,
+                        '}' if brace_depth > 0 => brace_depth -= 1,
+                        '"' if brace_depth == 0 => break,
+                        _ => {}
+                    }
                     end += 1;
                 }
                 if end >= chars.len() {

@@ -530,6 +530,89 @@ fn identifiers_can_start_with_numbers_test() -> Result<(), StoryError> {
     Ok(())
 }
 
+// TestNestedInclude (Tests.cs:1388)
+#[test]
+fn nested_include_test() -> Result<(), Box<dyn Error>> {
+    let ink = r#"
+INCLUDE test_included_file3.ink
+
+This is the main file
+
+-> knot_in_2
+"#;
+    let json = Compiler::new()
+        .compile_with_file_handler(ink, |filename| match filename {
+            "test_included_file3.ink" => Ok("INCLUDE test_included_file4.ink\n".to_owned()),
+            "test_included_file4.ink" => Ok(
+                "VAR t2 = 5\n\nThe value of a variable in test file 2 is { t2 }.\n\n== knot_in_2 ==\n The value when accessed from knot_in_2 is { t2 }.\n -> END\n"
+                    .to_owned(),
+            ),
+            _ => Err(CompilerError::invalid_source(format!(
+                "unexpected include: {filename}"
+            ))),
+        })
+        .unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!(
+        "The value of a variable in test file 2 is 5.\nThis is the main file\nThe value when accessed from knot_in_2 is 5.\n",
+        story.continue_maximally()?
+    );
+
+    Ok(())
+}
+
+// TestLeadingNewlineMultilineSequence (Tests.cs:1297)
+#[test]
+fn leading_newline_multiline_sequence_test() -> Result<(), StoryError> {
+    let ink = r#"
+{stopping:
+
+- a line after an empty line
+- blah
+}
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!("a line after an empty line\n", story.cont()?);
+
+    Ok(())
+}
+
+// TestQuoteCharacterSignificance (Tests.cs:1639)
+#[test]
+fn quote_character_significance_test() -> Result<(), StoryError> {
+    let ink = "My name is \"{\"J{\"o\"}e\"}\"";
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!("My name is \"Joe\"\n", story.continue_maximally()?);
+
+    Ok(())
+}
+
+// TestRequireVariableTargetsTyped (Tests.cs:1708)
+#[test]
+fn require_variable_targets_typed_test() {
+    let ink = r#"
+-> test(-> elsewhere)
+
+== test(varTarget) ==
+-> varTarget ->
+-> DONE
+
+== elsewhere ==
+->->
+"#;
+    let err = Compiler::new().compile(ink).unwrap_err();
+    assert!(
+        err.message().contains("->") || err.message().contains("varTarget"),
+        "expected typed variable-target error, got: {}",
+        err.message()
+    );
+}
+
 #[test]
 fn done_stops_thread_test() -> Result<(), StoryError> {
     let ink = "-> DONE\nThis content is inaccessible.\n";

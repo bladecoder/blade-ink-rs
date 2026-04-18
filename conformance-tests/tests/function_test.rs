@@ -221,3 +221,31 @@ fn function_call_restrictions_test() {
         err.message()
     );
 }
+
+// TestNestedPassByReference (Tests.cs:1404)
+#[test]
+fn nested_pass_by_reference_test() -> Result<(), StoryError> {
+    let ink = r#"
+VAR globalVal = 5
+
+{globalVal}
+
+~ squaresquare(globalVal)
+
+{globalVal}
+
+== function squaresquare(ref x) ==
+ {square(x)} {square(x)}
+ ~ return
+
+== function square(ref x) ==
+ ~ x = x * x
+ ~ return
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!("5\n625\n", story.continue_maximally()?);
+
+    Ok(())
+}

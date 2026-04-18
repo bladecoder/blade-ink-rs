@@ -128,3 +128,81 @@ fn read_count_across_threads_test() -> Result<(), StoryError> {
     assert_eq!("1\n1\n", story.continue_maximally()?);
     Ok(())
 }
+
+// TestKnotThreadInteraction2 (Tests.cs:1267)
+#[test]
+fn knot_thread_interaction2_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> knot
+=== knot
+    <- threadA
+    When should this get printed?
+    -> DONE
+
+=== threadA
+    -> tunnel ->
+    Finishing thread.
+    -> DONE
+
+=== tunnel
+    -   I’m in a tunnel
+    *   I’m an option
+    -   ->->
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!(
+        "I’m in a tunnel\nWhen should this get printed?\n",
+        story.continue_maximally()?
+    );
+    assert_eq!(1, story.get_current_choices().len());
+    assert_eq!("I’m an option", story.get_current_choices()[0].text);
+
+    story.choose_choice_index(0)?;
+    assert_eq!(
+        "I’m an option\nFinishing thread.\n",
+        story.continue_maximally()?
+    );
+
+    Ok(())
+}
+
+// TestMultiThread (Tests.cs:1357)
+#[test]
+fn multi_thread_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> start
+== start ==
+-> tunnel ->
+The end
+-> END
+
+== tunnel ==
+<- place1
+<- place2
+-> DONE
+
+== place1 ==
+This is place 1.
+* choice in place 1
+- ->->
+
+== place2 ==
+This is place 2.
+* choice in place 2
+- ->->
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!(
+        "This is place 1.\nThis is place 2.\n",
+        story.continue_maximally()?
+    );
+
+    story.choose_choice_index(0)?;
+    assert_eq!("choice in place 1\nThe end\n", story.continue_maximally()?);
+
+    Ok(())
+}

@@ -138,3 +138,43 @@ fn divert_to_weave_points_test() -> Result<(), StoryError> {
     );
     Ok(())
 }
+
+// TestKnotDotGather (Tests.cs:1167)
+#[test]
+fn knot_dot_gather_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> knot
+=== knot
+-> knot.gather
+- (gather) g
+-> DONE"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!("g\n", story.cont()?);
+
+    Ok(())
+}
+
+// TestSameLineDivertIsInline (Tests.cs:1740)
+#[test]
+fn same_line_divert_is_inline_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> hurry_home
+=== hurry_home ===
+We hurried home to Savile Row -> as_fast_as_we_could
+
+=== as_fast_as_we_could ===
+as fast as we could.
+-> DONE
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!(
+        "We hurried home to Savile Row as fast as we could.\n",
+        story.cont()?
+    );
+
+    Ok(())
+}

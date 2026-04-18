@@ -5,7 +5,10 @@ use crate::{
 
 use super::{
     Line, ParsedStatement,
-    inline::{parse_condition, parse_divert, split_inline_choice_divert, split_text_and_tags},
+    inline::{
+        parse_condition, parse_divert, split_inline_choice_divert, split_inline_divert,
+        split_text_and_tags,
+    },
 };
 
 pub struct ParsedChoiceText {
@@ -306,8 +309,16 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
 
     if let Some((before, after)) = trimmed.split_once("[]") {
         let display = before.trim_end().to_owned();
-        let suffix = after.trim_start();
-        let (suffix, inline_target) = split_inline_choice_divert(suffix)?;
+        let raw_suffix = after.trim_start();
+        let had_space_before_inline_divert = split_inline_divert(raw_suffix)
+            .and_then(|(text, _)| text.chars().last())
+            .is_some_and(char::is_whitespace);
+        let (suffix, inline_target) = split_inline_choice_divert(raw_suffix)?;
+        let suffix = if inline_target.is_some() && had_space_before_inline_divert {
+            format!("{suffix} ")
+        } else {
+            suffix.to_owned()
+        };
         let (start_text, start_tags) = split_text_and_tags(&display)?;
         let selected = if suffix.is_empty() {
             Some(display.clone())
@@ -340,14 +351,24 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
         let choice_only = trimmed[open + 1..close].trim();
         let end = trimmed[close + 1..].trim_start();
         let (end, inline_target) = split_inline_choice_divert(end)?;
-        let display = format!("{start}{choice_only}");
         let (start_text, start_tags) = split_text_and_tags(start)?;
         let (choice_only_text, choice_only_tags) = split_text_and_tags(choice_only)?;
         let (end_text, end_tags) = split_text_and_tags(end)?;
+        let display_suffix: String = end_text
+            .chars()
+            .take_while(|c| c.is_ascii_punctuation())
+            .filter(|c| matches!(c, '\'' | '"' | ')' | ']'))
+            .collect();
+        let choice_only_text = format!("{choice_only_text}{display_suffix}");
+        let display = format!("{start_text}{choice_only_text}");
         let selected_text = if end_text.is_empty() {
             start_text.trim_end().to_owned()
         } else if start_text.trim().is_empty() {
             end_text
+        } else if end_text
+            .starts_with(|c: char| c.is_ascii_punctuation() && c != '"' && c != '\'')
+        {
+            format!("{}{}", start_text.trim_end(), end_text)
         } else {
             format!("{} {}", start_text.trim_end(), end_text)
         };

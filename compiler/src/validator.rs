@@ -92,6 +92,7 @@ impl ValidationContext {
         for flow in story.flows() {
             // Collect all temps defined in this flow's own nodes (includes nested nodes)
             let flow_params: BTreeSet<String> = flow.parameters.iter().cloned().collect();
+            let flow_divert_params: BTreeSet<String> = flow.divert_parameters.iter().cloned().collect();
             let flow_temps = collect_temps_from_nodes(&flow.nodes);
             let flow_scope = ScopeInfo {
                 forbidden: BTreeSet::new(),
@@ -99,10 +100,17 @@ impl ValidationContext {
 
             self.validate_nodes_diverts(&flow.nodes, &flow.name)?;
             self.validate_nodes_function_calls(&flow.nodes)?;
+            self.validate_nodes_variable_divert_targets(
+                &flow.nodes,
+                &flow_params,
+                &flow_divert_params,
+            )?;
             self.validate_nodes_vars(&flow.nodes, &flow_scope)?;
 
             for stitch in &flow.children {
                 let stitch_params: BTreeSet<String> = stitch.parameters.iter().cloned().collect();
+                let stitch_divert_params: BTreeSet<String> =
+                    stitch.divert_parameters.iter().cloned().collect();
                 let stitch_temps = collect_temps_from_nodes(&stitch.nodes);
                 // Forbidden: parent knot's temps and params that are NOT also defined in the stitch
                 let mut forbidden = BTreeSet::new();
@@ -117,6 +125,11 @@ impl ValidationContext {
                 let qualified = format!("{}.{}", flow.name, stitch.name);
                 self.validate_nodes_diverts(&stitch.nodes, &qualified)?;
                 self.validate_nodes_function_calls(&stitch.nodes)?;
+                self.validate_nodes_variable_divert_targets(
+                    &stitch.nodes,
+                    &stitch_params,
+                    &stitch_divert_params,
+                )?;
                 self.validate_nodes_vars(&stitch.nodes, &stitch_scope)?;
             }
         }
@@ -298,6 +311,94 @@ impl ValidationContext {
         if self.flow_names.contains(name) {
             return Err(CompilerError::invalid_source(format!(
                 "'{name}' hasn't been marked as a function, but it's being called as one"
+            )));
+        }
+
+        Ok(())
+    }
+
+    fn validate_nodes_variable_divert_targets(
+        &self,
+        nodes: &[Node],
+        parameters: &BTreeSet<String>,
+        divert_parameters: &BTreeSet<String>,
+    ) -> Result<(), CompilerError> {
+        for node in nodes {
+            self.validate_node_variable_divert_target(node, parameters, divert_parameters)?;
+        }
+        Ok(())
+    }
+
+    fn validate_node_variable_divert_target(
+        &self,
+        node: &Node,
+        parameters: &BTreeSet<String>,
+        divert_parameters: &BTreeSet<String>,
+    ) -> Result<(), CompilerError> {
+        match node {
+            Node::Divert(d) | Node::ThreadDivert(d) => {
+                self.check_variable_divert_target(&d.target, parameters, divert_parameters)?;
+            }
+            Node::TunnelDivert { target, .. } => {
+                self.check_variable_divert_target(target, parameters, divert_parameters)?;
+            }
+            Node::Choice(choice) => {
+                self.validate_nodes_variable_divert_targets(
+                    &choice.body,
+                    parameters,
+                    divert_parameters,
+                )?;
+            }
+            Node::Conditional {
+                when_true,
+                when_false,
+                ..
+            } => {
+                self.validate_nodes_variable_divert_targets(
+                    when_true,
+                    parameters,
+                    divert_parameters,
+                )?;
+                if let Some(wf) = when_false {
+                    self.validate_nodes_variable_divert_targets(
+                        wf,
+                        parameters,
+                        divert_parameters,
+                    )?;
+                }
+            }
+            Node::SwitchConditional { branches, .. } => {
+                for (_, body) in branches {
+                    self.validate_nodes_variable_divert_targets(
+                        body,
+                        parameters,
+                        divert_parameters,
+                    )?;
+                }
+            }
+            Node::Sequence(sequence) => {
+                for branch in &sequence.branches {
+                    self.validate_nodes_variable_divert_targets(
+                        branch,
+                        parameters,
+                        divert_parameters,
+                    )?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn check_variable_divert_target(
+        &self,
+        target: &str,
+        parameters: &BTreeSet<String>,
+        divert_parameters: &BTreeSet<String>,
+    ) -> Result<(), CompilerError> {
+        if parameters.contains(target) && !divert_parameters.contains(target) {
+            return Err(CompilerError::invalid_source(format!(
+                "Since '{target}' is used as a variable divert target, it should be marked as: -> {target}"
             )));
         }
 

@@ -31,11 +31,13 @@ pub enum Header {
         name: String,
         parameters: Vec<String>,
         ref_parameters: Vec<String>,
+        divert_parameters: Vec<String>,
     },
     Function {
         name: String,
         parameters: Vec<String>,
         ref_parameters: Vec<String>,
+        divert_parameters: Vec<String>,
     },
     Stitch {
         name: String,
@@ -49,6 +51,7 @@ struct FlowBuilder {
     is_root_stitch: bool,
     parameters: Vec<String>,
     ref_parameters: Vec<String>,
+    divert_parameters: Vec<String>,
     nodes: Vec<Node>,
     children: Vec<Flow>,
 }
@@ -104,6 +107,7 @@ impl<'a> Parser<'a> {
                         name,
                         parameters,
                         ref_parameters,
+                        divert_parameters,
                     } => {
                         finalize_stitch(&mut current_flow, &mut current_stitch)
                             .map_err(|e| e.with_line(ln))?;
@@ -117,6 +121,7 @@ impl<'a> Parser<'a> {
                             is_root_stitch: false,
                             parameters,
                             ref_parameters,
+                            divert_parameters,
                             nodes: Vec::new(),
                             children: Vec::new(),
                         });
@@ -125,6 +130,7 @@ impl<'a> Parser<'a> {
                         name,
                         parameters,
                         ref_parameters,
+                        divert_parameters,
                     } => {
                         finalize_stitch(&mut current_flow, &mut current_stitch)
                             .map_err(|e| e.with_line(ln))?;
@@ -138,6 +144,7 @@ impl<'a> Parser<'a> {
                             is_root_stitch: false,
                             parameters,
                             ref_parameters,
+                            divert_parameters,
                             nodes: Vec::new(),
                             children: Vec::new(),
                         });
@@ -158,6 +165,7 @@ impl<'a> Parser<'a> {
                                 is_root_stitch: true,
                                 parameters: Vec::new(),
                                 ref_parameters: Vec::new(),
+                                divert_parameters: Vec::new(),
                                 nodes: Vec::new(),
                                 children: Vec::new(),
                             });
@@ -168,6 +176,7 @@ impl<'a> Parser<'a> {
                                 is_root_stitch: false,
                                 parameters: Vec::new(),
                                 ref_parameters: Vec::new(),
+                                divert_parameters: Vec::new(),
                                 nodes: Vec::new(),
                                 children: Vec::new(),
                             });
@@ -216,6 +225,7 @@ impl FlowBuilder {
             is_function: self.is_function,
             parameters: self.parameters,
             ref_parameters: self.ref_parameters,
+            divert_parameters: self.divert_parameters,
             nodes: self.nodes,
             children: self.children,
         }
@@ -730,19 +740,22 @@ pub fn parse_header(line: &str) -> Option<Header> {
     if trimmed.starts_with("===") || trimmed.starts_with("==") {
         let inner = trimmed.trim_matches('=').trim();
         if let Some(rest) = inner.strip_prefix("function") {
-            let (name, parameters, ref_parameters) = parse_header_signature(rest.trim())?;
+            let (name, parameters, ref_parameters, divert_parameters) =
+                parse_header_signature(rest.trim())?;
             return Some(Header::Function {
                 name,
                 parameters,
                 ref_parameters,
+                divert_parameters,
             });
         }
 
-        let (name, parameters, ref_parameters) = parse_header_signature(inner)?;
+        let (name, parameters, ref_parameters, divert_parameters) = parse_header_signature(inner)?;
         return Some(Header::Knot {
             name,
             parameters,
             ref_parameters,
+            divert_parameters,
         });
     }
 
@@ -757,7 +770,7 @@ pub fn parse_header(line: &str) -> Option<Header> {
     None
 }
 
-fn parse_header_signature(text: &str) -> Option<(String, Vec<String>, Vec<String>)> {
+fn parse_header_signature(text: &str) -> Option<(String, Vec<String>, Vec<String>, Vec<String>)> {
     use expression::split_top_level_commas;
 
     let open = text.find('(');
@@ -768,6 +781,7 @@ fn parse_header_signature(text: &str) -> Option<(String, Vec<String>, Vec<String
             let name = parse_path_identifier(text[..open].trim())?.to_owned();
             let mut parameters = Vec::new();
             let mut ref_parameters = Vec::new();
+            let mut divert_parameters = Vec::new();
             for part in split_top_level_commas(&text[open + 1..close]) {
                 let trimmed = part.trim();
                 if trimmed.is_empty() {
@@ -775,7 +789,9 @@ fn parse_header_signature(text: &str) -> Option<(String, Vec<String>, Vec<String
                 }
                 // Strip divert-type annotation: "-> paramName" → "paramName"
                 let parameter = if let Some(name) = trimmed.strip_prefix("->").map(str::trim) {
-                    name.to_owned()
+                    let name = name.to_owned();
+                    divert_parameters.push(name.clone());
+                    name
                 } else if let Some(name) = trimmed.strip_prefix("ref ") {
                     let name = name.trim().to_owned();
                     ref_parameters.push(name.clone());
@@ -785,10 +801,11 @@ fn parse_header_signature(text: &str) -> Option<(String, Vec<String>, Vec<String
                 };
                 parameters.push(parameter);
             }
-            Some((name, parameters, ref_parameters))
+            Some((name, parameters, ref_parameters, divert_parameters))
         }
         _ => Some((
             parse_path_identifier(text)?.to_owned(),
+            Vec::new(),
             Vec::new(),
             Vec::new(),
         )),

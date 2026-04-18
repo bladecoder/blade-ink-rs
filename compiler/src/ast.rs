@@ -187,6 +187,7 @@ pub struct Flow {
     pub is_function: bool,
     pub parameters: Vec<String>,
     pub ref_parameters: Vec<String>,
+    pub divert_parameters: Vec<String>,
     pub nodes: Vec<Node>,
     pub children: Vec<Flow>,
 }

@@ -346,7 +346,7 @@ impl EmitScope {
                 .collect(),
             choice_label_targets: BTreeMap::new(),
             param_offset: child.parameters.len(),
-            param_names: child.parameters.iter().cloned().collect(),
+            param_names: child.divert_parameters.iter().cloned().collect(),
         }
     }
 
@@ -1253,12 +1253,16 @@ fn emit_choice(
         }
         branch_nodes.extend(choice.selected_tags.iter().cloned().map(Node::Tag));
         if !body_already_emitted {
-            // Only skip the newline if the body is a terminal divert to END/DONE
+            // Skip the auto-newline for terminal diverts, and also for inline diverts that are
+            // authored after inline selected text on the same source line (the selected text keeps
+            // the trailing whitespace needed to join the diverted content).
             let body_is_terminal_divert = matches!(
                 choice.body.as_slice(),
                 [Node::Divert(d)] if d.target == "END" || d.target == "DONE"
             );
-            if !body_is_terminal_divert {
+            let body_is_inline_divert = matches!(choice.body.as_slice(), [Node::Divert(_)])
+                && selected_text.ends_with(char::is_whitespace);
+            if !body_is_terminal_divert && !body_is_inline_divert {
                 branch_nodes.push(Node::Newline);
             }
         }
@@ -1358,6 +1362,7 @@ fn emit_expression_ctx(
                             out.push(json!("ev"));
                             emit_expression_ctx(expr, out, context, scope);
                             out.push(json!("out"));
+                            out.push(json!("/ev"));
                         }
                         DynamicStringPart::Sequence(_) => {
                             // Sequences inside string literals not supported here; emit raw
@@ -1371,6 +1376,8 @@ fn emit_expression_ctx(
         Expression::Variable(name) => {
             if let Some(path) = scope.and_then(|s| s.resolve_choice_label(name)) {
                 out.push(json!({"CNT?": path}))
+            } else if name.contains('.') {
+                out.push(json!({"CNT?": name}))
             } else if let (Some(s), Some(ctx)) = (scope, context)
                 && (ctx.top_flow_names.contains(name) || s.child_flow_names.contains(name))
             {

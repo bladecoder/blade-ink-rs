@@ -569,6 +569,29 @@ fn load_save_test() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+// TestReadCountDotSeparatedPath (Tests.cs:1689)
+#[test]
+fn read_count_dot_separated_path_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> hi ->
+-> hi ->
+-> hi ->
+
+{ hi.stitch_to_count }
+
+== hi ==
+= stitch_to_count
+hi
+->->
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!("hi\nhi\nhi\n3\n", story.continue_maximally()?);
+
+    Ok(())
+}
+
 #[test]
 fn external_function_two_arguments_test() -> Result<(), Box<dyn Error>> {
     let ink_source = common::get_file_string("inkfiles/runtime/external-function-2-arg.ink")?;

@@ -171,11 +171,7 @@ pub fn parse_divert_line(input: &str) -> Result<Vec<Node>, CompilerError> {
         return Ok(vec![Node::TunnelReturn]);
     }
 
-    let segments: Vec<&str> = trimmed
-        .split("->")
-        .map(str::trim)
-        .filter(|segment| !segment.is_empty())
-        .collect();
+    let segments = split_top_level_divert_segments(trimmed);
 
     if segments.is_empty() {
         return Err(CompilerError::invalid_source(
@@ -217,6 +213,44 @@ pub fn parse_divert_line(input: &str) -> Result<Vec<Node>, CompilerError> {
     }
 
     Ok(vec![Node::Divert(parse_divert(segments[0])?)])
+}
+
+fn split_top_level_divert_segments(input: &str) -> Vec<&str> {
+    let bytes = input.as_bytes();
+    let len = input.len();
+    let mut depth = 0usize;
+    let mut start: Option<usize> = None;
+    let mut segments = Vec::new();
+    let mut i = 0;
+
+    while i < len {
+        match bytes[i] {
+            b'(' | b'{' if start.is_some() => depth += 1,
+            b')' | b'}' if start.is_some() => depth = depth.saturating_sub(1),
+            b'-' if i + 1 < len && bytes[i + 1] == b'>' && depth == 0 => {
+                if let Some(seg_start) = start {
+                    let segment = input[seg_start..i].trim();
+                    if !segment.is_empty() {
+                        segments.push(segment);
+                    }
+                }
+                start = Some(i + 2);
+                i += 2;
+                continue;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    if let Some(seg_start) = start {
+        let segment = input[seg_start..].trim();
+        if !segment.is_empty() {
+            segments.push(segment);
+        }
+    }
+
+    segments
 }
 
 pub fn split_inline_divert(content: &str) -> Option<(&str, &str)> {
