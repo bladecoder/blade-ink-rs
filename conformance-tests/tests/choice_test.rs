@@ -326,3 +326,45 @@ fn label_scope_error_test() -> Result<(), StoryError> {
     let _json_string = Compiler::new().compile(&ink_source).unwrap();
     Ok(())
 }
+
+#[test]
+fn nested_choice_test() -> Result<(), StoryError> {
+    // Choices at level 2 (**) must appear only after the parent level-1 choice (*)
+    // is selected, not mixed in with level-1 choices from the start.
+    // Sequence: choose option1 (index 0) → then suboption1 (index 0)
+    let mut errors: Vec<String> = Vec::new();
+    let text = common::run_story(
+        "inkfiles/choices/nested-choice.ink",
+        Some(vec![0, 0]),
+        &mut errors,
+    )?;
+
+    assert_eq!(0, errors.len());
+
+    // First choice point must expose exactly one option (option1).
+    // option2 is a fresh * choice that only appears after the gather.
+    // The full text after both choices should be:
+    // option1 (chosen) → suboption1 (chosen) → "text suboption1." → "done sub." → option2 (chosen randomly)
+    let joined = common::join_text(&text);
+    assert!(
+        joined.contains("text suboption1."),
+        "expected suboption body text, got: {joined}"
+    );
+    assert!(
+        joined.contains("done sub."),
+        "expected gather text after sub-choices, got: {joined}"
+    );
+    assert!(
+        joined.contains("option2"),
+        "expected option2 to appear after gather, got: {joined}"
+    );
+    // option2 must come AFTER done sub. (not before)
+    let pos_done = joined.find("done sub.").unwrap();
+    let pos_option2 = joined.find("option2").unwrap();
+    assert!(
+        pos_option2 > pos_done,
+        "option2 should appear after 'done sub.' gather, got: {joined}"
+    );
+
+    Ok(())
+}
