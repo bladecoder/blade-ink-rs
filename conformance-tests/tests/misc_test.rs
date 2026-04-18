@@ -1002,7 +1002,6 @@ fn all_switch_branches_fail_is_clean_test() -> Result<(), StoryError> {
 // TestNestedChoiceError (Tests.cs)
 // A choice nested directly inside a conditional without a weave should be an error.
 #[test]
-#[ignore = "compiler does not yet validate choices nested inside conditionals"]
 fn nested_choice_error_test() {
     let ink = r#"
 { true:

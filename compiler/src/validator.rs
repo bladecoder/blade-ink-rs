@@ -104,6 +104,7 @@ impl ValidationContext {
         self.validate_temp_names(story.root(), &empty_params)?;
         self.validate_nodes_diverts(story.root(), "")?;
         self.validate_nodes_function_calls(story.root())?;
+        self.validate_no_choice_in_conditional(story.root())?;
 
         // Validate each flow
         for flow in story.flows() {
@@ -127,6 +128,7 @@ impl ValidationContext {
 
             self.validate_nodes_diverts(&flow.nodes, &flow.name)?;
             self.validate_nodes_function_calls(&flow.nodes)?;
+            self.validate_no_choice_in_conditional(&flow.nodes)?;
             self.validate_nodes_variable_divert_targets(
                 &flow.nodes,
                 &flow_params,
@@ -238,6 +240,63 @@ impl ValidationContext {
                     }
                 }
                 _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Choice directly inside conditional (without a weave gather point)
+    // -----------------------------------------------------------------------
+
+    fn validate_no_choice_in_conditional(&self, nodes: &[Node]) -> Result<(), CompilerError> {
+        for node in nodes {
+            match node {
+                Node::Conditional {
+                    when_true,
+                    when_false,
+                    ..
+                } => {
+                    self.check_no_direct_choice_in_branch(when_true)?;
+                    if let Some(wf) = when_false {
+                        self.check_no_direct_choice_in_branch(wf)?;
+                    }
+                    // Recurse into the branches
+                    self.validate_no_choice_in_conditional(when_true)?;
+                    if let Some(wf) = when_false {
+                        self.validate_no_choice_in_conditional(wf)?;
+                    }
+                }
+                Node::SwitchConditional { branches, .. } => {
+                    for (_, body) in branches {
+                        self.check_no_direct_choice_in_branch(body)?;
+                        self.validate_no_choice_in_conditional(body)?;
+                    }
+                }
+                Node::Choice(c) => {
+                    self.validate_no_choice_in_conditional(&c.body)?;
+                }
+                Node::Sequence(seq) => {
+                    for branch in &seq.branches {
+                        self.validate_no_choice_in_conditional(branch)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn check_no_direct_choice_in_branch(&self, nodes: &[Node]) -> Result<(), CompilerError> {
+        for node in nodes {
+            if let Node::Choice(c) = node {
+                // A choice inside a conditional is allowed only if it explicitly diverts.
+                // Without a divert there is no safe continuation out of the conditional.
+                if !choice_has_explicit_divert(c) {
+                    return Err(CompilerError::invalid_source(
+                        "Choices with conditions need to explicitly divert afterwards.".to_owned(),
+                    ));
+                }
             }
         }
         Ok(())
@@ -909,4 +968,27 @@ fn collect_labels_from_nodes(nodes: &[Node], prefix: &str, targets: &mut BTreeSe
             _ => {}
         }
     }
+}
+
+/// Returns true if a choice has an explicit divert at the end of its body
+/// (i.e., the choice explicitly redirects flow rather than falling through).
+fn choice_has_explicit_divert(choice: &crate::ast::Choice) -> bool {
+    nodes_end_with_divert(&choice.body)
+}
+
+fn nodes_end_with_divert(nodes: &[Node]) -> bool {
+    nodes
+        .iter()
+        .rev()
+        .find(|n| !matches!(n, Node::Newline))
+        .is_some_and(|n| {
+            matches!(
+                n,
+                Node::Divert(_)
+                    | Node::TunnelReturn
+                    | Node::TunnelOnwardsWithTarget { .. }
+                    | Node::ReturnBool(_)
+                    | Node::ReturnExpr(_)
+            )
+        })
 }
