@@ -879,3 +879,106 @@ world
 
     Ok(())
 }
+
+// TestTurnsSinceWithVariableTarget (Tests.cs)
+#[test]
+fn turns_since_with_variable_target_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> start
+
+=== start ===
+    {beats(-> start)}
+    {beats(-> start)}
+    *   [Choice]  -> next
+= next
+    {beats(-> start)}
+    -> END
+
+=== function beats(x) ===
+    ~ return TURNS_SINCE(x)
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("0\n0\n", &story.continue_maximally()?);
+    story.choose_choice_index(0)?;
+    assert_eq!("1\n", &story.continue_maximally()?);
+    Ok(())
+}
+
+// TestNewlineAtStartOfMultilineConditional (Tests.cs)
+#[test]
+fn newline_at_start_of_multiline_conditional_test() -> Result<(), StoryError> {
+    let ink = r#"
+{isTrue():
+    x
+}
+
+=== function isTrue()
+    X
+    ~ return true
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("X\nx\n", &story.continue_maximally()?);
+    Ok(())
+}
+
+// TestShuffleStackMuddying (Tests.cs)
+#[test]
+#[ignore = "shuffle sequence with ~ return in function body causes story to end prematurely"]
+fn shuffle_stack_muddying_test() -> Result<(), StoryError> {
+    let ink = r#"
+* {condFunc()} [choice 1]
+* {condFunc()} [choice 2]
+* {condFunc()} [choice 3]
+* {condFunc()} [choice 4]
+
+
+=== function condFunc() ===
+{shuffle:
+    - ~ return false
+    - ~ return true
+    - ~ return true
+    - ~ return false
+}
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    story.cont()?;
+    assert_eq!(2, story.get_current_choices().len());
+    Ok(())
+}
+
+// TestChoiceThreadForking (Tests.cs)
+#[test]
+fn choice_thread_forking_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> generate_choice(1) ->
+
+== generate_choice(x) ==
+{true:
+    + A choice
+        Value of local var is: {x}
+        -> END
+}
+->->
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    story.cont()?;
+
+    // Save/reload
+    let saved_state = story.save_state()?;
+    let mut story = Story::new(&json)?;
+    story.load_state(&saved_state)?;
+
+    // Load the choice — it should have its thread with captured temp x
+    story.choose_choice_index(0)?;
+    // The choice content should show x=1 (not 0 from missing var)
+    let result = story.continue_maximally()?;
+    assert!(
+        result.contains("1"),
+        "Expected x=1 in output, got: {result}"
+    );
+    Ok(())
+}

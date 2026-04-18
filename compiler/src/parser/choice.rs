@@ -3,6 +3,8 @@ use crate::{
     error::CompilerError,
 };
 
+use super::inline::parse_divert_line;
+
 use super::{
     Line, ParsedStatement,
     inline::{
@@ -19,6 +21,8 @@ pub struct ParsedChoiceText {
     pub has_start_content: bool,
     pub has_choice_only_content: bool,
     pub inline_target: Option<Divert>,
+    /// Additional body nodes emitted BEFORE inline_target (e.g. for ->-> target(args))
+    pub inline_body_nodes: Vec<Node>,
     pub start_tags: Vec<DynamicString>,
     pub choice_only_tags: Vec<DynamicString>,
     pub selected_tags: Vec<DynamicString>,
@@ -124,6 +128,9 @@ pub fn parse_choice(
     // (choices, text, etc.) becomes part of this choice's body continuation.
     let mut absorbed_gather = false;
 
+    for node in choice_text.inline_body_nodes.clone() {
+        body.push(node);
+    }
     if let Some(divert) = choice_text.inline_target.clone() {
         body.push(Node::Divert(divert));
     }
@@ -250,6 +257,24 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
         .map(str::trim_start)
         .unwrap_or(trimmed);
 
+    if trimmed.starts_with("->->") {
+        // `* ->-> target(args)` — tunnel return with optional new destination
+        let nodes = parse_divert_line(trimmed)?;
+        return Ok(ParsedChoiceText {
+            display_text: String::new(),
+            selected_text: None,
+            start_text: String::new(),
+            choice_only_text: String::new(),
+            has_start_content: false,
+            has_choice_only_content: false,
+            inline_target: None,
+            inline_body_nodes: nodes,
+            start_tags: Vec::new(),
+            choice_only_tags: Vec::new(),
+            selected_tags: Vec::new(),
+        });
+    }
+
     if let Some(target) = trimmed.strip_prefix("->") {
         let inline_target = if target.trim().is_empty() {
             None
@@ -264,6 +289,7 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
             has_start_content: false,
             has_choice_only_content: false,
             inline_target,
+            inline_body_nodes: Vec::new(),
             start_tags: Vec::new(),
             choice_only_tags: Vec::new(),
             selected_tags: Vec::new(),
@@ -291,6 +317,7 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
                 has_start_content: false,
                 has_choice_only_content: true,
                 inline_target,
+                inline_body_nodes: Vec::new(),
                 start_tags: Vec::new(),
                 choice_only_tags,
                 selected_tags: Vec::new(),
@@ -307,6 +334,7 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
             has_start_content: false,
             has_choice_only_content: true,
             inline_target,
+            inline_body_nodes: Vec::new(),
             start_tags: Vec::new(),
             choice_only_tags,
             selected_tags,
@@ -343,6 +371,7 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
             has_start_content: true,
             has_choice_only_content: false,
             inline_target,
+            inline_body_nodes: Vec::new(),
             start_tags,
             choice_only_tags: Vec::new(),
             selected_tags,
@@ -395,6 +424,7 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
             has_start_content: !start.trim().is_empty(),
             has_choice_only_content: true,
             inline_target,
+            inline_body_nodes: Vec::new(),
             start_tags,
             choice_only_tags,
             selected_tags,
@@ -415,6 +445,7 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
         has_start_content: !start_text.is_empty(),
         has_choice_only_content: false,
         inline_target,
+        inline_body_nodes: Vec::new(),
         start_tags,
         choice_only_tags: Vec::new(),
         selected_tags: Vec::new(),

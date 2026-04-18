@@ -383,3 +383,65 @@ VAR val = 5
     assert_eq!("6\n", &story.continue_maximally()?);
     Ok(())
 }
+
+// TestDivertTargetsWithParameters (Tests.cs)
+#[test]
+fn divert_targets_with_parameters_test() -> Result<(), StoryError> {
+    let ink = r#"
+VAR x = ->place
+
+->x (5)
+
+== place (a) ==
+{a}
+-> DONE
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("5\n", &story.continue_maximally()?);
+    Ok(())
+}
+
+// TestReadCountVariableTarget (Tests.cs)
+#[test]
+fn read_count_variable_target_test() -> Result<(), StoryError> {
+    let ink = r#"
+VAR x = ->knot
+
+Count start: {READ_COUNT (x)} {READ_COUNT (-> knot)} {knot}
+
+-> x (1) ->
+-> x (2) ->
+-> x (3) ->
+
+Count end: {READ_COUNT (x)} {READ_COUNT (-> knot)} {knot}
+-> END
+
+
+== knot (a) ==
+{a}
+->->
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!(
+        "Count start: 0 0 0\n1\n2\n3\nCount end: 3 3 3\n",
+        &story.continue_maximally()?
+    );
+    Ok(())
+}
+
+// TestArgumentShouldntConflictWithGatherElsewhere (Tests.cs)
+#[test]
+fn argument_shouldnt_conflict_with_gather_elsewhere_test() {
+    // Compile-only: gather label 'x' in knot should not conflict with function param 'x'
+    let ink = r#"
+== knot ==
+- (x) -> DONE
+
+== function f(x) ==
+Nothing
+"#;
+    // Should compile without errors
+    Compiler::new().compile(ink).unwrap();
+}

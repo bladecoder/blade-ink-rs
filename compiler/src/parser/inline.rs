@@ -176,6 +176,35 @@ pub fn parse_divert_line(input: &str) -> Result<Vec<Node>, CompilerError> {
         return Ok(vec![Node::TunnelReturn]);
     }
 
+    // `->-> target (args)`: tunnel return, continuing to `target` with args
+    // e.g. `->-> elsewhere (8)` emits args + {"^->": target} then `->->`
+    // Only applies when explicit args are provided (parenthesized).
+    // `->-> escape` with no parens falls through to the regular path.
+    if let Some(rest) = trimmed.strip_prefix("->->") {
+        let rest = rest.trim();
+        if !rest.is_empty() && !rest.starts_with("->") && rest.contains('(') {
+            // Parse `target` or `target(args)` from `rest`
+            let (target_name, args) = if let Some(open) = rest.find('(') {
+                let close = rest.rfind(')').unwrap_or(rest.len() - 1);
+                let tname = rest[..open].trim().to_owned();
+                let args_str = &rest[open + 1..close];
+                let mut args = Vec::new();
+                for arg_str in super::expression::split_top_level_commas(args_str) {
+                    if !arg_str.trim().is_empty() {
+                        args.push(parse_expression(arg_str.trim())?);
+                    }
+                }
+                (tname, args)
+            } else {
+                (rest.to_owned(), Vec::new())
+            };
+            return Ok(vec![Node::TunnelOnwardsWithTarget {
+                target: target_name,
+                args,
+            }]);
+        }
+    }
+
     let segments = split_top_level_divert_segments(trimmed);
 
     if segments.is_empty() {

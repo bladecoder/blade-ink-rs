@@ -73,3 +73,84 @@ fn sequence_tunnel_test() -> Result<(), StoryError> {
 
     Ok(())
 }
+
+// TestTunnelOnwardsDivertAfterWithArg (Tests.cs)
+#[test]
+fn tunnel_onwards_divert_after_with_arg_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> a ->  
+
+=== a === 
+->-> b (5 + 3)
+
+=== b (x) ===
+{x} 
+-> END
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("8\n", &story.continue_maximally()?);
+    Ok(())
+}
+
+// TestTunnelOnwardsWithParamDefaultChoice (Tests.cs)
+#[test]
+fn tunnel_onwards_with_param_default_choice_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> tunnel ->
+
+== tunnel ==
+* ->-> elsewhere (8)
+
+== elsewhere (x) ==
+{x}
+-> END
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("8\n", &story.continue_maximally()?);
+    Ok(())
+}
+
+// TestTunnelVsThreadBehaviour (Tests.cs)
+#[test]
+fn tunnel_vs_thread_behaviour_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> knot_with_options ->
+Finished tunnel.
+
+Starting thread.
+<- thread_with_options
+* E
+-
+Done.
+
+== knot_with_options ==
+* A
+* B
+-
+->->
+
+== thread_with_options ==
+* C
+* D
+- -> DONE
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    let text = story.continue_maximally()?;
+    assert!(!text.contains("Finished tunnel"));
+    // Choices should be A, B
+    assert_eq!(2, story.get_current_choices().len());
+
+    story.choose_choice_index(0)?;
+    let text = story.continue_maximally()?;
+    assert!(text.contains("Finished tunnel"));
+    // Choices should be C, D, E
+    assert_eq!(3, story.get_current_choices().len());
+
+    story.choose_choice_index(2)?;
+    assert!(story.continue_maximally()?.contains("Done."));
+    Ok(())
+}

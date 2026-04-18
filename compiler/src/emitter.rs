@@ -787,6 +787,17 @@ fn emit_nodes_with_continuation(
                 out.push(json!("/ev"));
                 out.push(json!("->->"));
             }
+            Node::TunnelOnwardsWithTarget { target, args } => {
+                // ->-> target(args): push args + divert target, then ->->
+                out.push(json!("ev"));
+                for arg in args {
+                    emit_expression_ctx(arg, &mut out.content, Some(context), Some(scope));
+                }
+                let resolved = scope.resolve_divert_target(target, context);
+                out.push(json!({"^->": resolved}));
+                out.push(json!("/ev"));
+                out.push(json!("->->"));
+            }
             Node::ThreadDivert(divert) => {
                 // <- target(args): ev, arg1, arg2, ..., /ev, "thread", {->: target}
                 if !divert.arguments.is_empty() {
@@ -1693,11 +1704,7 @@ fn emit_condition(
     match condition {
         Condition::Bool(value) => out.push(json!(value)),
         Condition::FunctionCall(name) => {
-            let mut call = BTreeMap::new();
-            call.insert(format!("{name}()"), Value::String(name.clone()));
-            out.push(serde_json::to_value(call).map_err(|error| {
-                CompilerError::invalid_source(format!("failed to serialize function call: {error}"))
-            })?);
+            out.push(json!({"f()": name}));
         }
         Condition::Expression(Expression::Variable(name))
             if scope.resolve_choice_label(name).is_some() =>
@@ -1732,7 +1739,11 @@ fn branch_has_terminal_content(nodes: &[Node]) -> bool {
 
 fn node_is_terminal(node: &Node) -> bool {
     match node {
-        Node::Divert(_) | Node::TunnelReturn | Node::ReturnBool(_) | Node::ReturnExpr(_) => true,
+        Node::Divert(_)
+        | Node::TunnelReturn
+        | Node::TunnelOnwardsWithTarget { .. }
+        | Node::ReturnBool(_)
+        | Node::ReturnExpr(_) => true,
         Node::Choice(choice) => branch_has_terminal_content(&choice.body),
         _ => false,
     }

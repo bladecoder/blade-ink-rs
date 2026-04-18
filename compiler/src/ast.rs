@@ -145,6 +145,11 @@ pub enum Node {
         args: Vec<Expression>,
     },
     TunnelReturn,
+    /// `->-> target(args)`: tunnel return, with caller continuing to target(args)
+    TunnelOnwardsWithTarget {
+        target: String,
+        args: Vec<Expression>,
+    },
     Conditional {
         condition: Condition,
         when_true: Vec<Node>,

@@ -154,3 +154,46 @@ fn list_comparison_test() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+// TestContainsEmptyListAlwaysFalse (Tests.cs)
+#[test]
+fn contains_empty_list_always_false_test() -> Result<(), Box<dyn Error>> {
+    let ink = r#"
+LIST list = (a), b
+{list ? ()}
+{() ? ()}
+{() ? list}
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("false\nfalse\nfalse\n", &story.continue_maximally()?);
+    Ok(())
+}
+
+// TestListRandom (Tests.cs)
+#[test]
+fn list_random_test() -> Result<(), Box<dyn Error>> {
+    let ink = r#"
+LIST l = A, (B), (C), (D), E
+{LIST_RANDOM(l)}
+{LIST_RANDOM (l)}
+{LIST_RANDOM (l)}
+{LIST_RANDOM (l)}
+{LIST_RANDOM (l)}
+{LIST_RANDOM (l)}
+{LIST_RANDOM (l)}
+{LIST_RANDOM (l)}
+{LIST_RANDOM (l)}
+{LIST_RANDOM (l)}
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    while story.can_continue() {
+        let result = story.cont()?;
+        assert!(
+            result == "B\n" || result == "C\n" || result == "D\n",
+            "Unexpected LIST_RANDOM result: {result}"
+        );
+    }
+    Ok(())
+}
