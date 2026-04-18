@@ -288,6 +288,27 @@ pub fn split_lines(source: &str) -> Vec<Line<'_>> {
     lines
 }
 
+/// Strip all `/* ... */` block comments from a string.
+fn strip_block_comments(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '/' && chars.peek() == Some(&'*') {
+            chars.next(); // consume '*'
+            // skip until we find '*/'
+            while let Some(c2) = chars.next() {
+                if c2 == '*' && chars.peek() == Some(&'/') {
+                    chars.next(); // consume '/'
+                    break;
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 /// Strip trailing `// comment` from a line, respecting string literals.
 fn strip_inline_comment(line: &str) -> &str {
     let mut in_string = false;
@@ -377,8 +398,38 @@ pub fn parse_statement(
 
     if let Some(rest) = trimmed.strip_prefix("LIST ") {
         *line_index += 1;
+        // Collect continuation lines (indented) that are part of the same LIST declaration.
+        let mut full = rest.to_owned();
+        while *line_index < lines.len() {
+            let next = lines[*line_index].content.trim();
+            // Stop if line is non-empty and doesn't start with whitespace (new statement)
+            if !lines[*line_index].content.starts_with([' ', '\t']) && !next.is_empty() {
+                break;
+            }
+            // Skip blank/whitespace-only continuation lines only if we're still expecting more items
+            // (accumulated text ends with a comma). This handles remnants of stripped block comments
+            // that appeared between list items on separate lines.
+            if next.is_empty() {
+                let trimmed_full = full.trim_end();
+                if trimmed_full.ends_with(',') {
+                    *line_index += 1;
+                    continue;
+                } else {
+                    break;
+                }
+            }
+            // Stop at line-comments
+            if next.starts_with("//") {
+                break;
+            }
+            full.push(' ');
+            full.push_str(next);
+            *line_index += 1;
+        }
+        // Strip block comments /* ... */ from the collected text
+        let full = strip_block_comments(&full);
         return Ok(ParsedStatement::List(
-            parse_list_declaration(rest).map_err(|e| e.with_line(ln))?,
+            parse_list_declaration(&full).map_err(|e| e.with_line(ln))?,
         ));
     }
 

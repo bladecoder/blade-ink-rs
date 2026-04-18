@@ -97,6 +97,17 @@ struct EmitScope {
     param_offset: usize,
     /// Parameter names for the current flow (used to detect variable diverts to params)
     param_names: BTreeSet<String>,
+    /// Number of `^` hops needed to navigate from content in this scope back to
+    /// the enclosing knot/stitch container (used for relative divert paths).
+    /// - 0  : root (relative paths not used)
+    /// - 1  : knot body
+    /// - 2  : stitch body
+    /// - 3  : inside a conditional branch (b) within a knot or stitch
+    relative_depth: usize,
+    /// The path of the enclosing flow container (knot or stitch).
+    /// For branch scopes, this is the scope.path of the parent flow scope.
+    /// Used to compute the suffix for relative divert paths.
+    flow_path: String,
 }
 
 struct EmitContext {
@@ -323,6 +334,8 @@ impl EmitScope {
             choice_label_targets: BTreeMap::new(),
             param_offset: 0,
             param_names: BTreeSet::new(),
+            relative_depth: 0,
+            flow_path: "0".to_owned(),
         }
     }
 
@@ -341,7 +354,15 @@ impl EmitScope {
             BTreeSet::new()
         };
 
+        // Depth to navigate back from content to the enclosing knot container:
+        // - knot body  (path = "knot"):          1 hop
+        // - stitch body (path = "knot.stitch"):  2 hops (up to stitch, up through knot's
+        //                                        named-dict level to knot container)
+        let is_stitch = self.top_flow_name.is_some();
+        let new_depth = if is_stitch { 2 } else { 1 };
+
         Self {
+            flow_path: path.clone(),
             path,
             top_flow_name: self
                 .top_flow_name
@@ -356,18 +377,47 @@ impl EmitScope {
             choice_label_targets: BTreeMap::new(),
             param_offset: child.parameters.len(),
             param_names: child.divert_parameters.iter().cloned().collect(),
+            relative_depth: new_depth,
         }
     }
 
     fn choice_branch(&self, branch_name: &str) -> Self {
         Self {
             path: format!("{}.{}", self.path, branch_name),
+            flow_path: self.flow_path.clone(),
             top_flow_name: self.top_flow_name.clone(),
             child_flow_names: self.child_flow_names.clone(),
             sibling_flow_names: self.sibling_flow_names.clone(),
             choice_label_targets: self.choice_label_targets.clone(),
             param_offset: 0,
             param_names: self.param_names.clone(),
+            relative_depth: self.relative_depth,
+        }
+    }
+
+    /// Create a scope for a conditional branch `b` body. Inside a conditional branch
+    /// the runtime path gains two extra hops (conditional item index + `b` key), so
+    /// `relative_depth` is set to 3 regardless of the parent depth.
+    /// However, for nested conditionals (inside another conditional branch, depth >= 3),
+    /// we cannot reliably navigate back to the flow with 3 `^`s, so we use 0 (absolute).
+    fn conditional_branch(&self, branch_name: &str) -> Self {
+        // Only use relative paths (depth=3) for direct conditional branches within a
+        // flow body (knot depth=1 or stitch depth=2). For deeper nesting, use absolute.
+        let branch_depth = if self.relative_depth == 1 || self.relative_depth == 2 {
+            3
+        } else {
+            0
+        };
+        Self {
+            path: format!("{}.{}", self.path, branch_name),
+            flow_path: self.flow_path.clone(),
+            top_flow_name: self.top_flow_name.clone(),
+            child_flow_names: self.child_flow_names.clone(),
+            sibling_flow_names: self.sibling_flow_names.clone(),
+            choice_label_targets: self.choice_label_targets.clone(),
+            param_offset: 0,
+            param_names: self.param_names.clone(),
+            relative_depth: branch_depth,
         }
     }
 
@@ -377,12 +427,43 @@ impl EmitScope {
         merged.extend(labels);
         Self {
             path: self.path.clone(),
+            flow_path: self.flow_path.clone(),
             top_flow_name: self.top_flow_name.clone(),
             child_flow_names: self.child_flow_names.clone(),
             sibling_flow_names: self.sibling_flow_names.clone(),
             choice_label_targets: merged,
             param_offset: self.param_offset,
             param_names: self.param_names.clone(),
+            relative_depth: self.relative_depth,
+        }
+    }
+
+    /// Convert an absolute path like `knot.stitch` or `knot.stitch.7` to a relative path
+    /// `.^...^.X` when we are currently inside that same knot/stitch.
+    ///
+    /// Uses `self.relative_depth` `^` hops. After those hops, the runtime reaches:
+    ///
+    /// - depth 1 or 2 (knot/stitch body): the enclosing KNOT container (`top_flow_name`)
+    /// - depth 3 (branch scope): the enclosing FLOW container (`flow_path`)
+    ///
+    /// The suffix is the remainder of `absolute` after stripping the appropriate prefix.
+    fn make_relative(&self, absolute: &str) -> String {
+        let ups = ".^".repeat(self.relative_depth);
+        let prefix = if self.relative_depth == 3 {
+            // Inside a branch: 3 `^`s reaches flow_path (the enclosing knot/stitch)
+            self.flow_path.as_str()
+        } else {
+            // In knot/stitch body: `^`s reach the knot
+            self.top_flow_name.as_deref().unwrap_or(&self.path)
+        };
+        let suffix = absolute
+            .strip_prefix(prefix)
+            .unwrap_or(absolute)
+            .trim_start_matches('.');
+        if suffix.is_empty() {
+            ups
+        } else {
+            format!("{ups}.{suffix}")
         }
     }
 
@@ -407,17 +488,15 @@ impl EmitScope {
             return target.to_owned();
         }
 
-        if self.child_flow_names.contains(target)
-            && let Some(top_flow_name) = &self.top_flow_name
-        {
-            return format!("{top_flow_name}.{target}");
+        if self.child_flow_names.contains(target) && self.top_flow_name.is_some() {
+            let abs = format!("{}.{target}", self.top_flow_name.as_deref().unwrap());
+            return self.make_relative(&abs);
         }
 
         // Sibling stitch: target is a stitch of the same parent knot
-        if self.sibling_flow_names.contains(target)
-            && let Some(top_flow_name) = &self.top_flow_name
-        {
-            return format!("{top_flow_name}.{target}");
+        if self.sibling_flow_names.contains(target) && self.top_flow_name.is_some() {
+            let abs = format!("{}.{target}", self.top_flow_name.as_deref().unwrap());
+            return self.make_relative(&abs);
         }
 
         target.to_owned()
@@ -499,7 +578,14 @@ fn emit_flow(flow: &Flow, context: &EmitContext) -> Result<Value, CompilerError>
     prepend_parameters(&mut container, &flow.parameters);
 
     if container.content.is_empty() && !flow.children.is_empty() {
-        let target = if let Some(top_flow_name) = &scope.top_flow_name {
+        // Auto-divert to the first child stitch. Use a relative path when possible.
+        let target = if scope.relative_depth > 0 {
+            scope.make_relative(&format!(
+                "{}.{}",
+                scope.top_flow_name.as_deref().unwrap_or(&scope.path),
+                flow.children[0].name
+            ))
+        } else if let Some(top_flow_name) = &scope.top_flow_name {
             format!("{top_flow_name}.{}", flow.children[0].name)
         } else {
             flow.children[0].name.clone()
@@ -556,7 +642,14 @@ fn emit_nested_flow(
     prepend_parameters(&mut container, &flow.parameters);
 
     if container.content.is_empty() && !flow.children.is_empty() {
-        let target = if let Some(top_flow_name) = &scope.top_flow_name {
+        // Auto-divert to the first child stitch. Use a relative path when possible.
+        let target = if scope.relative_depth > 0 {
+            scope.make_relative(&format!(
+                "{}.{}",
+                scope.top_flow_name.as_deref().unwrap_or(&scope.path),
+                flow.children[0].name
+            ))
+        } else if let Some(top_flow_name) = &scope.top_flow_name {
             format!("{top_flow_name}.{}", flow.children[0].name)
         } else {
             flow.children[0].name.clone()
@@ -1078,7 +1171,15 @@ fn emit_choice_block(
     let block_scope = scope.with_choice_labels(choice_labels);
 
     let continuation_path: Option<String> = if continuation.is_empty() {
-        // No explicit continuation nodes — use fallback (parent's continuation) if available
+        // No explicit continuation nodes — use fallback (parent's continuation) if available.
+        // If the fallback path points to the g-N that belongs to THIS scope (e.g. "0.g-0"),
+        // create a minimal gather container in the named dict to match inklecate's output.
+        let name = format!("g-{}", *next_choice_index);
+        let expected_path = format!("{}.{}", scope.path, name);
+        if fallback_continuation.is_some_and(|fb| fb == expected_path) {
+            let gather_value = Value::Array(vec![json!("done"), Value::Null]);
+            out.insert_named(name, gather_value);
+        }
         fallback_continuation.map(|s| s.to_owned())
     } else {
         let name = format!("g-{}", *next_choice_index);
@@ -1383,7 +1484,14 @@ fn emit_choice(
 
     let branch_name = format!("c-{choice_index}");
     let branch_scope = scope.choice_branch(&branch_name);
-    out.push(json!({"*": format!(".^.{}", branch_name), "flg": choice_flags(choice)}));
+    // In root (scope.path == "0") inklecate emits absolute paths ("0.c-N"),
+    // in knots/stitches it emits relative paths (".^.c-N").
+    let choice_ptr = if scope.path == "0" {
+        format!("0.{}", branch_name)
+    } else {
+        format!(".^.{}", branch_name)
+    };
+    out.push(json!({"*": choice_ptr, "flg": choice_flags(choice)}));
 
     let mut branch_nodes = Vec::new();
     let mut body_already_emitted = false;
@@ -1938,7 +2046,7 @@ fn emit_conditional(
         // The branch array element is `[selector, {b:[...]}]`.
         // `b` is a named key in the pair, so the path to b's content is:
         // `scope.path + "." + branch_array_idx + ".b"`
-        let branch_scope = scope.choice_branch(&format!("{branch_array_idx}.b"));
+        let branch_scope = scope.conditional_branch(&format!("{branch_array_idx}.b"));
         let branch_content = emit_nodes(branch_nodes, &branch_scope, context)?;
         branch_emits.push(BranchEmit {
             cond_tokens,
@@ -1960,7 +2068,13 @@ fn emit_conditional(
         })
         .sum();
     let nop_index = conditional_index + tokens_before_nop;
-    let rejoin_target = format!("{}.{}", scope.path, nop_index);
+    // From inside the conditional branch `b` content (3 `^` hops from scope.path),
+    // the rejoin target is relative: `.^.^.^.N` where N is the nop index within scope.path.
+    let rejoin_target = if scope.relative_depth > 0 {
+        format!(".^.^.^.{nop_index}")
+    } else {
+        format!("{}.{}", scope.path, nop_index)
+    };
 
     // Second pass: build the output with the correct rejoin target.
     let mut out = Vec::new();
@@ -2012,12 +2126,16 @@ fn emit_switch_conditional(
     let num_branches = branches.len();
     // Layout: [preamble_len tokens] [N branch arrays] [nop]
     let nop_index = switch_index + preamble_len + num_branches;
-    let exit_target = format!("{}.{}", scope.path, nop_index);
+    let exit_target = if scope.relative_depth > 0 {
+        format!(".^.^.^.{nop_index}")
+    } else {
+        format!("{}.{}", scope.path, nop_index)
+    };
 
     // Emit all branch bodies first (they all reference exit_target)
     let mut branch_bodies: Vec<EmittedContainer> = Vec::new();
     for (_, body_nodes) in branches {
-        let branch_scope = scope.choice_branch("b");
+        let branch_scope = scope.conditional_branch("b");
         let mut body = emit_nodes(body_nodes, &branch_scope, context)?;
         body.push(json!({"->": exit_target}));
         branch_bodies.push(body);

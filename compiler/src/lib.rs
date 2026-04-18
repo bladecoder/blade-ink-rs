@@ -7,6 +7,7 @@ mod validator;
 
 use std::path::{Path, PathBuf};
 
+use ast::Node;
 use ast::ParsedStory;
 
 pub use error::CompilerError;
@@ -202,6 +203,8 @@ where
                     &inc_name,
                     depth + 1,
                 )?;
+                // inklecate emits one `\n` per INCLUDE line in the root container.
+                merged.root.push(Node::Newline);
                 merge_stories(&mut merged, inc_story);
             }
         }

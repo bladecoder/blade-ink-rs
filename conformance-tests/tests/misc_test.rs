@@ -1180,6 +1180,28 @@ VAR global_var = 5
 // TestEmptyListOriginAfterAssignment (Tests.cs)
 // After assigning an empty list, LIST_ALL should still return all items.
 #[test]
+#[test]
+fn list_multiline_block_comments_test() -> Result<(), StoryError> {
+    // LIST declarations spanning multiple indented lines with /* block comments */
+    // should parse all items correctly (block comments are stripped in preprocessing).
+    let ink = r#"
+LIST gameState = HAS_LETTER, LETTER_GIVEN,
+    /* DIAMOND STATES */
+    DEAL_ROBIE, WAITING_TO_POOP, POOPED,
+    /* MEDAL STATES */
+    SEARCHING_DETECTIVES, MALONE_FOUND
+{LIST_ALL(gameState)}
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!(
+        "HAS_LETTER, LETTER_GIVEN, DEAL_ROBIE, WAITING_TO_POOP, POOPED, SEARCHING_DETECTIVES, MALONE_FOUND\n",
+        story.continue_maximally()?
+    );
+    Ok(())
+}
+
+#[test]
 fn empty_list_origin_after_assignment_test() -> Result<(), StoryError> {
     let ink = r#"
 LIST x = a, b, c
@@ -1292,5 +1314,63 @@ x = {x}, y = {y}
 
     assert_eq!("Three\n", story.cont()?);
 
+    Ok(())
+}
+
+#[test]
+fn knot_divert_to_own_stitch_test() -> Result<(), StoryError> {
+    // Knot body that has only stitches should auto-divert to the first stitch
+    // using a relative path (.^.stitch), and stitches should divert to siblings
+    // using relative paths (.^.^.sibling). The story should execute correctly.
+    let ink = r#"
+-> car
+== car ==
+= pickup_flask
+Flask found.
+-> END
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("Flask found.\n", story.continue_maximally()?);
+    Ok(())
+}
+
+#[test]
+fn stitch_divert_to_sibling_test() -> Result<(), StoryError> {
+    // A stitch diverting to a sibling stitch should use relative paths.
+    let ink = r#"
+-> first
+== knot ==
+= first
+First.
+-> second
+= second
+Second.
+-> END
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("First.\nSecond.\n", story.continue_maximally()?);
+    Ok(())
+}
+
+#[test]
+fn conditional_in_knot_divert_to_stitch_test() -> Result<(), StoryError> {
+    // A conditional inside a knot body that diverts to a stitch should use
+    // relative paths (.^.^.^.stitch from inside the conditional branch).
+    let ink = r#"
+VAR x = true
+-> knot
+== knot ==
+{x: -> go}
+Done.
+-> END
+= go
+Going.
+-> END
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("Going.\n", story.continue_maximally()?);
     Ok(())
 }
