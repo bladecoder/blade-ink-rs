@@ -106,6 +106,7 @@ impl Compiler {
             .unwrap_or("<source>");
         let parsed_story =
             parse_story_with_includes(source, &file_handler, Path::new(""), source_name, 0)?;
+        let parsed_story = resolve_consts(parsed_story);
         validator::validate(&parsed_story)?;
         emitter::story_to_json_string(&parsed_story, self.options.count_all_visits)
             .map_err(|e| CompilerError::invalid_source(e.to_string()))
@@ -214,6 +215,7 @@ fn merge_stories(dst: &mut ParsedStory, src: ParsedStory) {
     dst.globals.extend(src.globals);
     dst.list_declarations.extend(src.list_declarations);
     dst.external_functions.extend(src.external_functions);
+    dst.consts.extend(src.consts);
 }
 
 fn normalize_include_path(current_dir: &Path, filename: &str) -> PathBuf {
@@ -287,5 +289,44 @@ mod tests {
             display.contains(":2:") || display.contains("line 2"),
             "expected line 2 in error, got: {display}"
         );
+    }
+}
+
+/// Substitute CONST references in global variable initial values.
+/// Any `Expression::Variable(name)` where `name` is a known const is replaced
+/// with the const's literal value.
+fn resolve_consts(mut story: ParsedStory) -> ParsedStory {
+    if story.consts.is_empty() {
+        return story;
+    }
+    for global in &mut story.globals {
+        resolve_expr_consts(&mut global.initial_value, &story.consts);
+    }
+    story
+}
+
+fn resolve_expr_consts(
+    expr: &mut ast::Expression,
+    consts: &std::collections::HashMap<String, ast::Expression>,
+) {
+    match expr {
+        ast::Expression::Variable(name) => {
+            if let Some(val) = consts.get(name.as_str()) {
+                *expr = val.clone();
+            }
+        }
+        ast::Expression::Binary { left, right, .. } => {
+            resolve_expr_consts(left, consts);
+            resolve_expr_consts(right, consts);
+        }
+        ast::Expression::Negate(e) | ast::Expression::Not(e) => {
+            resolve_expr_consts(e, consts);
+        }
+        ast::Expression::FunctionCall { args, .. } => {
+            for a in args {
+                resolve_expr_consts(a, consts);
+            }
+        }
+        _ => {}
     }
 }

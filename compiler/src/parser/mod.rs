@@ -56,6 +56,7 @@ pub struct Parser<'a> {
 
 pub enum ParsedStatement {
     Global(GlobalVariable),
+    Const(GlobalVariable),
     List(ListDeclaration),
     ExternalFunction(String),
     Nodes(Vec<Node>),
@@ -85,6 +86,7 @@ impl<'a> Parser<'a> {
         let mut globals = Vec::new();
         let mut list_declarations = Vec::new();
         let mut external_functions = Vec::new();
+        let mut consts = std::collections::HashMap::new();
         let mut root = Vec::new();
         let mut flows = Vec::new();
         let mut current_flow: Option<FlowBuilder> = None;
@@ -165,6 +167,9 @@ impl<'a> Parser<'a> {
             let statement = parse_statement(&lines, &mut line_index, false)?;
             match statement {
                 ParsedStatement::Global(global) => globals.push(global),
+                ParsedStatement::Const(c) => {
+                    consts.insert(c.name.clone(), c.initial_value);
+                }
                 ParsedStatement::List(list_decl) => list_declarations.push(list_decl),
                 ParsedStatement::ExternalFunction(name) => external_functions.push(name),
                 ParsedStatement::Nodes(mut nodes) => {
@@ -183,6 +188,7 @@ impl<'a> Parser<'a> {
             let mut story = ParsedStory::new(globals, root, flows);
             story.list_declarations = list_declarations;
             story.external_functions = external_functions;
+            story.consts = consts;
             story
         })
     }
@@ -331,6 +337,13 @@ pub fn parse_statement(
     if let Some(rest) = trimmed.strip_prefix("VAR ") {
         *line_index += 1;
         return Ok(ParsedStatement::Global(
+            parse_global_assignment(rest).map_err(|e| e.with_line(ln))?,
+        ));
+    }
+
+    if let Some(rest) = trimmed.strip_prefix("CONST ") {
+        *line_index += 1;
+        return Ok(ParsedStatement::Const(
             parse_global_assignment(rest).map_err(|e| e.with_line(ln))?,
         ));
     }

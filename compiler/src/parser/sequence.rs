@@ -110,7 +110,8 @@ pub fn parse_sequence(
             match statement {
                 ParsedStatement::Global(_)
                 | ParsedStatement::List(_)
-                | ParsedStatement::ExternalFunction(_) => {
+                | ParsedStatement::ExternalFunction(_)
+                | ParsedStatement::Const(_) => {
                     return Err(CompilerError::unsupported_feature(
                         "global declarations are not supported inside sequences".to_owned(),
                     ));
@@ -198,7 +199,8 @@ pub fn parse_multi_branch_sequence(
             match statement {
                 ParsedStatement::Global(_)
                 | ParsedStatement::List(_)
-                | ParsedStatement::ExternalFunction(_) => {
+                | ParsedStatement::ExternalFunction(_)
+                | ParsedStatement::Const(_) => {
                     return Err(CompilerError::unsupported_feature(
                         "global declarations are not supported inside sequences".to_owned(),
                     ));

@@ -98,7 +98,8 @@ pub fn parse_choice(
         match statement {
             ParsedStatement::Global(_)
             | ParsedStatement::List(_)
-            | ParsedStatement::ExternalFunction(_) => {
+            | ParsedStatement::ExternalFunction(_)
+            | ParsedStatement::Const(_) => {
                 return Err(CompilerError::unsupported_feature(
                     "global declarations are not supported inside choice bodies".to_owned(),
                 ));

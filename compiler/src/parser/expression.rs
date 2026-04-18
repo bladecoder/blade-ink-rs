@@ -466,7 +466,7 @@ impl ExpressionParser {
                     operator: BinaryOperator::Divide,
                     right: Box::new(right),
                 };
-            } else if self.match_token(&Token::Percent) {
+            } else if self.match_token(&Token::Percent) || self.match_identifier("mod") {
                 let right = self.parse_unary()?;
                 expression = Expression::Binary {
                     left: Box::new(expression),
@@ -583,6 +583,15 @@ impl ExpressionParser {
 
     fn match_token(&mut self, token: &Token) -> bool {
         if self.peek() == Some(token) {
+            self.current += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn match_identifier(&mut self, name: &str) -> bool {
+        if self.peek() == Some(&Token::Ident(name.to_owned())) {
             self.current += 1;
             true
         } else {

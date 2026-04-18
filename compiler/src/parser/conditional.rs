@@ -68,9 +68,16 @@ pub fn parse_conditional(
     let first_body_line_index = *line_index + 1;
     let is_switch = rest_after_colon.trim().is_empty() && first_body_line_index < lines.len() && {
         let first_body = lines[first_body_line_index].content.trim();
-        first_body.starts_with('-')
+        if first_body.starts_with('-')
             && !first_body.starts_with("->")
             && !first_body.starts_with("- else:")
+        {
+            // Check that the branch looks like "- case_expr: body" (has a colon after stripping -)
+            let branch_content = first_body.trim_start_matches('-').trim_start();
+            branch_content.contains(':') && !branch_content.starts_with("->")
+        } else {
+            false
+        }
     };
 
     if is_switch {
@@ -123,6 +130,40 @@ pub fn parse_conditional(
             continue;
         }
 
+        // `- else: inline_content` on a single line
+        if let Some(else_content) = trimmed.strip_prefix("- else:") {
+            in_else = true;
+            *line_index += 1;
+            let rest = else_content.trim();
+            if !rest.is_empty() {
+                when_false.extend(tokenize_inline_content(rest)?);
+            }
+            if body_line.had_newline {
+                when_false.push(Node::Newline);
+            }
+            continue;
+        }
+
+        // `- content` as branch body separator (true branch marker) — NOT a gather
+        if let Some(branch_content) = trimmed.strip_prefix('-')
+            && !branch_content.starts_with('>')
+        {
+            *line_index += 1;
+            let rest = branch_content.trim();
+            let target = if in_else {
+                &mut when_false
+            } else {
+                &mut when_true
+            };
+            if !rest.is_empty() {
+                target.extend(tokenize_inline_content(rest)?);
+            }
+            if body_line.had_newline {
+                target.push(Node::Newline);
+            }
+            continue;
+        }
+
         let statement = parse_stmt(lines, line_index, true)?;
         let target = if in_else {
             &mut when_false
@@ -132,7 +173,8 @@ pub fn parse_conditional(
         match statement {
             ParsedStatement::Global(_)
             | ParsedStatement::List(_)
-            | ParsedStatement::ExternalFunction(_) => {
+            | ParsedStatement::ExternalFunction(_)
+            | ParsedStatement::Const(_) => {
                 return Err(CompilerError::unsupported_feature(
                     "global declarations are not supported inside conditionals".to_owned(),
                 ));
@@ -182,7 +224,8 @@ pub fn parse_multi_branch_conditional(
                 match statement {
                     ParsedStatement::Global(_)
                     | ParsedStatement::List(_)
-                    | ParsedStatement::ExternalFunction(_) => {
+                    | ParsedStatement::ExternalFunction(_)
+                    | ParsedStatement::Const(_) => {
                         return Err(CompilerError::unsupported_feature(
                             "global declarations are not supported inside conditionals".to_owned(),
                         ));
@@ -209,11 +252,21 @@ pub fn parse_multi_branch_conditional(
                 continue;
             }
 
-            let (condition, rest) = header.split_once(':').ok_or_else(|| {
-                CompilerError::invalid_source(
-                    "conditional branch is missing ':' after condition".to_owned(),
-                )
-            })?;
+            let (condition, rest) = match header.split_once(':') {
+                Some(pair) => pair,
+                None => {
+                    // Bare default branch: `- content` with no colon — treat as else
+                    current_condition = None;
+                    if !header.trim().is_empty() {
+                        current_nodes.extend(tokenize_inline_content(header.trim())?);
+                        if line.had_newline {
+                            current_nodes.push(Node::Newline);
+                        }
+                    }
+                    *line_index += 1;
+                    continue;
+                }
+            };
             current_condition = Some(parse_condition(condition.trim())?);
             if !rest.trim().is_empty() {
                 current_nodes.extend(tokenize_inline_content(rest.trim())?);
@@ -229,7 +282,8 @@ pub fn parse_multi_branch_conditional(
         match statement {
             ParsedStatement::Global(_)
             | ParsedStatement::List(_)
-            | ParsedStatement::ExternalFunction(_) => {
+            | ParsedStatement::ExternalFunction(_)
+            | ParsedStatement::Const(_) => {
                 return Err(CompilerError::unsupported_feature(
                     "global declarations are not supported inside conditionals".to_owned(),
                 ));
@@ -329,11 +383,28 @@ fn parse_switch_conditional(
                 continue;
             }
 
-            let (case_text, rest) = header.split_once(':').ok_or_else(|| {
-                CompilerError::invalid_source(
-                    "switch branch is missing ':' after case value".to_owned(),
-                )
-            })?;
+            let (case_text, rest) = match header.split_once(':') {
+                Some(pair) => pair,
+                None => {
+                    // Bare default branch `- content` with no colon
+                    current_case = None;
+                    if !header.trim().is_empty() {
+                        let inline_line = Line {
+                            content: header.trim(),
+                            had_newline: line.had_newline,
+                            indent: 0,
+                        };
+                        let inline_lines = std::slice::from_ref(&inline_line);
+                        let mut idx = 0;
+                        let statement = parse_stmt(inline_lines, &mut idx, true)?;
+                        if let ParsedStatement::Nodes(mut nodes) = statement {
+                            current_nodes.append(&mut nodes);
+                        }
+                    }
+                    *line_index += 1;
+                    continue;
+                }
+            };
             current_case = Some(parse_expression(case_text.trim())?);
             let rest = rest.trim();
             if !rest.is_empty() {
@@ -357,7 +428,8 @@ fn parse_switch_conditional(
         match statement {
             ParsedStatement::Global(_)
             | ParsedStatement::List(_)
-            | ParsedStatement::ExternalFunction(_) => {
+            | ParsedStatement::ExternalFunction(_)
+            | ParsedStatement::Const(_) => {
                 return Err(CompilerError::unsupported_feature(
                     "global declarations are not supported inside switch conditionals".to_owned(),
                 ));
