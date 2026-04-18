@@ -395,7 +395,7 @@ pub fn parse_statement(
             gather_content = next;
         }
         if gather_content.is_empty() {
-            return Ok(ParsedStatement::Nodes(Vec::new()));
+            return Ok(ParsedStatement::Nodes(vec![Node::GatherPoint]));
         }
         // Check for gather label: (label_name) at the start
         let (gather_label, gather_content) = if gather_content.starts_with('(') {

@@ -51,6 +51,9 @@ pub fn parse_choice(
 
     let choice_indent = line.indent;
     let mut body = Vec::new();
+    // Once we absorb a same-level gather, everything that follows at our indent
+    // (choices, text, etc.) becomes part of this choice's body continuation.
+    let mut absorbed_gather = false;
 
     if let Some(divert) = choice_text.inline_target.clone() {
         body.push(Node::Divert(divert));
@@ -63,15 +66,32 @@ pub fn parse_choice(
         if super::parse_header(body_line.content).is_some() {
             break;
         }
-        // Terminate on lines at or shallower than our indent that are NOT nested gathers
-        if body_line.indent <= choice_indent {
-            // Allow nested gathers (- -) to be included inside the body when the gather
-            // level is greater than our choice nesting level (they are continuations for
-            // inner nested choices, not for us).
-            let gather_level = gather_nesting_level(body_trimmed);
-            if gather_level == 0 || gather_level <= nesting_level {
-                break;
+
+        let gather_level = gather_nesting_level(body_trimmed);
+
+        // A gather whose nesting level matches ours AND which is indented deeper than the
+        // choice itself is the "end of sub-choices / start of continuation" boundary for
+        // this weave level.  Absorb it so the emitter sees it as a GatherPoint separating
+        // the inner choice block from the post-gather continuation.
+        if gather_level == nesting_level && body_line.indent > choice_indent {
+            let statement = parse_stmt(lines, line_index, true)?;
+            if let ParsedStatement::Nodes(mut nodes) = statement {
+                body.append(&mut nodes)
             }
+            absorbed_gather = true;
+            continue;
+        }
+
+        // A gather at or shallower than our choice indent terminates the choice body.
+        if gather_level > 0 && body_line.indent <= choice_indent {
+            break;
+        }
+
+        // Non-gather line at or shallower than our indent:
+        // - If we haven't absorbed a same-level gather yet, this is a sibling — stop.
+        // - If we have absorbed a gather, it's the post-gather continuation — include it.
+        if gather_level == 0 && body_line.indent <= choice_indent && !absorbed_gather {
+            break;
         }
 
         let statement = parse_stmt(lines, line_index, true)?;
@@ -102,6 +122,7 @@ pub fn parse_choice(
         start_tags: choice_text.start_tags,
         choice_only_tags: choice_text.choice_only_tags,
         selected_tags: choice_text.selected_tags,
+        nesting_level,
     })]))
 }
 

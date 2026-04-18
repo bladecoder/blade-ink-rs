@@ -354,13 +354,15 @@ fn nested_choice_test() -> Result<(), StoryError> {
         joined.contains("done sub."),
         "expected gather text after sub-choices, got: {joined}"
     );
+    // Use "text option2." as a proxy that option2 was reachable and chosen (not "option2" which
+    // is a substring of "suboption2" and could appear before "done sub.")
     assert!(
-        joined.contains("option2"),
-        "expected option2 to appear after gather, got: {joined}"
+        joined.contains("text option2."),
+        "expected option2 body text to appear after gather, got: {joined}"
     );
-    // option2 must come AFTER done sub. (not before)
+    // "text option2." must come AFTER "done sub."
     let pos_done = joined.find("done sub.").unwrap();
-    let pos_option2 = joined.find("option2").unwrap();
+    let pos_option2 = joined.find("text option2.").unwrap();
     assert!(
         pos_option2 > pos_done,
         "option2 should appear after 'done sub.' gather, got: {joined}"

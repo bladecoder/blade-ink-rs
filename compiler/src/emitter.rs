@@ -105,6 +105,8 @@ struct EmitContext {
     list_items: std::collections::BTreeMap<String, Vec<(String, u32)>>,
     /// Set of EXTERNAL function declaration names
     external_functions: BTreeSet<String>,
+    /// Set of flow names referenced as arguments to TURNS_SINCE()
+    turns_since_targets: BTreeSet<String>,
 }
 
 impl EmittedContainer {
@@ -145,6 +147,99 @@ impl EmittedContainer {
     }
 }
 
+fn collect_turns_since_targets_from_flows(flows: &[Flow]) -> BTreeSet<String> {
+    let mut targets = BTreeSet::new();
+    collect_turns_since_targets_from_flows_into(flows, &mut targets);
+    targets
+}
+
+fn collect_turns_since_targets_from_flows_into(flows: &[Flow], targets: &mut BTreeSet<String>) {
+    for flow in flows {
+        collect_turns_since_targets_from_nodes(&flow.nodes, targets);
+        collect_turns_since_targets_from_flows_into(&flow.children, targets);
+    }
+}
+
+fn collect_turns_since_targets_from_nodes(nodes: &[Node], targets: &mut BTreeSet<String>) {
+    for node in nodes {
+        match node {
+            Node::OutputExpression(expr) => {
+                collect_turns_since_targets_from_expr(expr, targets);
+            }
+            Node::Choice(choice) => {
+                for cond in &choice.conditions {
+                    if let Condition::Expression(e) = cond {
+                        collect_turns_since_targets_from_expr(e, targets);
+                    }
+                }
+                collect_turns_since_targets_from_nodes(&choice.body, targets);
+            }
+            Node::Conditional {
+                condition,
+                when_true,
+                when_false,
+            } => {
+                if let Condition::Expression(e) = condition {
+                    collect_turns_since_targets_from_expr(e, targets);
+                }
+                collect_turns_since_targets_from_nodes(when_true, targets);
+                if let Some(nodes) = when_false {
+                    collect_turns_since_targets_from_nodes(nodes, targets);
+                }
+            }
+            Node::SwitchConditional { value, branches } => {
+                collect_turns_since_targets_from_expr(value, targets);
+                for (opt_expr, branch_nodes) in branches {
+                    if let Some(e) = opt_expr {
+                        collect_turns_since_targets_from_expr(e, targets);
+                    }
+                    collect_turns_since_targets_from_nodes(branch_nodes, targets);
+                }
+            }
+            Node::Assignment { expression, .. } => {
+                collect_turns_since_targets_from_expr(expression, targets);
+            }
+            Node::ReturnExpr(e) => {
+                collect_turns_since_targets_from_expr(e, targets);
+            }
+            Node::VoidCall { args, .. } => {
+                for arg in args {
+                    if let Expression::DivertTarget(target) = arg {
+                        targets.insert(target.clone());
+                    } else {
+                        collect_turns_since_targets_from_expr(arg, targets);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_turns_since_targets_from_expr(expr: &Expression, targets: &mut BTreeSet<String>) {
+    match expr {
+        Expression::FunctionCall { args, .. } => {
+            // Any DivertTarget passed as a function argument is a TURNS_SINCE candidate —
+            // it may be passed directly to TURNS_SINCE or forwarded via a parameter.
+            for arg in args {
+                if let Expression::DivertTarget(target) = arg {
+                    targets.insert(target.clone());
+                } else {
+                    collect_turns_since_targets_from_expr(arg, targets);
+                }
+            }
+        }
+        Expression::Negate(inner) | Expression::Not(inner) => {
+            collect_turns_since_targets_from_expr(inner, targets);
+        }
+        Expression::Binary { left, right, .. } => {
+            collect_turns_since_targets_from_expr(left, targets);
+            collect_turns_since_targets_from_expr(right, targets);
+        }
+        _ => {}
+    }
+}
+
 impl EmitContext {
     fn new(story: &ParsedStory, count_all_visits: bool) -> Self {
         let mut list_items = std::collections::BTreeMap::new();
@@ -156,6 +251,7 @@ impl EmitContext {
                 .collect();
             list_items.insert(list_decl.name.clone(), items);
         }
+        let turns_since_targets = collect_turns_since_targets_from_flows(story.flows());
         Self {
             global_variables: story.globals().iter().map(|var| var.name.clone()).collect(),
             top_flow_names: story.flows().iter().map(|flow| flow.name.clone()).collect(),
@@ -167,6 +263,7 @@ impl EmitContext {
                 .collect(),
             list_items,
             external_functions: story.external_functions.iter().cloned().collect(),
+            turns_since_targets,
         }
     }
 
@@ -350,7 +447,17 @@ fn emit_flow(flow: &Flow, context: &EmitContext) -> Result<Value, CompilerError>
     let count_flags = if flow.is_function {
         1
     } else if context.count_all_visits {
-        3
+        // Containers referenced by TURNS_SINCE need VISITS | TURNS (3).
+        // Knots/stitches with top-level choices get VISITS | COUNTSTARTONLY (5)
+        // so that choice once-only visit tracking works correctly.
+        // All other knots/stitches (no choices, or with user stitches) just get VISITS (1).
+        if context.turns_since_targets.contains(&flow.name) {
+            3
+        } else if flow.nodes.iter().any(|n| matches!(n, Node::Choice(_))) {
+            5
+        } else {
+            1
+        }
     } else {
         0
     };
@@ -387,7 +494,13 @@ fn emit_nested_flow(
     let count_flags = if flow.is_function {
         1
     } else if context.count_all_visits {
-        3
+        if context.turns_since_targets.contains(&flow.name) {
+            3
+        } else if flow.nodes.iter().any(|n| matches!(n, Node::Choice(_))) {
+            5
+        } else {
+            1
+        }
     } else {
         0
     };
@@ -431,20 +544,27 @@ fn collect_choice_labels_recursive(
                 if let Some(label) = &choice.label {
                     labels.insert(label.clone(), format!("{}.c-{}", scope.path, *choice_index));
                 }
+                let level = choice.nesting_level;
                 *choice_index += 1;
                 i += 1;
 
-                // Find where the choice block ends (non-Choice node)
+                // Find where the choice block ends (non-Choice node or different nesting level)
                 let block_start_ci = *choice_index - 1; // index of first choice in block
-                // collect any remaining adjacent choices
-                while i < nodes.len() && matches!(nodes[i], Node::Choice(_)) {
-                    if let Node::Choice(c) = &nodes[i]
-                        && let Some(label) = &c.label
-                    {
-                        labels.insert(label.clone(), format!("{}.c-{}", scope.path, *choice_index));
+                // collect any remaining adjacent choices at the same nesting level
+                while i < nodes.len() {
+                    match &nodes[i] {
+                        Node::Choice(c) if c.nesting_level == level => {
+                            if let Some(label) = &c.label {
+                                labels.insert(
+                                    label.clone(),
+                                    format!("{}.c-{}", scope.path, *choice_index),
+                                );
+                            }
+                            *choice_index += 1;
+                            i += 1;
+                        }
+                        _ => break,
                     }
-                    *choice_index += 1;
-                    i += 1;
                 }
                 // Recurse into the continuation as g-<first_choice_in_block>
                 let continuation = &nodes[i..];
@@ -639,10 +759,14 @@ fn emit_nodes_with_continuation(
                 out.push(json!("pop"));
                 out.push(json!("/ev"));
             }
-            Node::Choice(_) => {
+            Node::Choice(first_choice) => {
                 let block_start = index;
-                while index < nodes.len() && matches!(nodes[index], Node::Choice(_)) {
-                    index += 1;
+                let level = first_choice.nesting_level;
+                while index < nodes.len() {
+                    match &nodes[index] {
+                        Node::Choice(c) if c.nesting_level == level => index += 1,
+                        _ => break,
+                    }
                 }
                 let continuation = &nodes[index..];
                 emit_choice_block(
@@ -656,8 +780,11 @@ fn emit_nodes_with_continuation(
                 )?;
                 break;
             }
+            Node::GatherPoint => {
+                // Anonymous gather with no content — acts only as a separator between
+                // choice blocks at different nesting levels.  Emits nothing itself.
+            }
             Node::GatherLabel(label) => {
-                // Standalone gather label (loop-back point before choices):
                 // Emit remaining nodes as an indexed sub-container with #n: label in its
                 // terminator. This makes the runtime enter it sequentially AND allows the
                 // label to be resolved as scope.path + "." + label via named_content lookup.

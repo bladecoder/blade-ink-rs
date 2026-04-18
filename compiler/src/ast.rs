@@ -110,6 +110,8 @@ pub struct Choice {
     pub start_tags: Vec<DynamicString>,
     pub choice_only_tags: Vec<DynamicString>,
     pub selected_tags: Vec<DynamicString>,
+    /// Nesting level of this choice: 1 for `*`/`+`, 2 for `**`/`++`, etc.
+    pub nesting_level: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,6 +169,9 @@ pub enum Node {
         mode: AssignMode,
     },
     Choice(Choice),
+    /// An anonymous gather point `-` with no content and no label.
+    /// Acts as a separator between choice blocks at different nesting levels.
+    GatherPoint,
     /// A gather point label `- (label)` — signals the emitter to name the next g-N container.
     GatherLabel(String),
     /// A void function call statement: `~ funcname(args)`

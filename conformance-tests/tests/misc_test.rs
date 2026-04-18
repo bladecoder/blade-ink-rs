@@ -230,11 +230,11 @@ fn count_all_visits_option_changes_compiled_container_flags() {
     .unwrap();
 
     assert!(
-        !json_without_count_all_visits.contains("\"knot\":[\"^Hello\",\"\\n\",\"end\",{\"#f\":3}]"),
+        !json_without_count_all_visits.contains("\"knot\":[\"^Hello\",\"\\n\",\"end\",{\"#f\":1}]"),
         "unexpected visit-count flags when count_all_visits=false: {json_without_count_all_visits}"
     );
     assert!(
-        json_with_count_all_visits.contains("\"knot\":[\"^Hello\",\"\\n\",\"end\",{\"#f\":3}]"),
+        json_with_count_all_visits.contains("\"knot\":[\"^Hello\",\"\\n\",\"end\",{\"#f\":1}]"),
         "missing visit-count flags when count_all_visits=true: {json_with_count_all_visits}"
     );
 }
