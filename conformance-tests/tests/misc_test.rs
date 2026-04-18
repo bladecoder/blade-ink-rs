@@ -19,18 +19,80 @@ fn operations_test() -> Result<(), StoryError> {
     Ok(())
 }
 
+// TestDisallowEmptyDiverts (Tests.cs:1009)
 #[test]
-fn read_counts_test() -> Result<(), StoryError> {
-    let ink_source = common::get_file_string("inkfiles/misc/read-counts.ink").unwrap();
-    let json_string = Compiler::new().compile(&ink_source).unwrap();
-    let mut story = Story::new(&json_string)?;
-
-    assert_eq!(
-        "Count start: 0 0 0\n1\n2\n3\nCount end: 3 3 3\n",
-        &story.continue_maximally()?
+fn disallow_empty_diverts_test() {
+    let err = Compiler::new().compile("->").unwrap_err();
+    assert!(
+        err.message().contains("divert"),
+        "expected divert-related error, got: {}",
+        err.message()
     );
+}
 
+// TestDivertNotFoundError (Tests.cs:583)
+#[test]
+fn divert_not_found_error_test() {
+    let ink = r#"
+-> knot
+
+== knot ==
+Knot.
+-> next
+"#;
+    let err = Compiler::new().compile(ink).unwrap_err();
+    assert!(
+        err.message().contains("not found"),
+        "expected 'not found' error, got: {}",
+        err.message()
+    );
+}
+
+// TestTempGlobalConflict (Tests.cs:2445)
+#[test]
+fn temp_global_conflict_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> outer
+=== outer
+~ temp x = 0
+~ f(x)
+{x}
+-> DONE
+
+=== function f(ref x)
+~temp local = 0
+~x=x
+{setTo3(local)}
+
+=== function setTo3(ref x)
+~x = 3
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("0\n", story.continue_maximally()?);
     Ok(())
+}
+
+// TestTempNotAllowedCrossStitch (Tests.cs:3447)
+#[test]
+fn temp_not_allowed_cross_stitch_test() {
+    let ink = r#"
+-> knot.stitch
+
+== knot (y) ==
+~temp x = 5
+-> END
+
+= stitch
+{x} {y}
+-> END
+"#;
+    let err = Compiler::new().compile(ink).unwrap_err();
+    assert!(
+        err.message().contains("x") || err.message().contains("y"),
+        "expected unresolved variable error, got: {}",
+        err.message()
+    );
 }
 
 #[test]

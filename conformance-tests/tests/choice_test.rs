@@ -485,3 +485,57 @@ This is the {first|second|third} time.
 
     Ok(())
 }
+
+// TestDefaultChoices (Tests.cs:524)
+#[test]
+fn default_choices_test() -> Result<(), StoryError> {
+    let ink = r#"
+ - (start)
+ * [Choice 1]
+ * [Choice 2]
+ * {false} Impossible choice
+ * -> default
+ - After choice
+ -> start
+
+== default ==
+This is default.
+-> DONE
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!("", story.cont()?);
+    assert_eq!(2, story.get_current_choices().len());
+
+    story.choose_choice_index(0)?;
+    assert_eq!("After choice\n", story.cont()?);
+
+    assert_eq!(1, story.get_current_choices().len());
+
+    story.choose_choice_index(0)?;
+    assert_eq!(
+        "After choice\nThis is default.\n",
+        story.continue_maximally()?
+    );
+
+    Ok(())
+}
+
+// TestVariousDefaultChoices (Tests.cs:3082)
+#[test]
+fn various_default_choices_test() -> Result<(), StoryError> {
+    let ink = r#"
+* -> hello
+Unreachable
+- (hello) 1
+* ->
+   - - 2
+- 3
+-> END
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("1\n2\n3\n", story.continue_maximally()?);
+    Ok(())
+}

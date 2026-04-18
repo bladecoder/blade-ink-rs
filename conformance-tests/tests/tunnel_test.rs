@@ -3,6 +3,52 @@ use bladeink_compiler::Compiler;
 
 mod common;
 
+// TestBasicTunnel (Tests.cs:104)
+#[test]
+fn basic_tunnel_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> f ->
+<> world
+
+== f ==
+Hello
+->->
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("Hello world\n", story.cont()?);
+    Ok(())
+}
+
+// TestComplexTunnels (Tests.cs:369)
+#[test]
+fn complex_tunnels_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> one (1) -> two (2) ->
+three (3)
+
+== one(num) ==
+one ({num})
+-> oneAndAHalf (1.5) ->
+->->
+
+== oneAndAHalf(num) ==
+one and a half ({num})
+->->
+
+== two (num) ==
+two ({num})
+->->
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!(
+        "one (1)\none and a half (1.5)\ntwo (2)\nthree (3)\n",
+        story.continue_maximally()?
+    );
+    Ok(())
+}
+
 #[test]
 fn tunnel_onwards_divert_override_test() -> Result<(), StoryError> {
     let ink_source =
