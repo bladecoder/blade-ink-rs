@@ -108,6 +108,9 @@ struct EmitContext {
     external_functions: BTreeSet<String>,
     /// Set of flow names referenced as arguments to TURNS_SINCE()
     turns_since_targets: BTreeSet<String>,
+    /// Fully-qualified authored label targets (e.g. `knot.stitch.choice`) mapped
+    /// to their emitted runtime paths (e.g. `knot.stitch.c-0`).
+    qualified_choice_labels: BTreeMap<String, String>,
 }
 
 impl EmittedContainer {
@@ -253,6 +256,7 @@ impl EmitContext {
             list_items.insert(list_decl.name.clone(), items);
         }
         let turns_since_targets = collect_turns_since_targets_from_flows(story.flows());
+        let qualified_choice_labels = collect_story_choice_labels(story);
         Self {
             global_variables: story.globals().iter().map(|var| var.name.clone()).collect(),
             top_flow_names: story.flows().iter().map(|flow| flow.name.clone()).collect(),
@@ -265,6 +269,7 @@ impl EmitContext {
             list_items,
             external_functions: story.external_functions.iter().cloned().collect(),
             turns_since_targets,
+            qualified_choice_labels,
         }
     }
 
@@ -354,7 +359,15 @@ impl EmitScope {
     }
 
     fn resolve_divert_target(&self, target: &str, context: &EmitContext) -> String {
-        if target == "END" || target == "DONE" || target.contains('.') {
+        if target == "END" || target == "DONE" {
+            return target.to_owned();
+        }
+
+        if let Some(choice_target) = self.resolve_qualified_choice_label(target, context) {
+            return choice_target;
+        }
+
+        if target.contains('.') {
             return target.to_owned();
         }
 
@@ -383,6 +396,25 @@ impl EmitScope {
 
     fn resolve_choice_label(&self, label: &str) -> Option<&str> {
         self.choice_label_targets.get(label).map(String::as_str)
+    }
+
+    fn resolve_qualified_choice_label(
+        &self,
+        target: &str,
+        context: &EmitContext,
+    ) -> Option<String> {
+        if let Some(resolved) = context.qualified_choice_labels.get(target) {
+            return Some(resolved.clone());
+        }
+
+        let (prefix, label) = target.rsplit_once('.')?;
+        let resolved = self.resolve_choice_label(label)?;
+        let prefix_with_dot = format!("{prefix}.");
+        if resolved == prefix || resolved.starts_with(&prefix_with_dot) {
+            Some(resolved.to_owned())
+        } else {
+            None
+        }
     }
 }
 
@@ -530,6 +562,45 @@ fn collect_all_choice_labels(nodes: &[Node], scope: &EmitScope) -> BTreeMap<Stri
     let mut labels = BTreeMap::new();
     collect_choice_labels_recursive(nodes, scope, &mut labels, &mut 0);
     labels
+}
+
+fn collect_story_choice_labels(story: &ParsedStory) -> BTreeMap<String, String> {
+    let mut labels = BTreeMap::new();
+    let root_scope = EmitScope::root(story.flows());
+
+    collect_qualified_choice_labels_for_scope(story.root(), &root_scope, &mut labels);
+    for flow in story.flows() {
+        collect_qualified_choice_labels_for_flow(flow, &root_scope, &mut labels);
+    }
+
+    labels
+}
+
+fn collect_qualified_choice_labels_for_flow(
+    flow: &Flow,
+    parent_scope: &EmitScope,
+    labels: &mut BTreeMap<String, String>,
+) {
+    let scope = parent_scope.child_flow(flow);
+    collect_qualified_choice_labels_for_scope(&flow.nodes, &scope, labels);
+
+    for child in &flow.children {
+        collect_qualified_choice_labels_for_flow(child, &scope, labels);
+    }
+}
+
+fn collect_qualified_choice_labels_for_scope(
+    nodes: &[Node],
+    scope: &EmitScope,
+    labels: &mut BTreeMap<String, String>,
+) {
+    for (label, path) in collect_all_choice_labels(nodes, scope) {
+        if scope.path == "0" {
+            labels.insert(label, path);
+        } else {
+            labels.insert(format!("{}.{}", scope.path, label), path);
+        }
+    }
 }
 
 fn collect_choice_labels_recursive(
@@ -865,14 +936,24 @@ fn emit_choice_block(
         // If the gather doesn't end terminally AND doesn't have nested choices,
         // append the fallback continuation divert.
         // If it has nested choices, those will carry the fallback themselves.
+        // Guard: never append a divert to our own g-N path (would create an infinite loop).
         let has_nested_choices_in_continuation = continuation_body
             .iter()
             .any(|n| matches!(n, Node::Choice(_)));
-        if let Some(fb) = fallback_continuation
-            && !branch_has_terminal_content(continuation_body)
-            && !has_nested_choices_in_continuation
-        {
-            gather_container.push(json!({"->": fb}));
+        let g_n_path = format!("{}.{}", scope.path, name);
+        let fallback_is_self = fallback_continuation == Some(g_n_path.as_str());
+        if !branch_has_terminal_content(continuation_body) && !has_nested_choices_in_continuation {
+            if let Some(fb) = fallback_continuation {
+                if !fallback_is_self {
+                    // Fall through to an outer gather (e.g. nested choice body → parent gather)
+                    gather_container.push(json!({"->": fb}));
+                } else {
+                    // The fallback points to g-N itself (this gather IS the root-level gather).
+                    // Adding that divert would create an infinite loop.
+                    // Instead, append a `done` to terminate the story gracefully.
+                    gather_container.push(json!("done"));
+                }
+            }
         }
         let continuation_value = gather_container.into_json_array(gather_label.as_deref(), None)?;
         out.insert_named(name.clone(), continuation_value);
@@ -1582,7 +1663,10 @@ fn emit_conditional(
         branch_content: EmittedContainer,
     }
     let mut branch_emits: Vec<BranchEmit> = Vec::new();
-    for (branch_index, (branch_condition, branch_nodes)) in branches.iter().enumerate() {
+    // First pass: emit only condition tokens to determine their lengths,
+    // so we can compute the absolute index of each branch array in the parent.
+    let mut cond_tokens_list: Vec<Option<Vec<Value>>> = Vec::new();
+    for (_, (branch_condition, _)) in branches.iter().enumerate() {
         let cond_tokens = if let Some(cond) = branch_condition {
             let mut tokens = Vec::new();
             emit_condition(cond, &mut tokens, scope, context)?;
@@ -1590,7 +1674,25 @@ fn emit_conditional(
         } else {
             None
         };
-        let branch_scope = scope.choice_branch(&format!("cond-{branch_index}"));
+        cond_tokens_list.push(cond_tokens);
+    }
+    // Compute the absolute index of each branch's array in the parent container.
+    // For branch i: branch_array_index = conditional_index + sum of (cond_overhead+1) for branches 0..i
+    let mut cumulative_offset = 0usize;
+    let mut branch_array_indices: Vec<usize> = Vec::new();
+    for cond_tokens in &cond_tokens_list {
+        let cond_overhead = cond_tokens.as_ref().map_or(0, |t| t.len() + 2);
+        branch_array_indices.push(conditional_index + cumulative_offset + cond_overhead);
+        cumulative_offset += cond_overhead + 1; // +1 for the array element itself
+    }
+    // Now emit branch content with the correct scope path for each branch.
+    for (branch_index, (_, branch_nodes)) in branches.iter().enumerate() {
+        let cond_tokens = cond_tokens_list.remove(0);
+        let branch_array_idx = branch_array_indices[branch_index];
+        // The branch array element is `[selector, {b:[...]}]`.
+        // `b` is a named key in the pair, so the path to b's content is:
+        // `scope.path + "." + branch_array_idx + ".b"`
+        let branch_scope = scope.choice_branch(&format!("{branch_array_idx}.b"));
         let branch_content = emit_nodes(branch_nodes, &branch_scope, context)?;
         branch_emits.push(BranchEmit {
             cond_tokens,

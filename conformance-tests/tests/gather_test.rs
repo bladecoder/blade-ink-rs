@@ -220,3 +220,12 @@ fn shouldnt_gather_due_to_choice_test() -> Result<(), StoryError> {
 
     Ok(())
 }
+
+#[test]
+fn default_simple_gather_test() -> Result<(), StoryError> {
+    let ink = "* ->\n- x\n-> DONE";
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("x\n", &story.cont()?);
+    Ok(())
+}

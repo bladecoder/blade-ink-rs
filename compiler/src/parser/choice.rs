@@ -5,7 +5,7 @@ use crate::{
 
 use super::{
     Line, ParsedStatement,
-    inline::{parse_divert, split_inline_choice_divert, split_text_and_tags},
+    inline::{parse_condition, parse_divert, split_inline_choice_divert, split_text_and_tags},
 };
 
 pub struct ParsedChoiceText {
@@ -42,14 +42,80 @@ pub fn parse_choice(
         remainder = rest.trim_start();
         nesting_level += 1;
     }
-    let (label, conditions, remainder) = parse_choice_prefixes(remainder)?;
-    let choice_text = parse_choice_text(remainder)?;
-    let is_invisible_default =
+    let (label, mut conditions, remainder) = parse_choice_prefixes(remainder)?;
+    let mut choice_text = parse_choice_text(remainder)?;
+    let mut is_invisible_default =
         choice_text.display_text.is_empty() && choice_text.selected_text.is_none();
 
     *line_index += 1;
 
     let choice_indent = line.indent;
+
+    // Look ahead at indented body lines: if they start with `{ condition }` (optionally followed
+    // by display text), absorb the condition and, if text is present, set it as the start_text.
+    // This implements multi-line choice conditions:
+    //   * { cond1 }
+    //     { cond2 }  display text   OR   plain display text
+    // Only scan when there is no start text yet on the header line.
+    // We scan when: the header has conditions OR we absorb body conditions.
+    let header_has_conditions = !conditions.is_empty();
+    if choice_text.start_text.is_empty() && choice_text.choice_only_text.is_empty() {
+        let mut absorbed_body_conditions = false;
+        while *line_index < lines.len() {
+            let peek = &lines[*line_index];
+            let peek_trimmed = peek.content.trim();
+            // Must be indented deeper than choice
+            if peek.indent <= choice_indent {
+                break;
+            }
+            // If starts with `{`, it only counts as an additional choice condition when the
+            // choice was already established as conditional on the header or by an earlier body
+            // condition line. Otherwise it's normal body content, such as `{5}` in a default
+            // choice body.
+            if peek_trimmed.starts_with('{') && (header_has_conditions || absorbed_body_conditions)
+            {
+                // Find the matching `}`
+                if let Some(close) = peek_trimmed.find('}') {
+                    let cond_str = &peek_trimmed[1..close];
+                    let after_close = peek_trimmed[close + 1..].trim();
+                    conditions.push(parse_condition(cond_str.trim())?);
+                    absorbed_body_conditions = true;
+                    *line_index += 1;
+                    if !after_close.is_empty() {
+                        // Remaining text after `{ cond }` becomes the display text
+                        choice_text.display_text = after_close.to_owned();
+                        choice_text.start_text = after_close.to_owned();
+                        choice_text.selected_text = Some(after_close.to_owned());
+                        choice_text.has_start_content = true;
+                        is_invisible_default = false;
+                        break;
+                    }
+                    // Pure condition line — continue looking for more conditions/text
+                } else {
+                    break;
+                }
+            } else if absorbed_body_conditions || header_has_conditions {
+                // After conditions (header or body), a plain text line becomes start text.
+                // Skip if it looks like a gather, divert, or sub-choice.
+                if peek_trimmed.starts_with('-')
+                    || peek_trimmed.starts_with('*')
+                    || peek_trimmed.starts_with('+')
+                {
+                    break;
+                }
+                choice_text.display_text = peek_trimmed.to_owned();
+                choice_text.start_text = peek_trimmed.to_owned();
+                choice_text.selected_text = Some(peek_trimmed.to_owned());
+                choice_text.has_start_content = true;
+                is_invisible_default = false;
+                *line_index += 1;
+                break;
+            } else {
+                break;
+            }
+        }
+    }
+
     let mut body = Vec::new();
     // Once we absorb a same-level gather, everything that follows at our indent
     // (choices, text, etc.) becomes part of this choice's body continuation.
@@ -305,10 +371,14 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
     let (start_text, start_tags) = split_text_and_tags(trimmed)?;
     Ok(ParsedChoiceText {
         display_text: start_text.clone(),
-        selected_text: Some(start_text.clone()),
-        start_text,
+        selected_text: if start_text.is_empty() {
+            None
+        } else {
+            Some(start_text.clone())
+        },
+        start_text: start_text.clone(),
         choice_only_text: String::new(),
-        has_start_content: true,
+        has_start_content: !start_text.is_empty(),
         has_choice_only_content: false,
         inline_target,
         start_tags,

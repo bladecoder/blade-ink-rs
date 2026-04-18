@@ -428,3 +428,59 @@ fn trivial_condition_test() -> Result<(), StoryError> {
     story.cont()?;
     Ok(())
 }
+
+#[test]
+fn basic_string_literals_test() -> Result<(), StoryError> {
+    let ink = r#"
+VAR x = "Hello world 1"
+{x}
+Hello {"world"} 2.
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!(
+        "Hello world 1\nHello world 2.\n",
+        &story.continue_maximally()?
+    );
+    Ok(())
+}
+
+#[test]
+fn call_stack_evaluation_test() -> Result<(), StoryError> {
+    let ink = r#"
+{ six() + two() }
+-> END
+
+=== function six
+    ~ return four() + two()
+
+=== function four
+    ~ return two() + two()
+
+=== function two
+    ~ return 2
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("8\n", &story.cont()?);
+    Ok(())
+}
+
+#[test]
+fn comment_eliminator_test() -> Result<(), StoryError> {
+    // Comments should be stripped at compile time
+    let ink = "A// C\nA /* C */ A\n\nA * A * /* * C *// A/*\nC C C\n\n*/";
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("A\nA A\nA * A * / A\n", &story.continue_maximally()?);
+    Ok(())
+}
+
+#[test]
+fn done_stops_thread_test() -> Result<(), StoryError> {
+    let ink = "-> DONE\nThis content is inaccessible.\n";
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("", &story.continue_maximally()?);
+    Ok(())
+}

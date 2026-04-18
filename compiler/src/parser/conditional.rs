@@ -92,6 +92,10 @@ pub fn parse_conditional(
     let mut when_true = Vec::new();
     let mut when_false = Vec::new();
     let mut in_else = false;
+    // Track whether we have seen any `- ` branch separator yet.
+    // In `{ cond: - true_branch - false_branch }`, the first `-` starts the true branch,
+    // and the second `-` switches to the false/else branch.
+    let mut seen_branch_dash = false;
 
     if line.had_newline {
         when_true.push(Node::Newline);
@@ -150,6 +154,11 @@ pub fn parse_conditional(
         {
             *line_index += 1;
             let rest = branch_content.trim();
+            // Second (or later) `- ` switches to the else branch
+            if seen_branch_dash {
+                in_else = true;
+            }
+            seen_branch_dash = true;
             let target = if in_else {
                 &mut when_false
             } else {
@@ -252,6 +261,38 @@ pub fn parse_multi_branch_conditional(
                 continue;
             }
 
+            // `- { ...` — branch body is a nested conditional block, not a condition expression.
+            // Push the current branch and parse the nested block as an else branch.
+            if header.trim_start().starts_with('{') {
+                if current_condition.is_some() || !current_nodes.is_empty() {
+                    branches.push((current_condition.take(), current_nodes));
+                    current_nodes = Vec::new();
+                }
+                current_condition = None;
+                // Construct a temporary line whose content is the part after `- ` so that
+                // parse_conditional can see `{ 2+2==4: ...` directly.
+                let nested_content = header.trim_start();
+                let nested_line = Line {
+                    content: nested_content,
+                    indent: line.indent,
+                    had_newline: line.had_newline,
+                };
+                // Build a temporary slice: swap the current line with the stripped version
+                // and append the remaining lines.
+                let mut tmp_lines: Vec<Line<'_>> = Vec::with_capacity(lines.len() - *line_index);
+                tmp_lines.push(nested_line);
+                tmp_lines.extend(lines[*line_index + 1..].iter().map(|l| Line {
+                    content: l.content,
+                    indent: l.indent,
+                    had_newline: l.had_newline,
+                }));
+                let mut tmp_index = 0usize;
+                let nested_nodes = parse_conditional(&tmp_lines, &mut tmp_index, true, parse_stmt)?;
+                *line_index += tmp_index; // advance by however many lines parse_conditional consumed
+                current_nodes.extend(nested_nodes);
+                continue;
+            }
+
             let (condition, rest) = match header.split_once(':') {
                 Some(pair) => pair,
                 None => {
@@ -268,13 +309,41 @@ pub fn parse_multi_branch_conditional(
                 }
             };
             current_condition = Some(parse_condition(condition.trim())?);
-            if !rest.trim().is_empty() {
-                current_nodes.extend(tokenize_inline_content(rest.trim())?);
-                if line.had_newline {
-                    current_nodes.push(Node::Newline);
+            let rest_trimmed = rest.trim();
+            if !rest_trimmed.is_empty() {
+                if rest_trimmed.starts_with('*') || rest_trimmed.starts_with('+') {
+                    // The branch body starts with a choice — parse it via a temporary line.
+                    // Do NOT advance line_index yet; build tmp_lines = [choice_line, real_next_lines...]
+                    let choice_line = Line {
+                        content: rest_trimmed,
+                        indent: line.indent + 1,
+                        had_newline: false,
+                    };
+                    let next_line_index = *line_index + 1;
+                    let remaining_lines: Vec<Line<'_>> = std::iter::once(choice_line)
+                        .chain(lines[next_line_index..].iter().map(|l| Line {
+                            content: l.content,
+                            indent: l.indent,
+                            had_newline: l.had_newline,
+                        }))
+                        .collect();
+                    let mut tmp_idx = 0usize;
+                    let stmt = parse_stmt(&remaining_lines, &mut tmp_idx, true)?;
+                    // Advance: 1 for the branch header line + however many real lines the choice consumed
+                    *line_index += 1 + (tmp_idx.saturating_sub(1));
+                    if let ParsedStatement::Nodes(mut nodes) = stmt {
+                        current_nodes.append(&mut nodes);
+                    }
+                } else {
+                    current_nodes.extend(tokenize_inline_content(rest_trimmed)?);
+                    if line.had_newline {
+                        current_nodes.push(Node::Newline);
+                    }
+                    *line_index += 1;
                 }
+            } else {
+                *line_index += 1;
             }
-            *line_index += 1;
             continue;
         }
 

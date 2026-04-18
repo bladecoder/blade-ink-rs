@@ -500,3 +500,152 @@ fn multiline_choice_test() -> Result<(), StoryError> {
 
     Ok(())
 }
+
+#[test]
+fn conditionals_test() -> Result<(), StoryError> {
+    let ink = r#"
+{false:not true|true}
+{
+   - 4 > 5: not true
+   - 5 > 4: true
+}
+{ 2*2 > 3:
+   - true
+   - not true
+}
+{
+   - 1 > 3: not true
+   - { 2+2 == 4:
+        - true
+        - not true
+   }
+}
+{ 2*3:
+   - 1+7: not true
+   - 9: not true
+   - 1+1+1+3: true
+   - 9-3: also true but not printed
+}
+{ true:
+    great
+    right?
+}
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!(
+        "true\ntrue\ntrue\ntrue\ntrue\ngreat\nright?\n",
+        &story.continue_maximally()?
+    );
+    Ok(())
+}
+
+#[test]
+fn conditional_choices_test() -> Result<(), StoryError> {
+    let ink = r#"
+* { true } { false } not displayed
+* { true } { true }
+  { true and true }  one
+* { false } not displayed
+* (name) { true } two
+* { true }
+  { true }
+  three
+* { true }
+  four
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    story.continue_maximally()?;
+    let choices = story.get_current_choices();
+    assert_eq!(4, choices.len());
+    assert_eq!("one", choices[0].text);
+    assert_eq!("two", choices[1].text);
+    assert_eq!("three", choices[2].text);
+    assert_eq!("four", choices[3].text);
+    Ok(())
+}
+
+#[test]
+fn divert_in_conditional_test() -> Result<(), StoryError> {
+    let ink = r#"
+=== intro
+= top
+    { main: -> done }
+    -> END
+= main
+    -> top
+= done
+    -> END
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("", &story.continue_maximally()?);
+    Ok(())
+}
+
+#[test]
+fn conditional_choice_in_weave_test() -> Result<(), StoryError> {
+    let ink = r#"
+- start
+ {
+    - true: * [go to a stitch] -> a_stitch
+ }
+- gather should be seen
+-> DONE
+
+= a_stitch
+    result
+    -> END
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!(
+        "start\ngather should be seen\n",
+        &story.continue_maximally()?
+    );
+    assert_eq!(1, story.get_current_choices().len());
+    story.choose_choice_index(0)?;
+    assert_eq!("result\n", &story.cont()?);
+    Ok(())
+}
+
+#[test]
+fn conditional_choice_in_weave2_test() -> Result<(), StoryError> {
+    let ink = r#"
+- first gather
+    * [option 1]
+    * [option 2]
+- the main gather
+{false:
+    * unreachable option -> END
+}
+- bottom gather
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("first gather\n", &story.cont()?);
+    assert_eq!(2, story.get_current_choices().len());
+    story.choose_choice_index(0)?;
+    assert_eq!(
+        "the main gather\nbottom gather\n",
+        &story.continue_maximally()?
+    );
+    assert_eq!(0, story.get_current_choices().len());
+    Ok(())
+}
+
+#[test]
+fn empty_multiline_conditional_branch_test() -> Result<(), StoryError> {
+    let ink = r#"
+{ 3:
+    - 3:
+    - 4:
+        txt
+}
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("", &story.cont()?);
+    Ok(())
+}

@@ -141,6 +141,15 @@ where
         ));
     }
 
+    // Strip block comments /* ... */ before any other processing
+    let preprocessed;
+    let source = if source.contains("/*") {
+        preprocessed = strip_block_comments(source);
+        preprocessed.as_str()
+    } else {
+        source
+    };
+
     // Split source into segments: either an INCLUDE directive or a block of
     // plain ink lines.  We parse each segment separately so that knots in an
     // included file never "bleed" into the parsing context of the parent.
@@ -329,4 +338,31 @@ fn resolve_expr_consts(
         }
         _ => {}
     }
+}
+
+/// Strip block comments `/* ... */` from ink source, preserving line count.
+/// Each character of a comment is replaced with a space (newlines kept as-is).
+fn strip_block_comments(source: &str) -> String {
+    let mut result = String::with_capacity(source.len());
+    let mut chars = source.chars().peekable();
+    let mut in_block = false;
+
+    while let Some(ch) = chars.next() {
+        if in_block {
+            if ch == '*' && chars.peek() == Some(&'/') {
+                chars.next(); // consume '/'
+                in_block = false;
+            } else if ch == '\n' {
+                result.push('\n');
+            }
+            // else: skip (replace with nothing, preserving line structure)
+        } else if ch == '/' && chars.peek() == Some(&'*') {
+            chars.next(); // consume '*'
+            in_block = true;
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
 }
