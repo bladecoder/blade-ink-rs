@@ -6,6 +6,8 @@ pub mod stats;
 
 use std::path::{Path, PathBuf};
 
+use ast::ParsedStory;
+
 pub use error::CompilerError;
 
 /// Maps each line of the expanded source (0-indexed) to its origin:
@@ -78,11 +80,8 @@ impl Compiler {
             .source_filename
             .as_deref()
             .unwrap_or("<source>");
-        let (expanded, line_map) =
-            expand_includes(source, &file_handler, Path::new(""), source_name, 0)?;
-        let parsed_story = parser::Parser::new(&expanded)
-            .parse()
-            .map_err(|e| remap_error(e, &line_map))?;
+        let parsed_story =
+            parse_story_with_includes(source, &file_handler, Path::new(""), source_name, 0)?;
         Ok(stats::Stats::generate(&parsed_story))
     }
 
@@ -104,30 +103,31 @@ impl Compiler {
             .source_filename
             .as_deref()
             .unwrap_or("<source>");
-        let (expanded, line_map) =
-            expand_includes(source, &file_handler, Path::new(""), source_name, 0)?;
-        let parsed_story = parser::Parser::new(&expanded)
-            .parse()
-            .map_err(|e| remap_error(e, &line_map))?;
+        let parsed_story =
+            parse_story_with_includes(source, &file_handler, Path::new(""), source_name, 0)?;
         emitter::story_to_json_string(&parsed_story, self.options.count_all_visits)
-            .map_err(|e| remap_error(e, &line_map))
+            .map_err(|e| CompilerError::invalid_source(e.to_string()))
     }
 }
 
-/// Recursively expand `INCLUDE filename` directives by substituting the
-/// contents returned by `file_handler`.  Depth is limited to 32 to avoid
-/// infinite recursion in circular includes.
+/// Parse an ink source file, resolving `INCLUDE` directives by parsing each
+/// included file independently and merging the resulting ASTs.
 ///
-/// Returns the expanded source string and a line map that associates each
-/// line of the expanded text (0-indexed) with the originating filename and
-/// 1-based line number within that file.
-fn expand_includes<F>(
+/// Each included file is parsed on its own — its knots/stitches are independent
+/// of the including file, which matches the behaviour of the official inklecate
+/// compiler (files are not simply concatenated).
+///
+/// The `root` nodes (content before the first knot) from every file — the main
+/// file and all includes — are concatenated in include order to form the story's
+/// root sequence.  Knots and other declarations from all files are merged into
+/// shared collections.
+fn parse_story_with_includes<F>(
     source: &str,
     file_handler: &F,
     current_dir: &Path,
     source_name: &str,
     depth: usize,
-) -> Result<(String, LineMap), CompilerError>
+) -> Result<ParsedStory, CompilerError>
 where
     F: Fn(&str) -> Result<String, CompilerError>,
 {
@@ -138,62 +138,80 @@ where
         ));
     }
 
-    let mut result = String::with_capacity(source.len());
-    let mut line_map: LineMap = Vec::new();
+    // Split source into segments: either an INCLUDE directive or a block of
+    // plain ink lines.  We parse each segment separately so that knots in an
+    // included file never "bleed" into the parsing context of the parent.
+    let mut segments: Vec<SegmentKind> = Vec::new();
+    let mut current_lines: Vec<&str> = Vec::new();
 
-    for (src_line_idx, line) in source.lines().enumerate() {
+    for line in source.lines() {
         let trimmed = line.trim();
         if let Some(filename) = trimmed.strip_prefix("INCLUDE ") {
-            let filename = filename.trim();
-            let include_path = normalize_include_path(current_dir, filename);
-            let included = file_handler(include_path.to_string_lossy().as_ref())?;
-            let next_dir = include_path.parent().unwrap_or_else(|| Path::new(""));
-            let inc_name = include_path.to_string_lossy().into_owned();
-            let (expanded, mut inc_map) =
-                expand_includes(&included, file_handler, next_dir, &inc_name, depth + 1)?;
-            result.push_str(&expanded);
-            line_map.append(&mut inc_map);
-            // Ensure a trailing newline after the included content
-            if !result.ends_with('\n') {
-                result.push('\n');
-                // The extra newline belongs to the including file's INCLUDE line
-                line_map.push((source_name.to_owned(), src_line_idx + 1));
+            // Flush accumulated plain lines as one segment
+            if !current_lines.is_empty() {
+                segments.push(SegmentKind::Ink(current_lines.join("\n") + "\n"));
+                current_lines.clear();
             }
+            segments.push(SegmentKind::Include(filename.trim().to_owned()));
         } else {
-            result.push_str(line);
-            result.push('\n');
-            line_map.push((source_name.to_owned(), src_line_idx + 1));
+            current_lines.push(line);
         }
     }
-    Ok((result, line_map))
+    if !current_lines.is_empty() {
+        segments.push(SegmentKind::Ink(current_lines.join("\n") + "\n"));
+    }
+
+    // Accumulate everything into a merged story
+    let mut merged = ParsedStory::default();
+
+    for segment in segments {
+        match segment {
+            SegmentKind::Ink(text) => {
+                // Parse this segment in isolation.  If it's only whitespace /
+                // comments the parser may reject it as "empty" — skip gracefully.
+                let text_trimmed = text.lines().filter(|l| !l.trim().is_empty()).count();
+                if text_trimmed == 0 {
+                    continue;
+                }
+                let partial = parser::Parser::new(&text)
+                    .parse()
+                    .map_err(|e| e.with_file(source_name.to_owned()))?;
+                merge_stories(&mut merged, partial);
+            }
+            SegmentKind::Include(filename) => {
+                let include_path = normalize_include_path(current_dir, &filename);
+                let included = file_handler(include_path.to_string_lossy().as_ref())?;
+                let next_dir = include_path.parent().unwrap_or_else(|| Path::new(""));
+                let inc_name = include_path.to_string_lossy().into_owned();
+                let inc_story = parse_story_with_includes(
+                    &included,
+                    file_handler,
+                    next_dir,
+                    &inc_name,
+                    depth + 1,
+                )?;
+                merge_stories(&mut merged, inc_story);
+            }
+        }
+    }
+
+    Ok(merged)
 }
 
-/// Translate a compiler error's line number (which refers to the expanded,
-/// flattened source) back to the original filename and line using `line_map`.
-fn remap_error(error: CompilerError, line_map: &LineMap) -> CompilerError {
-    // Only remap when the error has a line number but no file yet.
-    let expanded_line = match &error {
-        CompilerError::InvalidSource {
-            file: None,
-            line: Some(l),
-            ..
-        }
-        | CompilerError::UnsupportedFeature {
-            file: None,
-            line: Some(l),
-            ..
-        } => *l,
-        _ => return error,
-    };
+enum SegmentKind {
+    Ink(String),
+    Include(String),
+}
 
-    // line_map is 0-indexed; expanded_line is 1-based.
-    if let Some((filename, orig_line)) = line_map.get(expanded_line.saturating_sub(1)) {
-        error
-            .with_file(filename.clone())
-            .with_line_override(*orig_line)
-    } else {
-        error
-    }
+/// Merge `src` into `dst`:
+/// - root nodes are appended in order
+/// - flows, globals, list_declarations, external_functions are extended
+fn merge_stories(dst: &mut ParsedStory, src: ParsedStory) {
+    dst.root.extend(src.root);
+    dst.flows.extend(src.flows);
+    dst.globals.extend(src.globals);
+    dst.list_declarations.extend(src.list_declarations);
+    dst.external_functions.extend(src.external_functions);
 }
 
 fn normalize_include_path(current_dir: &Path, filename: &str) -> PathBuf {
