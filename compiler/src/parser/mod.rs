@@ -20,6 +20,7 @@ use self::{
     sequence::{looks_like_sequence, parse_sequence},
 };
 
+#[derive(Clone)]
 pub struct Line<'a> {
     pub content: &'a str,
     pub indent: usize,

@@ -308,9 +308,7 @@ Shuffle once: {f_shuffle_once()} {f_shuffle_once()} {f_shuffle_once()} {f_shuffl
 }
 
 // TestWeaveWithinSequence (Tests.cs:2962)
-// NOTE: choices inside sequences are not yet supported by our compiler
 #[test]
-#[ignore]
 fn weave_within_sequence_test() -> Result<(), StoryError> {
     let ink = r#"
 { shuffle:

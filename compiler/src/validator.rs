@@ -4,10 +4,10 @@
 /// knowledge of the whole story structure, such as:
 /// - Divert targets that don't exist anywhere in the story
 /// - Variables referenced in a stitch/knot that are not in scope
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    ast::{AssignMode, Condition, Divert, Expression, Node, ParsedStory},
+    ast::{AssignMode, Condition, Divert, Expression, Flow, Node, ParsedStory},
     error::CompilerError,
 };
 
@@ -31,6 +31,11 @@ struct ValidationContext {
     function_names: BTreeSet<String>,
     /// Declared EXTERNAL function names.
     external_functions: BTreeSet<String>,
+    /// Global VAR names.
+    global_var_names: BTreeSet<String>,
+    /// CONST names.
+    #[allow(dead_code)]
+    const_names: BTreeSet<String>,
 }
 
 impl ValidationContext {
@@ -38,6 +43,8 @@ impl ValidationContext {
         let mut valid_targets: BTreeSet<String> = BTreeSet::new();
         let mut flow_names: BTreeSet<String> = BTreeSet::new();
         let mut function_names: BTreeSet<String> = BTreeSet::new();
+        let mut global_var_names: BTreeSet<String> = BTreeSet::new();
+        let mut const_names: BTreeSet<String> = BTreeSet::new();
 
         // Reserved targets always valid
         for t in &["END", "DONE", "->->"] {
@@ -47,6 +54,12 @@ impl ValidationContext {
         // Global VARs can hold divert values and be used as divert targets
         for g in story.globals() {
             valid_targets.insert(g.name.clone());
+            global_var_names.insert(g.name.clone());
+        }
+
+        // CONSTs
+        for name in story.consts.keys() {
+            const_names.insert(name.clone());
         }
 
         // Collect gather/choice labels from root nodes
@@ -80,16 +93,26 @@ impl ValidationContext {
             flow_names,
             function_names,
             external_functions: story.external_functions.iter().cloned().collect(),
+            global_var_names,
+            const_names,
         }
     }
 
     fn validate_story(&self, story: &ParsedStory) -> Result<(), CompilerError> {
         // Validate root nodes
+        let empty_params = BTreeSet::new();
+        self.validate_temp_names(story.root(), &empty_params)?;
         self.validate_nodes_diverts(story.root(), "")?;
         self.validate_nodes_function_calls(story.root())?;
 
         // Validate each flow
         for flow in story.flows() {
+            // Validate that function purity rules are respected
+            self.validate_function_purity(flow)?;
+
+            // Validate argument name collisions
+            self.validate_flow_parameter_names(flow)?;
+
             // Collect all temps defined in this flow's own nodes (includes nested nodes)
             let flow_params: BTreeSet<String> = flow.parameters.iter().cloned().collect();
             let flow_divert_params: BTreeSet<String> =
@@ -98,6 +121,9 @@ impl ValidationContext {
             let flow_scope = ScopeInfo {
                 forbidden: BTreeSet::new(),
             };
+
+            // Validate temp naming collisions with function names in this flow
+            self.validate_temp_names(&flow.nodes, &flow_params)?;
 
             self.validate_nodes_diverts(&flow.nodes, &flow.name)?;
             self.validate_nodes_function_calls(&flow.nodes)?;
@@ -108,7 +134,10 @@ impl ValidationContext {
             )?;
             self.validate_nodes_vars(&flow.nodes, &flow_scope)?;
 
+            // Validate stitch names don't collide with VAR names
             for stitch in &flow.children {
+                self.validate_stitch_name(stitch)?;
+
                 let stitch_params: BTreeSet<String> = stitch.parameters.iter().cloned().collect();
                 let stitch_divert_params: BTreeSet<String> =
                     stitch.divert_parameters.iter().cloned().collect();
@@ -123,6 +152,9 @@ impl ValidationContext {
                 // A stitch can only see its own params/temps, NOT the parent knot's
                 let stitch_scope = ScopeInfo { forbidden };
 
+                // Validate temp naming collisions in stitch
+                self.validate_temp_names(&stitch.nodes, &stitch_params)?;
+
                 let qualified = format!("{}.{}", flow.name, stitch.name);
                 self.validate_nodes_diverts(&stitch.nodes, &qualified)?;
                 self.validate_nodes_function_calls(&stitch.nodes)?;
@@ -132,9 +164,231 @@ impl ValidationContext {
                     &stitch_divert_params,
                 )?;
                 self.validate_nodes_vars(&stitch.nodes, &stitch_scope)?;
+
+                // Validate duplicate gather labels within stitch
+                self.validate_no_duplicate_gather_labels(&stitch.nodes)?;
             }
+
+            // Validate duplicate gather labels within knot
+            self.validate_no_duplicate_gather_labels(&flow.nodes)?;
         }
 
+        // Validate duplicate gather labels in root
+        self.validate_no_duplicate_gather_labels(story.root())?;
+
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Stitch name collision with vars
+    // -----------------------------------------------------------------------
+
+    fn validate_stitch_name(&self, stitch: &Flow) -> Result<(), CompilerError> {
+        if self.global_var_names.contains(&stitch.name) {
+            return Err(CompilerError::invalid_source(format!(
+                "The name '{}' has already been used for a var declaration.",
+                stitch.name
+            )));
+        }
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Duplicate gather labels
+    // -----------------------------------------------------------------------
+
+    fn validate_no_duplicate_gather_labels(&self, nodes: &[Node]) -> Result<(), CompilerError> {
+        let mut seen: BTreeMap<String, ()> = BTreeMap::new();
+        self.collect_and_check_gather_labels(nodes, &mut seen)
+    }
+
+    fn collect_and_check_gather_labels(
+        &self,
+        nodes: &[Node],
+        seen: &mut BTreeMap<String, ()>,
+    ) -> Result<(), CompilerError> {
+        for node in nodes {
+            match node {
+                Node::GatherLabel(label) if seen.insert(label.clone(), ()).is_some() => {
+                    return Err(CompilerError::invalid_source(format!(
+                        "A gather point with the same label '{label}' already exists in this scope."
+                    )));
+                }
+                Node::Choice(c) => {
+                    self.collect_and_check_gather_labels(&c.body, seen)?;
+                }
+                Node::Conditional {
+                    when_true,
+                    when_false,
+                    ..
+                } => {
+                    self.collect_and_check_gather_labels(when_true, seen)?;
+                    if let Some(wf) = when_false {
+                        self.collect_and_check_gather_labels(wf, seen)?;
+                    }
+                }
+                Node::SwitchConditional { branches, .. } => {
+                    for (_, body) in branches {
+                        self.collect_and_check_gather_labels(body, seen)?;
+                    }
+                }
+                Node::Sequence(seq) => {
+                    for branch in &seq.branches {
+                        self.collect_and_check_gather_labels(branch, seen)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Temp variable name collision with function names
+    // -----------------------------------------------------------------------
+
+    fn validate_temp_names(
+        &self,
+        nodes: &[Node],
+        params: &BTreeSet<String>,
+    ) -> Result<(), CompilerError> {
+        self.check_temps_in_nodes(nodes, params)
+    }
+
+    fn check_temps_in_nodes(
+        &self,
+        nodes: &[Node],
+        params: &BTreeSet<String>,
+    ) -> Result<(), CompilerError> {
+        for node in nodes {
+            match node {
+                Node::Assignment {
+                    variable_name,
+                    mode: AssignMode::TempSet,
+                    ..
+                } => {
+                    if self.function_names.contains(variable_name.as_str()) {
+                        return Err(CompilerError::invalid_source(format!(
+                            "The name '{}' has already been used for a function.",
+                            variable_name
+                        )));
+                    }
+                    if params.contains(variable_name.as_str()) {
+                        return Err(CompilerError::invalid_source(format!(
+                            "The name '{}' has already been used as a parameter name.",
+                            variable_name
+                        )));
+                    }
+                }
+                Node::Choice(c) => self.check_temps_in_nodes(&c.body, params)?,
+                Node::Conditional {
+                    when_true,
+                    when_false,
+                    ..
+                } => {
+                    self.check_temps_in_nodes(when_true, params)?;
+                    if let Some(wf) = when_false {
+                        self.check_temps_in_nodes(wf, params)?;
+                    }
+                }
+                Node::SwitchConditional { branches, .. } => {
+                    for (_, body) in branches {
+                        self.check_temps_in_nodes(body, params)?;
+                    }
+                }
+                Node::Sequence(seq) => {
+                    for branch in &seq.branches {
+                        self.check_temps_in_nodes(branch, params)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Function purity checks
+    // -----------------------------------------------------------------------
+
+    fn validate_function_purity(&self, flow: &Flow) -> Result<(), CompilerError> {
+        if !flow.is_function {
+            return Ok(());
+        }
+        // Functions may not contain stitches
+        if !flow.children.is_empty() {
+            return Err(CompilerError::invalid_source(format!(
+                "Function '{}' may not contain stitches.",
+                flow.name
+            )));
+        }
+        // Functions may not contain choices or diverts
+        self.check_function_body_purity(&flow.nodes, &flow.name)
+    }
+
+    fn check_function_body_purity(
+        &self,
+        nodes: &[Node],
+        func_name: &str,
+    ) -> Result<(), CompilerError> {
+        for node in nodes {
+            match node {
+                Node::Choice(_) => {
+                    return Err(CompilerError::invalid_source(format!(
+                        "Function '{func_name}' may not contain choices."
+                    )));
+                }
+                Node::Divert(d) if d.target != "END" && d.target != "DONE" => {
+                    return Err(CompilerError::invalid_source(format!(
+                        "Function '{func_name}' may not contain diverts (found '-> {}').",
+                        d.target
+                    )));
+                }
+                Node::Conditional {
+                    when_true,
+                    when_false,
+                    ..
+                } => {
+                    self.check_function_body_purity(when_true, func_name)?;
+                    if let Some(wf) = when_false {
+                        self.check_function_body_purity(wf, func_name)?;
+                    }
+                }
+                Node::SwitchConditional { branches, .. } => {
+                    for (_, body) in branches {
+                        self.check_function_body_purity(body, func_name)?;
+                    }
+                }
+                Node::Sequence(seq) => {
+                    for branch in &seq.branches {
+                        self.check_function_body_purity(branch, func_name)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Function parameter name collision with existing knots/vars
+    // -----------------------------------------------------------------------
+
+    fn validate_flow_parameter_names(&self, flow: &Flow) -> Result<(), CompilerError> {
+        for param in &flow.parameters {
+            if self.function_names.contains(param) {
+                return Err(CompilerError::invalid_source(format!(
+                    "The name '{}' has already been used for a function.",
+                    param
+                )));
+            }
+            if self.global_var_names.contains(param) {
+                return Err(CompilerError::invalid_source(format!(
+                    "The name '{}' has already been used for a var declaration.",
+                    param
+                )));
+            }
+        }
         Ok(())
     }
 
@@ -339,9 +593,17 @@ impl ValidationContext {
         match node {
             Node::Divert(d) | Node::ThreadDivert(d) => {
                 self.check_variable_divert_target(&d.target, parameters, divert_parameters)?;
+                // Check args: if an arg is DivertTarget(name) and name is a divert_parameter,
+                // that's wrong — it shouldn't be preceded by '->'
+                for arg in &d.arguments {
+                    self.check_divert_target_arg(arg, divert_parameters)?;
+                }
             }
-            Node::TunnelDivert { target, .. } => {
+            Node::TunnelDivert { target, args, .. } => {
                 self.check_variable_divert_target(target, parameters, divert_parameters)?;
+                for arg in args {
+                    self.check_divert_target_arg(arg, divert_parameters)?;
+                }
             }
             Node::Choice(choice) => {
                 self.validate_nodes_variable_divert_targets(
@@ -399,6 +661,24 @@ impl ValidationContext {
             )));
         }
 
+        Ok(())
+    }
+
+    /// Error if a DivertTarget expression wraps a name that is already a divert parameter
+    /// (it shouldn't be preceded by '->').
+    fn check_divert_target_arg(
+        &self,
+        expr: &Expression,
+        divert_parameters: &BTreeSet<String>,
+    ) -> Result<(), CompilerError> {
+        if let Expression::DivertTarget(name) = expr
+            && divert_parameters.contains(name.as_str())
+        {
+            return Err(CompilerError::invalid_source(format!(
+                "The parameter '{name}' is already a divert target; \
+                 it shouldn't be preceded by '->'."
+            )));
+        }
         Ok(())
     }
 

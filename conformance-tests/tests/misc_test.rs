@@ -693,7 +693,6 @@ fn weave_options_test() -> Result<(), StoryError> {
 
 // TestMultilineLogicWithGlue (Tests.cs) — KNOWN ISSUE: multiline conditional + glue on same line
 #[test]
-#[ignore = "multiline conditional followed by glue on same source line not supported"]
 fn multiline_logic_with_glue_test() -> Result<(), StoryError> {
     let ink = r#"
 {true:
@@ -1026,7 +1025,6 @@ fn nested_choice_error_test() {
 // TestStitchNamingCollision (Tests.cs)
 // A stitch with the same name as a VAR should be an error.
 #[test]
-#[ignore = "compiler does not yet validate stitch names colliding with vars"]
 fn stitch_naming_collision_test() {
     let ink = r#"
 VAR stitch = 0
@@ -1051,7 +1049,6 @@ VAR stitch = 0
 // TestWeavePointNamingCollision (Tests.cs)
 // Two gathers with the same label in the same scope should error.
 #[test]
-#[ignore = "compiler does not yet validate duplicate gather labels"]
 fn weave_point_naming_collision_test() {
     let ink = r#"
 -(opts)
@@ -1076,7 +1073,6 @@ opts1
 // TestVariableNamingCollisionWithFlow (Tests.cs)
 // A temp variable with the same name as a function should error.
 #[test]
-#[ignore = "compiler does not yet validate temp variable names colliding with functions"]
 fn variable_naming_collision_with_flow_test() {
     let ink = r#"
 LIST someList = A, B
@@ -1103,7 +1099,6 @@ LIST someList = A, B
 // TestVariableNamingCollisionWithArg (Tests.cs)
 // A temp variable inside a function with the same name as the parameter should error.
 #[test]
-#[ignore = "compiler does not yet validate temp variable names colliding with function args"]
 fn variable_naming_collision_with_arg_test() {
     let ink = "=== function knot (a)\n    ~temp a = 1";
     let result = Compiler::new().compile(ink);
@@ -1122,7 +1117,6 @@ fn variable_naming_collision_with_arg_test() {
 // TestWrongVariableDivertTargetReference (Tests.cs)
 // Passing -> b to a function that already expects a divert target should error.
 #[test]
-#[ignore = "compiler does not yet validate passing -> to already-typed divert target params"]
 fn wrong_variable_divert_target_reference_test() {
     let ink = r#"
 -> go_to_broken(-> SOMEWHERE)
@@ -1153,7 +1147,6 @@ Should be able to get here!
 // TestArgumentNameCollisions (Tests.cs)
 // A function argument with the same name as an existing knot/var should error.
 #[test]
-#[ignore = "compiler does not yet validate function argument names colliding with existing knots/vars"]
 fn argument_name_collisions_test() {
     let ink = r#"
 VAR global_var = 5

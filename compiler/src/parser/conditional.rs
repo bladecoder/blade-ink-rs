@@ -105,7 +105,7 @@ pub fn parse_conditional(
         let body_line = &lines[*line_index];
         let trimmed = body_line.content.trim();
 
-        if trimmed == "}" {
+        if let Some(tail) = closing_brace_tail(trimmed) {
             let closing_had_newline = body_line.had_newline && (*line_index + 1) < lines.len();
             *line_index += 1;
 
@@ -118,6 +118,45 @@ pub fn parse_conditional(
                     Some(when_false)
                 },
             }];
+            // Parse any inline content after the `}` (e.g. `} <> more text`)
+            if !tail.is_empty() {
+                // If the tail contains a multiline construct (e.g. `<> { true:`), use parse_stmt
+                // for the part starting at `{`, emitting glue/text before it manually.
+                if let Some(brace_pos) = tail.find('{') {
+                    let before_brace = &tail[..brace_pos];
+                    let from_brace = &tail[brace_pos..];
+                    // Emit the part before `{` as inline tokens (e.g. `<> `)
+                    if !before_brace.trim().is_empty() || before_brace.contains(' ') {
+                        nodes.extend(tokenize_inline_content(before_brace)?);
+                    }
+                    // Build synthetic lines: [from_brace] ++ remaining lines
+                    let synthetic = Line {
+                        content: from_brace,
+                        had_newline: body_line.had_newline,
+                        indent: 0,
+                    };
+                    let combined: Vec<Line<'_>> = std::iter::once(synthetic)
+                        .chain(lines[*line_index..].iter().map(|l| Line {
+                            content: l.content,
+                            indent: l.indent,
+                            had_newline: l.had_newline,
+                        }))
+                        .collect();
+                    let mut local_idx: usize = 0;
+                    if let ParsedStatement::Nodes(mut tail_nodes) =
+                        parse_stmt(&combined, &mut local_idx, true)?
+                    {
+                        nodes.append(&mut tail_nodes);
+                    }
+                    *line_index += local_idx.saturating_sub(1);
+                } else {
+                    nodes.extend(tokenize_inline_content(tail)?);
+                    if closing_had_newline {
+                        nodes.push(Node::Newline);
+                    }
+                    return Ok(nodes);
+                }
+            }
             if closing_had_newline {
                 nodes.push(Node::Newline);
             }
@@ -229,13 +268,17 @@ pub fn parse_multi_branch_conditional(
         let line = &lines[*line_index];
         let trimmed = line.content.trim();
 
-        if trimmed == "}" {
+        if let Some(tail) = closing_brace_tail(trimmed) {
             let closing_had_newline = line.had_newline && (*line_index + 1) < lines.len();
             *line_index += 1;
             if current_condition.is_some() || !current_nodes.is_empty() {
                 branches.push((current_condition.take(), current_nodes));
             }
             let mut nodes = fold_conditional_branches(branches)?;
+            // Parse any inline content after `}` (e.g. `} <> more text`)
+            if !tail.is_empty() {
+                nodes.extend(tokenize_inline_content(tail)?);
+            }
             if closing_had_newline {
                 nodes.push(Node::Newline);
             }
@@ -418,13 +461,15 @@ fn parse_switch_conditional(
     let mut current_case: Option<Expression> = None;
     let mut current_nodes: Vec<Node> = Vec::new();
     let mut closing_had_newline = false;
+    let mut closing_tail = String::new();
 
     while *line_index < lines.len() {
         let line = &lines[*line_index];
         let trimmed = line.content.trim();
 
-        if trimmed == "}" {
+        if let Some(tail) = closing_brace_tail(trimmed) {
             closing_had_newline = line.had_newline && (*line_index + 1) < lines.len();
+            closing_tail = tail.to_owned();
             *line_index += 1;
             if current_case.is_some() || !current_nodes.is_empty() {
                 branches.push((current_case.take(), current_nodes));
@@ -525,8 +570,27 @@ fn parse_switch_conditional(
     }
 
     let mut result = vec![Node::SwitchConditional { value, branches }];
+    if !closing_tail.is_empty() {
+        result.extend(tokenize_inline_content(&closing_tail)?);
+    }
     if closing_had_newline {
         result.push(Node::Newline);
     }
     Ok(result)
+}
+
+/// If `trimmed` is exactly `}` or starts with `} ` / `}<>` etc., return the tail after `}`.
+/// Returns `None` if the line is not a closing brace line.
+fn closing_brace_tail(trimmed: &str) -> Option<&str> {
+    if trimmed == "}" {
+        return Some("");
+    }
+    if let Some(tail) = trimmed.strip_prefix('}') {
+        // Only treat as a closing-brace line if what follows is whitespace or `<>`
+        let tail = tail.trim_start();
+        if tail.is_empty() || tail.starts_with("<>") || tail.starts_with("->") {
+            return Some(tail);
+        }
+    }
+    None
 }

@@ -86,38 +86,85 @@ pub fn parse_sequence(
         })?;
         *line_index += 1;
 
-        let mut branch_nodes = if branch_text.trim().is_empty() {
-            Vec::new()
+        let inline_text = branch_text.trim_start();
+
+        let mut branch_nodes = if inline_text.starts_with('*') || inline_text.starts_with('+') {
+            // The branch header contains a choice.  Pre-collect the body lines that belong
+            // to this branch so the choice parser can absorb them into `Choice.body` rather
+            // than leaving them as orphaned sibling nodes after the choice.
+            let body_start = *line_index;
+            let mut body_end = *line_index;
+            while body_end < lines.len() {
+                let t = lines[body_end].content.trim();
+                if t == "}"
+                    || is_sequence_branch_header(t)
+                    || super::parse_header(lines[body_end].content).is_some()
+                {
+                    break;
+                }
+                body_end += 1;
+            }
+            let choice_indent = body_line.indent + 1;
+            let mut synthetic_lines: Vec<Line<'_>> = Vec::with_capacity(1 + body_end - body_start);
+            synthetic_lines.push(Line {
+                content: inline_text,
+                had_newline: body_line.had_newline,
+                indent: choice_indent,
+            });
+            for line in &lines[body_start..body_end] {
+                synthetic_lines.push(line.clone());
+            }
+            let mut idx = 0;
+            let nodes = match parse_stmt(&synthetic_lines, &mut idx, true)? {
+                ParsedStatement::Nodes(nodes) => nodes,
+                _ => Vec::new(),
+            };
+            // Advance line_index past all consumed body lines
+            *line_index = body_end;
+            nodes
         } else {
-            tokenize_inline_content(branch_text.trim_start())?
+            // Non-choice branch: tokenize any inline text on the branch header line,
+            // apply had_newline wrapping, then collect subsequent body lines.
+            let mut nodes = if inline_text.is_empty() {
+                Vec::new()
+            } else {
+                tokenize_inline_content(inline_text)?
+            };
+            if body_line.had_newline {
+                nodes.insert(0, Node::Newline);
+                nodes.push(Node::Newline);
+            }
+            // Collect body lines (stops at }, next branch header, or knot/stitch header)
+            while *line_index < lines.len() {
+                let next_trimmed = lines[*line_index].content.trim();
+                if next_trimmed == "}"
+                    || is_sequence_branch_header(next_trimmed)
+                    || super::parse_header(lines[*line_index].content).is_some()
+                {
+                    break;
+                }
+                let statement = parse_stmt(lines, line_index, true)?;
+                match statement {
+                    ParsedStatement::Global(_)
+                    | ParsedStatement::List(_)
+                    | ParsedStatement::ExternalFunction(_)
+                    | ParsedStatement::Const(_) => {
+                        return Err(CompilerError::unsupported_feature(
+                            "global declarations are not supported inside sequences".to_owned(),
+                        ));
+                    }
+                    ParsedStatement::Nodes(mut n) => nodes.append(&mut n),
+                }
+            }
+            nodes
         };
-        if body_line.had_newline {
+
+        // For choice branches the had_newline wrapping is handled by the choice parser
+        // (the synthetic line carries the flag).  For non-choice branches it was already
+        // applied above, so we only need to apply it here for choice branches.
+        if (inline_text.starts_with('*') || inline_text.starts_with('+')) && body_line.had_newline {
             branch_nodes.insert(0, Node::Newline);
             branch_nodes.push(Node::Newline);
-        }
-
-        while *line_index < lines.len() {
-            let next_line = &lines[*line_index];
-            let next_trimmed = next_line.content.trim();
-            if next_trimmed == "}"
-                || is_sequence_branch_header(next_trimmed)
-                || super::parse_header(next_line.content).is_some()
-            {
-                break;
-            }
-
-            let statement = parse_stmt(lines, line_index, true)?;
-            match statement {
-                ParsedStatement::Global(_)
-                | ParsedStatement::List(_)
-                | ParsedStatement::ExternalFunction(_)
-                | ParsedStatement::Const(_) => {
-                    return Err(CompilerError::unsupported_feature(
-                        "global declarations are not supported inside sequences".to_owned(),
-                    ));
-                }
-                ParsedStatement::Nodes(mut nodes) => branch_nodes.append(&mut nodes),
-            }
         }
 
         branches.push(branch_nodes);
