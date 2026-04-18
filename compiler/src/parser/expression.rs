@@ -159,15 +159,23 @@ pub fn tokenize_expression(input: &str) -> Result<Vec<Token>, CompilerError> {
             }
             '0'..='9' => {
                 let start = index;
+                let mut saw_identifier_tail = false;
+                let mut saw_dot = false;
                 index += 1;
-                while index < chars.len() && chars[index].is_ascii_digit() {
+                while index < chars.len()
+                    && matches!(chars[index], 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '.')
+                {
+                    if matches!(chars[index], 'a'..='z' | 'A'..='Z' | '_') {
+                        saw_identifier_tail = true;
+                    } else if chars[index] == '.' {
+                        saw_dot = true;
+                    }
                     index += 1;
                 }
-                if index < chars.len() && chars[index] == '.' {
-                    index += 1;
-                    while index < chars.len() && chars[index].is_ascii_digit() {
-                        index += 1;
-                    }
+                let token_text = &input[start..index];
+                if saw_identifier_tail {
+                    tokens.push(Token::Ident(token_text.to_owned()));
+                } else if saw_dot {
                     let value = input[start..index].parse::<f32>().map_err(|error| {
                         CompilerError::invalid_source(format!("invalid float literal: {error}"))
                     })?;

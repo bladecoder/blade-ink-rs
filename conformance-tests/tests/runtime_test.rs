@@ -16,6 +16,14 @@ struct ExtFunc3;
 struct ExtFunc4;
 struct ExtFunc5;
 struct ExtFunc6;
+struct MessageRecorder {
+    message: Rc<RefCell<Option<String>>>,
+}
+struct MultiplyFunc;
+struct TimesFunc;
+struct CallCounter {
+    count: Rc<RefCell<i32>>,
+}
 
 impl ExternalFunction for ExtFunc1 {
     fn call(&mut self, func_name: &str, args: Vec<ValueType>) -> Option<ValueType> {
@@ -63,6 +71,43 @@ impl ExternalFunction for ExtFunc6 {
         let y = args[1].coerce_to_int().unwrap_or_default();
         let z = args[2].coerce_to_int().unwrap_or_default();
         Some(ValueType::Int(x + y + z))
+    }
+}
+
+impl ExternalFunction for MessageRecorder {
+    fn call(&mut self, _: &str, args: Vec<ValueType>) -> Option<ValueType> {
+        *self.message.borrow_mut() = Some(format!(
+            "MESSAGE: {}",
+            args[0].coerce_to_string().unwrap_or_default()
+        ));
+        None
+    }
+}
+
+impl ExternalFunction for MultiplyFunc {
+    fn call(&mut self, _: &str, args: Vec<ValueType>) -> Option<ValueType> {
+        let x = args[0].coerce_to_float().unwrap_or_default();
+        let y = args[1].coerce_to_int().unwrap_or_default() as f32;
+        Some(ValueType::Float(x * y))
+    }
+}
+
+impl ExternalFunction for TimesFunc {
+    fn call(&mut self, _: &str, args: Vec<ValueType>) -> Option<ValueType> {
+        let times = args[0].coerce_to_int().unwrap_or_default();
+        let text = args[1].coerce_to_string().unwrap_or_default();
+        let mut result = String::new();
+        for _ in 0..times {
+            result.push_str(&text);
+        }
+        Some(ValueType::new(result.as_str()))
+    }
+}
+
+impl ExternalFunction for CallCounter {
+    fn call(&mut self, _: &str, _: Vec<ValueType>) -> Option<ValueType> {
+        *self.count.borrow_mut() += 1;
+        None
     }
 }
 
@@ -170,6 +215,100 @@ Text.
     let mut story = Story::new(&json_string)?;
     assert_eq!("Text.\n", story.cont()?);
     assert_eq!("5\n", story.cont()?);
+    Ok(())
+}
+
+// TestExternalBinding (Tests.cs:823)
+#[test]
+fn external_binding_test() -> Result<(), Box<dyn Error>> {
+    let ink = r#"
+EXTERNAL message(x)
+EXTERNAL multiply(x,y)
+EXTERNAL times(i,str)
+~ message("hello world")
+{multiply(5.0, 3)}
+{times(3, "knock ")}
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    let message = Rc::new(RefCell::new(None));
+
+    story.bind_external_function(
+        "message",
+        Rc::new(RefCell::new(MessageRecorder {
+            message: message.clone(),
+        })),
+        true,
+    )?;
+    story.bind_external_function("multiply", Rc::new(RefCell::new(MultiplyFunc)), true)?;
+    story.bind_external_function("times", Rc::new(RefCell::new(TimesFunc)), true)?;
+
+    assert_eq!("15\n", story.cont()?);
+    assert_eq!("knock knock knock\n", story.cont()?);
+    assert_eq!(
+        Some("MESSAGE: hello world".to_owned()),
+        message.borrow().clone()
+    );
+
+    Ok(())
+}
+
+// TestLookupSafeOrNot (Tests.cs:863)
+#[test]
+fn lookup_safe_or_not_test() -> Result<(), Box<dyn Error>> {
+    let ink = r#"
+EXTERNAL myAction()
+
+One
+~ myAction()
+Two
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    let safe_count = Rc::new(RefCell::new(0));
+
+    story.bind_external_function(
+        "myAction",
+        Rc::new(RefCell::new(CallCounter {
+            count: safe_count.clone(),
+        })),
+        true,
+    )?;
+    story.continue_maximally()?;
+    assert_eq!(2, *safe_count.borrow());
+
+    story.reset_state()?;
+    story.unbind_external_function("myAction")?;
+
+    let unsafe_count = Rc::new(RefCell::new(0));
+    story.bind_external_function(
+        "myAction",
+        Rc::new(RefCell::new(CallCounter {
+            count: unsafe_count.clone(),
+        })),
+        false,
+    )?;
+    story.continue_maximally()?;
+    assert_eq!(1, *unsafe_count.borrow());
+
+    let glue_ink = r#"
+EXTERNAL myAction()
+
+One 
+~ myAction()
+<> Two
+"#;
+    let json = Compiler::new().compile(glue_ink).unwrap();
+    let mut story = Story::new(&json)?;
+    story.bind_external_function(
+        "myAction",
+        Rc::new(RefCell::new(CallCounter {
+            count: Rc::new(RefCell::new(0)),
+        })),
+        false,
+    )?;
+    assert_eq!("One\nTwo\n", story.continue_maximally()?);
+
     Ok(())
 }
 

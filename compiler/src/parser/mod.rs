@@ -30,10 +30,12 @@ pub enum Header {
     Knot {
         name: String,
         parameters: Vec<String>,
+        ref_parameters: Vec<String>,
     },
     Function {
         name: String,
         parameters: Vec<String>,
+        ref_parameters: Vec<String>,
     },
     Stitch {
         name: String,
@@ -46,6 +48,7 @@ struct FlowBuilder {
     is_function: bool,
     is_root_stitch: bool,
     parameters: Vec<String>,
+    ref_parameters: Vec<String>,
     nodes: Vec<Node>,
     children: Vec<Flow>,
 }
@@ -97,7 +100,11 @@ impl<'a> Parser<'a> {
             let ln = line_index + 1;
             if let Some(header) = parse_header(lines[line_index].content) {
                 match header {
-                    Header::Knot { name, parameters } => {
+                    Header::Knot {
+                        name,
+                        parameters,
+                        ref_parameters,
+                    } => {
                         finalize_stitch(&mut current_flow, &mut current_stitch)
                             .map_err(|e| e.with_line(ln))?;
                         if let Some(flow) = current_flow.take() {
@@ -109,11 +116,16 @@ impl<'a> Parser<'a> {
                             is_function: false,
                             is_root_stitch: false,
                             parameters,
+                            ref_parameters,
                             nodes: Vec::new(),
                             children: Vec::new(),
                         });
                     }
-                    Header::Function { name, parameters } => {
+                    Header::Function {
+                        name,
+                        parameters,
+                        ref_parameters,
+                    } => {
                         finalize_stitch(&mut current_flow, &mut current_stitch)
                             .map_err(|e| e.with_line(ln))?;
                         if let Some(flow) = current_flow.take() {
@@ -125,6 +137,7 @@ impl<'a> Parser<'a> {
                             is_function: true,
                             is_root_stitch: false,
                             parameters,
+                            ref_parameters,
                             nodes: Vec::new(),
                             children: Vec::new(),
                         });
@@ -144,6 +157,7 @@ impl<'a> Parser<'a> {
                                 is_function: false,
                                 is_root_stitch: true,
                                 parameters: Vec::new(),
+                                ref_parameters: Vec::new(),
                                 nodes: Vec::new(),
                                 children: Vec::new(),
                             });
@@ -153,6 +167,7 @@ impl<'a> Parser<'a> {
                                 is_function: false,
                                 is_root_stitch: false,
                                 parameters: Vec::new(),
+                                ref_parameters: Vec::new(),
                                 nodes: Vec::new(),
                                 children: Vec::new(),
                             });
@@ -200,6 +215,7 @@ impl FlowBuilder {
             name: self.name,
             is_function: self.is_function,
             parameters: self.parameters,
+            ref_parameters: self.ref_parameters,
             nodes: self.nodes,
             children: self.children,
         }
@@ -714,12 +730,20 @@ pub fn parse_header(line: &str) -> Option<Header> {
     if trimmed.starts_with("===") || trimmed.starts_with("==") {
         let inner = trimmed.trim_matches('=').trim();
         if let Some(rest) = inner.strip_prefix("function") {
-            let (name, parameters) = parse_header_signature(rest.trim())?;
-            return Some(Header::Function { name, parameters });
+            let (name, parameters, ref_parameters) = parse_header_signature(rest.trim())?;
+            return Some(Header::Function {
+                name,
+                parameters,
+                ref_parameters,
+            });
         }
 
-        let (name, parameters) = parse_header_signature(inner)?;
-        return Some(Header::Knot { name, parameters });
+        let (name, parameters, ref_parameters) = parse_header_signature(inner)?;
+        return Some(Header::Knot {
+            name,
+            parameters,
+            ref_parameters,
+        });
     }
 
     if trimmed.starts_with('=') {
@@ -733,7 +757,7 @@ pub fn parse_header(line: &str) -> Option<Header> {
     None
 }
 
-fn parse_header_signature(text: &str) -> Option<(String, Vec<String>)> {
+fn parse_header_signature(text: &str) -> Option<(String, Vec<String>, Vec<String>)> {
     use expression::split_top_level_commas;
 
     let open = text.find('(');
@@ -742,23 +766,31 @@ fn parse_header_signature(text: &str) -> Option<(String, Vec<String>)> {
     match (open, close) {
         (Some(open), Some(close)) if close > open => {
             let name = parse_path_identifier(text[..open].trim())?.to_owned();
-            let parameters = split_top_level_commas(&text[open + 1..close])
-                .into_iter()
-                .filter(|part| !part.trim().is_empty())
-                .map(|part| {
-                    // Strip divert-type annotation: "-> paramName" → "paramName"
-                    let trimmed = part.trim();
-                    if let Some(name) = trimmed.strip_prefix("->").map(str::trim) {
-                        name.to_owned()
-                    } else if let Some(name) = trimmed.strip_prefix("ref ") {
-                        name.trim().to_owned()
-                    } else {
-                        trimmed.to_owned()
-                    }
-                })
-                .collect();
-            Some((name, parameters))
+            let mut parameters = Vec::new();
+            let mut ref_parameters = Vec::new();
+            for part in split_top_level_commas(&text[open + 1..close]) {
+                let trimmed = part.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                // Strip divert-type annotation: "-> paramName" → "paramName"
+                let parameter = if let Some(name) = trimmed.strip_prefix("->").map(str::trim) {
+                    name.to_owned()
+                } else if let Some(name) = trimmed.strip_prefix("ref ") {
+                    let name = name.trim().to_owned();
+                    ref_parameters.push(name.clone());
+                    name
+                } else {
+                    trimmed.to_owned()
+                };
+                parameters.push(parameter);
+            }
+            Some((name, parameters, ref_parameters))
         }
-        _ => Some((parse_path_identifier(text)?.to_owned(), Vec::new())),
+        _ => Some((
+            parse_path_identifier(text)?.to_owned(),
+            Vec::new(),
+            Vec::new(),
+        )),
     }
 }

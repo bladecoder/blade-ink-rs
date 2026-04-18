@@ -164,6 +164,26 @@ fn varying_choice_test() -> Result<(), StoryError> {
     Ok(())
 }
 
+// TestHasReadOnChoice (Tests.cs:1046)
+#[test]
+fn has_read_on_choice_test() -> Result<(), StoryError> {
+    let ink = r#"
+* { not test } visible choice
+* { test } visible choice
+
+== test ==
+-> END
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    story.continue_maximally()?;
+    assert_eq!(1, story.get_current_choices().len());
+    assert_eq!("visible choice", story.get_current_choices()[0].text);
+
+    Ok(())
+}
+
 #[test]
 fn sticky_choice_test() -> Result<(), StoryError> {
     let ink_source = common::get_file_string("inkfiles/choices/sticky-choice.ink").unwrap();

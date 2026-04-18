@@ -221,6 +221,23 @@ fn shouldnt_gather_due_to_choice_test() -> Result<(), StoryError> {
     Ok(())
 }
 
+// TestGatherReadCountWithInitialSequence (Tests.cs:1033)
+#[test]
+fn gather_read_count_with_initial_sequence_test() -> Result<(), StoryError> {
+    let ink = r#"
+- (opts)
+{test:seen test}
+- (test)
+{ -> opts |}
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!("seen test\n", story.cont()?);
+
+    Ok(())
+}
+
 #[test]
 fn default_simple_gather_test() -> Result<(), StoryError> {
     let ink = "* ->\n- x\n-> DONE";

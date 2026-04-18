@@ -476,6 +476,60 @@ fn comment_eliminator_test() -> Result<(), StoryError> {
     Ok(())
 }
 
+// TestEmptySequenceContent (Tests.cs:733)
+#[test]
+fn empty_sequence_content_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> thing ->
+-> thing ->
+-> thing ->
+-> thing ->
+-> thing ->
+Done.
+
+== thing ==
+{once:
+  - Wait for it....
+  -
+  -
+  -  Surprise!
+}
+->->
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!(
+        "Wait for it....\nSurprise!\nDone.\n",
+        story.continue_maximally()?
+    );
+
+    Ok(())
+}
+
+// TestIdentifersCanStartWithNumbers (Tests.cs:1072)
+#[test]
+fn identifiers_can_start_with_numbers_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> 2tests
+== 2tests ==
+~ temp 512x2 = 512 * 2
+~ temp 512x2p2 = 512x2 + 2
+512x2 = {512x2}
+512x2p2 = {512x2p2}
+-> DONE
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!(
+        "512x2 = 1024\n512x2p2 = 1026\n",
+        story.continue_maximally()?
+    );
+
+    Ok(())
+}
+
 #[test]
 fn done_stops_thread_test() -> Result<(), StoryError> {
     let ink = "-> DONE\nThis content is inaccessible.\n";

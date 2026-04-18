@@ -141,3 +141,83 @@ fn evaluating_function_variable_state_bug_test() -> Result<(), StoryError> {
 
     Ok(())
 }
+
+// TestFactorialByReference (Tests.cs:906)
+#[test]
+fn factorial_by_reference_test() -> Result<(), StoryError> {
+    let ink = r#"
+VAR result = 0
+~ factorialByRef(result, 5)
+{ result }
+
+== function factorialByRef(ref r, n) ==
+{ r == 0:
+    ~ r = 1
+}
+{ n > 1:
+    ~ r = r * n
+    ~ factorialByRef(r, n-1)
+}
+~ return
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!("120\n", story.continue_maximally()?);
+
+    Ok(())
+}
+
+// TestFactorialRecursive (Tests.cs:930)
+#[test]
+fn factorial_recursive_test() -> Result<(), StoryError> {
+    let ink = r#"
+{ factorial(5) }
+
+== function factorial(n) ==
+{ n == 1:
+    ~ return 1
+- else:
+    ~ return (n * factorial(n-1))
+}
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!("120\n", story.continue_maximally()?);
+
+    Ok(())
+}
+
+// TestFunctionCallRestrictions (Tests.cs:949)
+#[test]
+fn function_call_restrictions_test() {
+    let call_knot_as_function = r#"
+~ aKnot()
+
+== function myFunc ==
+~ return
+
+== aKnot ==
+-> END
+"#;
+    let err = Compiler::new().compile(call_knot_as_function).unwrap_err();
+    assert!(
+        err.message().contains("function") || err.message().contains("call"),
+        "expected function-call restriction error, got: {}",
+        err.message()
+    );
+
+    let divert_to_function = r#"
+-> myFunc
+
+== function myFunc ==
+~ return
+"#;
+    let err = Compiler::new().compile(divert_to_function).unwrap_err();
+    assert!(
+        err.message().contains("function") || err.message().contains("divert"),
+        "expected divert-to-function restriction error, got: {}",
+        err.message()
+    );
+}

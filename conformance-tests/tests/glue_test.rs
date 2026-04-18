@@ -82,3 +82,64 @@ fn bugfix2_test() -> Result<(), StoryError> {
 
     Ok(())
 }
+
+// TestImplicitInlineGlue (Tests.cs:1088)
+#[test]
+fn implicit_inline_glue_test() -> Result<(), StoryError> {
+    let ink = r#"
+I have {five()} eggs.
+
+== function five ==
+{false:
+    Don't print this
+}
+five
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!("I have five eggs.\n", story.cont()?);
+
+    Ok(())
+}
+
+// TestImplicitInlineGlueB (Tests.cs:1104)
+#[test]
+fn implicit_inline_glue_b_test() -> Result<(), StoryError> {
+    let ink = r#"
+A {f():B} 
+X
+
+=== function f() ===
+{true:
+    ~ return false
+}
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!("A\nX\n", story.continue_maximally()?);
+
+    Ok(())
+}
+
+// TestImplicitInlineGlueC (Tests.cs:1120)
+#[test]
+fn implicit_inline_glue_c_test() -> Result<(), StoryError> {
+    let ink = r#"
+A
+{f():X}
+C
+
+=== function f()
+{true:
+    ~ return false
+}
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+
+    assert_eq!("A\nC\n", story.continue_maximally()?);
+
+    Ok(())
+}

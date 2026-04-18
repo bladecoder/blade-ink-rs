@@ -27,12 +27,17 @@ struct ValidationContext {
     valid_targets: BTreeSet<String>,
     /// Top-level flow names (knots + functions).
     flow_names: BTreeSet<String>,
+    /// Function flow names.
+    function_names: BTreeSet<String>,
+    /// Declared EXTERNAL function names.
+    external_functions: BTreeSet<String>,
 }
 
 impl ValidationContext {
     fn build(story: &ParsedStory) -> Self {
         let mut valid_targets: BTreeSet<String> = BTreeSet::new();
         let mut flow_names: BTreeSet<String> = BTreeSet::new();
+        let mut function_names: BTreeSet<String> = BTreeSet::new();
 
         // Reserved targets always valid
         for t in &["END", "DONE", "->->"] {
@@ -50,6 +55,9 @@ impl ValidationContext {
         // Collect knot/stitch names, their labels, and parameters (params can be divert targets)
         for flow in story.flows() {
             flow_names.insert(flow.name.clone());
+            if flow.is_function {
+                function_names.insert(flow.name.clone());
+            }
             valid_targets.insert(flow.name.clone());
             // Parameters can be used as divert targets inside the flow
             for param in &flow.parameters {
@@ -70,12 +78,15 @@ impl ValidationContext {
         Self {
             valid_targets,
             flow_names,
+            function_names,
+            external_functions: story.external_functions.iter().cloned().collect(),
         }
     }
 
     fn validate_story(&self, story: &ParsedStory) -> Result<(), CompilerError> {
         // Validate root nodes
         self.validate_nodes_diverts(story.root(), "")?;
+        self.validate_nodes_function_calls(story.root())?;
 
         // Validate each flow
         for flow in story.flows() {
@@ -87,6 +98,7 @@ impl ValidationContext {
             };
 
             self.validate_nodes_diverts(&flow.nodes, &flow.name)?;
+            self.validate_nodes_function_calls(&flow.nodes)?;
             self.validate_nodes_vars(&flow.nodes, &flow_scope)?;
 
             for stitch in &flow.children {
@@ -104,6 +116,7 @@ impl ValidationContext {
 
                 let qualified = format!("{}.{}", flow.name, stitch.name);
                 self.validate_nodes_diverts(&stitch.nodes, &qualified)?;
+                self.validate_nodes_function_calls(&stitch.nodes)?;
                 self.validate_nodes_vars(&stitch.nodes, &stitch_scope)?;
             }
         }
@@ -170,6 +183,11 @@ impl ValidationContext {
         if target.starts_with('$') {
             return Ok(());
         }
+        if self.function_names.contains(target) {
+            return Err(CompilerError::invalid_source(format!(
+                "Function '{target}' can only be called as a function, not diverted to"
+            )));
+        }
         if self.valid_targets.contains(target) || self.flow_names.contains(target) {
             return Ok(());
         }
@@ -181,6 +199,109 @@ impl ValidationContext {
         Err(CompilerError::invalid_source(format!(
             "Divert target not found: '-> {target}'"
         )))
+    }
+
+    fn validate_nodes_function_calls(&self, nodes: &[Node]) -> Result<(), CompilerError> {
+        for node in nodes {
+            self.validate_node_function_calls(node)?;
+        }
+        Ok(())
+    }
+
+    fn validate_node_function_calls(&self, node: &Node) -> Result<(), CompilerError> {
+        match node {
+            Node::OutputExpression(expr) | Node::ReturnExpr(expr) => {
+                self.validate_expr_function_calls(expr)?
+            }
+            Node::Assignment { expression, .. } => self.validate_expr_function_calls(expression)?,
+            Node::Conditional {
+                condition,
+                when_true,
+                when_false,
+            } => {
+                self.validate_condition_function_calls(condition)?;
+                self.validate_nodes_function_calls(when_true)?;
+                if let Some(wf) = when_false {
+                    self.validate_nodes_function_calls(wf)?;
+                }
+            }
+            Node::SwitchConditional { value, branches } => {
+                self.validate_expr_function_calls(value)?;
+                for (case, body) in branches {
+                    if let Some(case) = case {
+                        self.validate_expr_function_calls(case)?;
+                    }
+                    self.validate_nodes_function_calls(body)?;
+                }
+            }
+            Node::Choice(choice) => {
+                for condition in &choice.conditions {
+                    self.validate_condition_function_calls(condition)?;
+                }
+                self.validate_nodes_function_calls(&choice.body)?;
+            }
+            Node::Sequence(sequence) => {
+                for branch in &sequence.branches {
+                    self.validate_nodes_function_calls(branch)?;
+                }
+            }
+            Node::VoidCall { name, args } => {
+                self.check_function_call_target(name)?;
+                for arg in args {
+                    self.validate_expr_function_calls(arg)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn validate_condition_function_calls(
+        &self,
+        condition: &Condition,
+    ) -> Result<(), CompilerError> {
+        match condition {
+            Condition::FunctionCall(name) => self.check_function_call_target(name),
+            Condition::Expression(expr) => self.validate_expr_function_calls(expr),
+            Condition::Bool(_) => Ok(()),
+        }
+    }
+
+    fn validate_expr_function_calls(&self, expr: &Expression) -> Result<(), CompilerError> {
+        match expr {
+            Expression::FunctionCall { name, args } => {
+                self.check_function_call_target(name)?;
+                for arg in args {
+                    self.validate_expr_function_calls(arg)?;
+                }
+            }
+            Expression::Negate(expr) | Expression::Not(expr) => {
+                self.validate_expr_function_calls(expr)?;
+            }
+            Expression::Binary { left, right, .. } => {
+                self.validate_expr_function_calls(left)?;
+                self.validate_expr_function_calls(right)?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn check_function_call_target(&self, name: &str) -> Result<(), CompilerError> {
+        if self.function_names.contains(name)
+            || self.external_functions.contains(name)
+            || is_builtin_function(name)
+        {
+            return Ok(());
+        }
+
+        if self.flow_names.contains(name) {
+            return Err(CompilerError::invalid_source(format!(
+                "'{name}' hasn't been marked as a function, but it's being called as one"
+            )));
+        }
+
+        Ok(())
     }
 
     // -----------------------------------------------------------------------
@@ -337,6 +458,33 @@ fn collect_temps_recursive(nodes: &[Node], out: &mut BTreeSet<String>) {
             _ => {}
         }
     }
+}
+
+fn is_builtin_function(name: &str) -> bool {
+    matches!(
+        name,
+        "RANDOM"
+            | "SEED_RANDOM"
+            | "POW"
+            | "FLOOR"
+            | "CEILING"
+            | "INT"
+            | "FLOAT"
+            | "MIN"
+            | "MAX"
+            | "READ_COUNT"
+            | "TURNS_SINCE"
+            | "CHOICE_COUNT"
+            | "TURNS"
+            | "LIST_VALUE"
+            | "LIST_ALL"
+            | "LIST_INVERT"
+            | "LIST_COUNT"
+            | "LIST_MIN"
+            | "LIST_MAX"
+            | "LIST_RANGE"
+            | "LIST_RANDOM"
+    )
 }
 
 /// Collect gather/choice labels and their qualified paths into `targets`.

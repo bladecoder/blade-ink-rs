@@ -111,6 +111,8 @@ struct EmitContext {
     /// Fully-qualified authored label targets (e.g. `knot.stitch.choice`) mapped
     /// to their emitted runtime paths (e.g. `knot.stitch.c-0`).
     qualified_choice_labels: BTreeMap<String, String>,
+    /// For each function, whether each parameter position is `ref`.
+    function_ref_param_positions: BTreeMap<String, Vec<bool>>,
 }
 
 impl EmittedContainer {
@@ -257,6 +259,20 @@ impl EmitContext {
         }
         let turns_since_targets = collect_turns_since_targets_from_flows(story.flows());
         let qualified_choice_labels = collect_story_choice_labels(story);
+        let function_ref_param_positions = story
+            .flows()
+            .iter()
+            .filter(|flow| flow.is_function)
+            .map(|flow| {
+                (
+                    flow.name.clone(),
+                    flow.parameters
+                        .iter()
+                        .map(|parameter| flow.ref_parameters.contains(parameter))
+                        .collect(),
+                )
+            })
+            .collect();
         Self {
             global_variables: story.globals().iter().map(|var| var.name.clone()).collect(),
             top_flow_names: story.flows().iter().map(|flow| flow.name.clone()).collect(),
@@ -270,6 +286,7 @@ impl EmitContext {
             external_functions: story.external_functions.iter().cloned().collect(),
             turns_since_targets,
             qualified_choice_labels,
+            function_ref_param_positions,
         }
     }
 
@@ -807,8 +824,15 @@ fn emit_nodes_with_continuation(
             } => emit_assignment(variable_name, expression, mode, &mut out, context),
             Node::VoidCall { name, args } => {
                 out.push(json!("ev"));
-                for arg in args {
-                    emit_expression_ctx(arg, &mut out.content, Some(context), Some(scope));
+                for (index, arg) in args.iter().enumerate() {
+                    emit_call_argument(
+                        name,
+                        index,
+                        arg,
+                        &mut out.content,
+                        Some(context),
+                        Some(scope),
+                    );
                 }
                 // Only SEED_RANDOM makes sense as a void call (it has a side effect).
                 // All other built-ins return a value and are meaningless as void statements.
@@ -1412,8 +1436,8 @@ fn emit_expression_ctx(
                 "LIST_RANDOM" => Some("lrnd"),
                 _ => None,
             };
-            for arg in args {
-                emit_expression_ctx(arg, out, context, scope);
+            for (index, arg) in args.iter().enumerate() {
+                emit_call_argument(name, index, arg, out, context, scope);
             }
             if let Some(token) = builtin_token {
                 out.push(json!(token));
@@ -1473,6 +1497,27 @@ fn emit_expression_ctx(
                 BinaryOperator::Intersect => "L^",
             }));
         }
+    }
+}
+
+fn emit_call_argument(
+    function_name: &str,
+    arg_index: usize,
+    arg: &Expression,
+    out: &mut Vec<Value>,
+    context: Option<&EmitContext>,
+    scope: Option<&EmitScope>,
+) {
+    let is_ref_arg = context
+        .and_then(|ctx| ctx.function_ref_param_positions.get(function_name))
+        .and_then(|positions| positions.get(arg_index))
+        .copied()
+        .unwrap_or(false);
+
+    if is_ref_arg && let Expression::Variable(name) = arg {
+        out.push(json!({"^var": name}));
+    } else {
+        emit_expression_ctx(arg, out, context, scope);
     }
 }
 
