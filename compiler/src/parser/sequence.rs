@@ -123,10 +123,22 @@ pub fn parse_sequence(
             *line_index = body_end;
             nodes
         } else {
-            // Non-choice branch: tokenize any inline text on the branch header line,
-            // apply had_newline wrapping, then collect subsequent body lines.
+            // Non-choice branch: parse the inline text on the branch header line.
+            // If it starts with '~' it is a statement (assignment, return, etc.)
+            // and must be parsed as such; otherwise tokenize it as inline content.
             let mut nodes = if inline_text.is_empty() {
                 Vec::new()
+            } else if inline_text.starts_with('~') {
+                let synthetic = [Line {
+                    content: inline_text,
+                    had_newline: body_line.had_newline,
+                    indent: body_line.indent + 1,
+                }];
+                let mut idx = 0;
+                match parse_stmt(&synthetic, &mut idx, true)? {
+                    ParsedStatement::Nodes(n) => n,
+                    _ => Vec::new(),
+                }
             } else {
                 tokenize_inline_content(inline_text)?
             };

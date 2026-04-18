@@ -706,9 +706,18 @@ fn collect_choice_labels_recursive(
             }
             Node::GatherLabel(label) => {
                 // Standalone gather label (loop-back point): record its path so
-                // DivertTarget expressions can resolve it.
+                // DivertTarget expressions can resolve it. Remaining nodes are
+                // emitted inside the label's sub-scope, so recurse with that scope.
                 labels.insert(label.clone(), format!("{}.{}", scope.path, label));
-                i += 1;
+                let sub_scope = scope.choice_branch(label);
+                let mut child_index = 0;
+                collect_choice_labels_recursive(
+                    &nodes[i + 1..],
+                    &sub_scope,
+                    labels,
+                    &mut child_index,
+                );
+                return; // remaining nodes consumed by sub-scope recursion
             }
             _ => {
                 i += 1;
@@ -723,6 +732,49 @@ fn emit_nodes(
     context: &EmitContext,
 ) -> Result<EmittedContainer, CompilerError> {
     emit_nodes_with_continuation(nodes, scope, context, None)
+}
+
+/// Recursively replace all occurrences of `old_path` with `new_path` in divert
+/// targets (`"->"` and `"x->"` fields) within a JSON value tree.
+fn fix_divert_paths(value: &mut Value, old_path: &str, new_path: &str) {
+    match value {
+        Value::Object(map) => {
+            for field in ["->", "x->"] {
+                if let Some(v) = map.get_mut(field)
+                    && v.as_str() == Some(old_path)
+                {
+                    *v = Value::String(new_path.to_owned());
+                }
+            }
+            for v in map.values_mut() {
+                fix_divert_paths(v, old_path, new_path);
+            }
+        }
+        Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                fix_divert_paths(v, old_path, new_path);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Replace any divert to `self_path` immediately before the terminator of a
+/// JSON array with `"done"`, to avoid self-referential loops after hoisting.
+fn replace_self_divert_with_done(value: &mut Value, self_path: &str) {
+    let Value::Array(arr) = value else { return };
+    // The array ends with either null or a terminator object (last element).
+    // Check the element just before the terminator.
+    let n = arr.len();
+    if n < 2 {
+        return;
+    }
+    let candidate = n - 2; // element just before terminator
+    if let Value::Object(map) = &arr[candidate]
+        && map.get("->").and_then(Value::as_str) == Some(self_path)
+    {
+        arr[candidate] = json!("done");
+    }
 }
 
 fn emit_nodes_with_continuation(
@@ -924,18 +976,62 @@ fn emit_nodes_with_continuation(
                 // choice blocks at different nesting levels.  Emits nothing itself.
             }
             Node::GatherLabel(label) => {
-                // Emit remaining nodes as an indexed sub-container with #n: label in its
-                // terminator. This makes the runtime enter it sequentially AND allows the
-                // label to be resolved as scope.path + "." + label via named_content lookup.
+                // Emit remaining nodes as a sub-container named `label`, placed as
+                // indexed content in the parent so the runtime enters it sequentially.
+                // Any g-N continuation containers produced inside (by emit_choice_block)
+                // must be hoisted to the parent level as named-only entries: they are
+                // the "after choice" content and must be siblings of `label`, not
+                // children. We also fix any divert paths that reference the old
+                // sub-scope path so they point to the correct hoisted location.
                 let remaining = &nodes[index + 1..];
                 let sub_scope = scope.choice_branch(label);
-                let sub_container = emit_nodes_with_continuation(
+                let mut sub_container = emit_nodes_with_continuation(
                     remaining,
                     &sub_scope,
                     context,
                     fallback_continuation,
                 )?;
-                let sub_value = sub_container.into_json_array(Some(label), Some(7))?;
+                // Hoist g-N entries to parent level.
+                let g_keys: Vec<String> = sub_container
+                    .named
+                    .keys()
+                    .filter(|k| k.starts_with("g-"))
+                    .cloned()
+                    .collect();
+                for key in &g_keys {
+                    // Fix references inside sub_container from the old nested path
+                    // (sub_scope.path + "." + key) to the hoisted parent path
+                    // (scope.path + "." + key).
+                    let old_path = format!("{}.{}", sub_scope.path, key);
+                    let new_path = format!("{}.{}", scope.path, key);
+                    for v in sub_container.content.iter_mut() {
+                        fix_divert_paths(v, &old_path, &new_path);
+                    }
+                    for v in sub_container.named.values_mut() {
+                        fix_divert_paths(v, &old_path, &new_path);
+                    }
+                }
+                for key in g_keys {
+                    let mut value = sub_container.named.remove(&key).unwrap();
+                    // The hoisted g-N container may contain a fallback divert that
+                    // was computed using the outer fallback_continuation (e.g. "0.g-0").
+                    // After hoisting, g-N's new path IS scope.path + "." + key, which may
+                    // equal that fallback target, creating a self-loop. Remove any such
+                    // self-referential diverts from within the hoisted value.
+                    let hoisted_path = format!("{}.{}", scope.path, key);
+                    replace_self_divert_with_done(&mut value, &hoisted_path);
+                    out.insert_named(key, value);
+                }
+                // Add count flags for all gather-label containers when count_all_visits
+                // is set. #f:5 = CountVisits | CountStartOnly enables {label} visit-count
+                // expressions. Containers used purely as routing points technically don't
+                // need tracking, but including it is safe and keeps behaviour consistent.
+                let count_flags = if context.count_all_visits {
+                    Some(5)
+                } else {
+                    None
+                };
+                let sub_value = sub_container.into_json_array(Some(label), count_flags)?;
                 out.push(sub_value); // push as indexed content (sequential execution)
                 break; // all remaining nodes consumed by the sub-container
             }
@@ -993,34 +1089,40 @@ fn emit_choice_block(
         } else {
             continuation
         };
-        // Pass fallback through so the gather content can inherit the outer continuation
-        let mut gather_container = emit_nodes_with_continuation(
-            continuation_body,
-            &continuation_scope,
-            context,
-            fallback_continuation,
-        )?;
-        // If the gather doesn't end terminally AND doesn't have nested choices,
-        // append the fallback continuation divert.
-        // If it has nested choices, those will carry the fallback themselves.
-        // Guard: never append a divert to our own g-N path (would create an infinite loop).
+        // When the fallback points to the g-N we are creating (fallback_is_self),
+        // propagating it into the inner content would create a self-referential loop.
+        // In that case, pass None so the inner content either falls off naturally or
+        // appends "done" via the terminal check below.  When the fallback points to
+        // something else (e.g. an outer gather), it is safe and correct to propagate.
         let has_nested_choices_in_continuation = continuation_body
             .iter()
             .any(|n| matches!(n, Node::Choice(_)));
         let g_n_path = format!("{}.{}", scope.path, name);
         let fallback_is_self = fallback_continuation == Some(g_n_path.as_str());
-        if !branch_has_terminal_content(continuation_body)
-            && !has_nested_choices_in_continuation
-            && let Some(fb) = fallback_continuation
-        {
-            if !fallback_is_self {
-                // Fall through to an outer gather (e.g. nested choice body → parent gather)
-                gather_container.push(json!({"->": fb}));
-            } else {
-                // The fallback points to g-N itself (this gather IS the root-level gather).
-                // Adding that divert would create an infinite loop.
-                // Instead, append a `done` to terminate the story gracefully.
-                gather_container.push(json!("done"));
+        let inner_fallback = if fallback_is_self {
+            None
+        } else {
+            fallback_continuation
+        };
+        let mut gather_container = emit_nodes_with_continuation(
+            continuation_body,
+            &continuation_scope,
+            context,
+            inner_fallback,
+        )?;
+        // If the gather doesn't end terminally AND doesn't have nested choices,
+        // append either the fallback continuation divert or a terminal `done`.
+        // If it has nested choices, those will carry the fallback themselves.
+        if !branch_has_terminal_content(continuation_body) && !has_nested_choices_in_continuation {
+            match fallback_continuation {
+                Some(fb) if !fallback_is_self => {
+                    // Fall through to an outer gather (e.g. nested choice body → parent gather)
+                    gather_container.push(json!({"->": fb}));
+                }
+                _ => {
+                    // Either fallback is self (loop), or no fallback — terminate gracefully.
+                    gather_container.push(json!("done"));
+                }
             }
         }
         let continuation_value = gather_container.into_json_array(gather_label.as_deref(), None)?;

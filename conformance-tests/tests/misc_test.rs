@@ -742,9 +742,8 @@ fn evaluation_stack_leaks_test() -> Result<(), StoryError> {
     Ok(())
 }
 
-// TestTurns (Tests.cs) — KNOWN ISSUE: labeled choice inside gather causes hang
+// TestTurns (Tests.cs)
 #[test]
-#[ignore = "labeled choice (c) inside gather (top) causes infinite loop in runtime"]
 fn turns_count_test() -> Result<(), StoryError> {
     let ink = r#"
 -> c
@@ -762,9 +761,8 @@ fn turns_count_test() -> Result<(), StoryError> {
     Ok(())
 }
 
-// TestTurnsSince (Tests.cs) — KNOWN ISSUE: alternating choices/gathers nesting problem
+// TestTurnsSince (Tests.cs)
 #[test]
-#[ignore = "alternating choices/gathers structural issue causes runtime error"]
 fn turns_since_function_test() -> Result<(), StoryError> {
     let ink = r#"
 { TURNS_SINCE(-> test) }
@@ -924,7 +922,6 @@ fn newline_at_start_of_multiline_conditional_test() -> Result<(), StoryError> {
 
 // TestShuffleStackMuddying (Tests.cs)
 #[test]
-#[ignore = "shuffle sequence with ~ return in function body causes story to end prematurely"]
 fn shuffle_stack_muddying_test() -> Result<(), StoryError> {
     let ink = r#"
 * {condFunc()} [choice 1]
