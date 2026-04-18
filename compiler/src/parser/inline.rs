@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Divert, DynamicString, DynamicStringPart, Node, Sequence, SequenceMode},
+    ast::{Divert, DynamicString, DynamicStringPart, Expression, Node, Sequence, SequenceMode},
     error::CompilerError,
 };
 
@@ -11,17 +11,20 @@ pub fn tokenize_inline_content(content: &str) -> Result<Vec<Node>, CompilerError
     let mut chars = content.char_indices().peekable();
 
     while let Some((index, ch)) = chars.next() {
-        // \# is an escaped hash — emit literal '#' instead of starting a tag
-        // \| is an escaped pipe — emit literal '|'
+        // \X is an escape sequence — emit the next character literally
+        // e.g. \# -> '#', \| -> '|', \- -> '-', \n -> newline, etc.
         if ch == '\\' {
-            if let Some((_, next_ch)) = chars.peek().copied()
-                && (next_ch == '#' || next_ch == '|')
-            {
+            if let Some((_, next_ch)) = chars.peek().copied() {
                 chars.next();
-                text.push(next_ch);
+                // \n inside inline content produces a newline
+                if next_ch == 'n' {
+                    text.push('\n');
+                } else {
+                    text.push(next_ch);
+                }
                 continue;
             }
-            text.push(ch);
+            // trailing backslash — emit nothing (or push it; shouldn't happen)
             continue;
         }
 
@@ -29,9 +32,11 @@ pub fn tokenize_inline_content(content: &str) -> Result<Vec<Node>, CompilerError
             if !text.is_empty() {
                 nodes.push(Node::Text(std::mem::take(&mut text)));
             }
-            nodes.push(Node::Tag(parse_dynamic_string(
-                content[index + 1..].trim_start(),
-            )?));
+            // Multiple tags on one line: "text #tag1 #tag2 #tag3"
+            let tag_str = content[index + 1..].trim_start();
+            for tag in split_hash_tags(tag_str)? {
+                nodes.push(Node::Tag(tag));
+            }
             break;
         }
 
@@ -179,37 +184,76 @@ pub fn parse_divert_line(input: &str) -> Result<Vec<Node>, CompilerError> {
         ));
     }
 
-    if trimmed.ends_with("->") {
+    // Helper to parse "target" or "target(arg1, arg2)" from a segment
+    fn parse_segment(segment: &str) -> Result<(String, Vec<Expression>), CompilerError> {
+        if let Some(open) = segment.find('(') {
+            let close = segment.rfind(')').unwrap_or(segment.len() - 1);
+            let target = segment[..open].trim().to_owned();
+            let args_str = &segment[open + 1..close];
+            let mut args = Vec::new();
+            for arg_str in super::expression::split_top_level_commas(args_str) {
+                if !arg_str.trim().is_empty() {
+                    args.push(parse_expression(arg_str.trim())?);
+                }
+            }
+            Ok((target, args))
+        } else {
+            Ok((segment.to_string(), Vec::new()))
+        }
+    }
+
+    // `-> tunnel2 ->->`: tunnel to `tunnel2` then return from current tunnel
+    if trimmed.ends_with("->->") {
         let mut tunnel_nodes = Vec::new();
         for segment in &segments {
-            // segment may be "target" or "target (arg1, arg2)"
-            let (target_name, args) = if let Some(open) = segment.find('(') {
-                let close = segment.rfind(')').unwrap_or(segment.len() - 1);
-                let target = segment[..open].trim().to_owned();
-                let args_str = &segment[open + 1..close];
-                let mut args = Vec::new();
-                for arg_str in super::expression::split_top_level_commas(args_str) {
-                    if !arg_str.trim().is_empty() {
-                        args.push(parse_expression(arg_str.trim())?);
-                    }
-                }
-                (target, args)
-            } else {
-                (segment.to_string(), Vec::new())
-            };
-            // Determine if the target is a variable (lowercase first char, or single lowercase word)
-            // Ink convention: knot/stitch names start with lowercase; variables too.
-            // We can't distinguish at parse time, so we set is_variable based on context.
-            // For now, mark as variable — the emitter will emit "var": true.
-            // Literal knot tunnel calls like "-> tunnel ->" have no args and target is a known knot.
-            // We'll resolve this in the emitter using EmitContext.
+            let (target_name, args) = parse_segment(segment)?;
             tunnel_nodes.push(Node::TunnelDivert {
                 target: target_name,
-                is_variable: !args.is_empty(), // heuristic: if args, treat as variable target
+                is_variable: !args.is_empty(),
+                args,
+            });
+        }
+        tunnel_nodes.push(Node::TunnelReturn);
+        return Ok(tunnel_nodes);
+    }
+
+    if trimmed.ends_with("->") {
+        // All segments are tunnel calls: -> a -> b ->
+        let mut tunnel_nodes = Vec::new();
+        for segment in &segments {
+            let (target_name, args) = parse_segment(segment)?;
+            tunnel_nodes.push(Node::TunnelDivert {
+                target: target_name,
+                is_variable: !args.is_empty(),
                 args,
             });
         }
         return Ok(tunnel_nodes);
+    }
+
+    if segments.len() > 1 {
+        // Multiple segments not ending in "->": all but last are tunnel calls, last is a divert
+        // e.g. "-> x -> end" means tunnel-call x, then divert to end
+        let mut nodes = Vec::new();
+        for segment in &segments[..segments.len() - 1] {
+            let (target_name, args) = parse_segment(segment)?;
+            nodes.push(Node::TunnelDivert {
+                target: target_name,
+                is_variable: !args.is_empty(),
+                args,
+            });
+        }
+        let last = segments[segments.len() - 1];
+        let (target_name, args) = parse_segment(last)?;
+        if args.is_empty() {
+            nodes.push(Node::Divert(parse_divert(last)?));
+        } else {
+            nodes.push(Node::Divert(Divert {
+                target: target_name,
+                arguments: args,
+            }));
+        }
+        return Ok(nodes);
     }
 
     Ok(vec![Node::Divert(parse_divert(segments[0])?)])
@@ -295,13 +339,43 @@ pub fn split_inline_choice_divert(input: &str) -> Result<(&str, Option<Divert>),
 
 pub fn split_text_and_tags(input: &str) -> Result<(String, Vec<DynamicString>), CompilerError> {
     if let Some((text, tag_text)) = input.split_once('#') {
-        return Ok((
-            text.to_owned(),
-            vec![parse_dynamic_string(tag_text.trim_start())?],
-        ));
+        // There may be multiple tags: `tag1 #tag2 #tag3`
+        let tags = split_hash_tags(tag_text)?;
+        return Ok((text.to_owned(), tags));
     }
 
     Ok((input.to_owned(), Vec::new()))
+}
+
+/// Split a string like `"style: robot #target: comm_scn #type:TALK"` into individual tag
+/// strings `["style: robot ", "target: comm_scn ", "type:TALK"]`, then parse each one.
+fn split_hash_tags(input: &str) -> Result<Vec<DynamicString>, CompilerError> {
+    let mut tags = Vec::new();
+    let mut rest = input;
+    loop {
+        // Find the next # that is not inside braces
+        let mut depth = 0usize;
+        let mut split_at = None;
+        for (i, ch) in rest.char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => depth = depth.saturating_sub(1),
+                '#' if depth == 0 && i > 0 => {
+                    split_at = Some(i);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        if let Some(idx) = split_at {
+            tags.push(parse_dynamic_string(rest[..idx].trim_start())?);
+            rest = &rest[idx + 1..];
+        } else {
+            tags.push(parse_dynamic_string(rest.trim_start())?);
+            break;
+        }
+    }
+    Ok(tags)
 }
 
 pub fn split_top_level_pipe(input: &str) -> Vec<&str> {

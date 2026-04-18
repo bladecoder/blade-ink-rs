@@ -243,6 +243,12 @@ pub fn parse_choice_prefixes(
 
 pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError> {
     let trimmed = input.trim();
+    // `\ ` at the start of choice content is a whitespace-suppression escape —
+    // strip the backslash but keep what follows (may start with a space that itself gets trimmed).
+    let trimmed = trimmed
+        .strip_prefix("\\ ")
+        .map(str::trim_start)
+        .unwrap_or(trimmed);
 
     if let Some(target) = trimmed.strip_prefix("->") {
         let inline_target = if target.trim().is_empty() {
@@ -354,11 +360,18 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
         let (start_text, start_tags) = split_text_and_tags(start)?;
         let (choice_only_text, choice_only_tags) = split_text_and_tags(choice_only)?;
         let (end_text, end_tags) = split_text_and_tags(end)?;
-        let display_suffix: String = end_text
-            .chars()
-            .take_while(|c| c.is_ascii_punctuation())
-            .filter(|c| matches!(c, '\'' | '"' | ')' | ']'))
-            .collect();
+        // Append closing punctuation from `end` to choice_only_text only when the
+        // `end` segment is plain text that starts with closing punctuation (like `."` or `,'`).
+        // Do NOT pull chars from an expression like `{foo}`.
+        let display_suffix: String = if !end.trim_start().starts_with('{') {
+            end_text
+                .chars()
+                .take_while(|c| c.is_ascii_punctuation())
+                .filter(|c| matches!(c, '\'' | '"' | ')' | ']'))
+                .collect()
+        } else {
+            String::new()
+        };
         let choice_only_text = format!("{choice_only_text}{display_suffix}");
         let display = format!("{start_text}{choice_only_text}");
         let selected_text = if end_text.is_empty() {
@@ -366,7 +379,7 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
         } else if start_text.trim().is_empty() {
             end_text
         } else if end_text
-            .starts_with(|c: char| c.is_ascii_punctuation() && c != '"' && c != '\'')
+            .starts_with(|c: char| c.is_ascii_punctuation() && c != '"' && c != '\'' && c != '{')
         {
             format!("{}{}", start_text.trim_end(), end_text)
         } else {

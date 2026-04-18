@@ -311,7 +311,104 @@ fn resolve_consts(mut story: ParsedStory) -> ParsedStory {
     for global in &mut story.globals {
         resolve_expr_consts(&mut global.initial_value, &story.consts);
     }
+    let consts = story.consts.clone();
+    for node in &mut story.root {
+        resolve_node_consts(node, &consts);
+    }
+    for flow in &mut story.flows {
+        resolve_flow_consts(flow, &consts);
+    }
     story
+}
+
+fn resolve_flow_consts(
+    flow: &mut ast::Flow,
+    consts: &std::collections::HashMap<String, ast::Expression>,
+) {
+    for node in &mut flow.nodes {
+        resolve_node_consts(node, consts);
+    }
+    for child in &mut flow.children {
+        resolve_flow_consts(child, consts);
+    }
+}
+
+fn resolve_node_consts(
+    node: &mut ast::Node,
+    consts: &std::collections::HashMap<String, ast::Expression>,
+) {
+    match node {
+        ast::Node::OutputExpression(e) => resolve_expr_consts(e, consts),
+        ast::Node::Conditional {
+            condition,
+            when_true,
+            when_false,
+        } => {
+            resolve_condition_consts(condition, consts);
+            for n in when_true.iter_mut() {
+                resolve_node_consts(n, consts);
+            }
+            if let Some(wf) = when_false {
+                for n in wf.iter_mut() {
+                    resolve_node_consts(n, consts);
+                }
+            }
+        }
+        ast::Node::SwitchConditional { value, branches } => {
+            resolve_expr_consts(value, consts);
+            for (case_expr, nodes) in branches.iter_mut() {
+                if let Some(e) = case_expr {
+                    resolve_expr_consts(e, consts);
+                }
+                for n in nodes.iter_mut() {
+                    resolve_node_consts(n, consts);
+                }
+            }
+        }
+        ast::Node::Assignment { expression, .. } => resolve_expr_consts(expression, consts),
+        ast::Node::ReturnExpr(e) => resolve_expr_consts(e, consts),
+        ast::Node::Choice(choice) => resolve_choice_consts(choice, consts),
+        ast::Node::VoidCall { args, .. } => {
+            for a in args.iter_mut() {
+                resolve_expr_consts(a, consts);
+            }
+        }
+        ast::Node::TunnelDivert { args, .. } => {
+            for a in args.iter_mut() {
+                resolve_expr_consts(a, consts);
+            }
+        }
+        ast::Node::Sequence(seq) => {
+            for branch in seq.branches.iter_mut() {
+                for n in branch.iter_mut() {
+                    resolve_node_consts(n, consts);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn resolve_condition_consts(
+    cond: &mut ast::Condition,
+    consts: &std::collections::HashMap<String, ast::Expression>,
+) {
+    match cond {
+        ast::Condition::Expression(e) => resolve_expr_consts(e, consts),
+        ast::Condition::Bool(_) | ast::Condition::FunctionCall(_) => {}
+    }
+}
+
+fn resolve_choice_consts(
+    choice: &mut ast::Choice,
+    consts: &std::collections::HashMap<String, ast::Expression>,
+) {
+    for cond in choice.conditions.iter_mut() {
+        resolve_condition_consts(cond, consts);
+    }
+    for n in choice.body.iter_mut() {
+        resolve_node_consts(n, consts);
+    }
 }
 
 fn resolve_expr_consts(

@@ -87,6 +87,9 @@ struct EmitScope {
     path: String,
     top_flow_name: Option<String>,
     child_flow_names: BTreeSet<String>,
+    /// Siblings of the current flow (i.e., other stitches of the same knot).
+    /// Used to resolve divert targets that are siblings.
+    sibling_flow_names: BTreeSet<String>,
     choice_label_targets: BTreeMap<String, String>,
     /// Number of tokens that will be prepended (e.g. function parameters)
     /// before the content emitted by emit_nodes. This offset is added when
@@ -151,12 +154,6 @@ impl EmittedContainer {
 
         Ok(Value::Array(values))
     }
-}
-
-fn collect_turns_since_targets_from_flows(flows: &[Flow]) -> BTreeSet<String> {
-    let mut targets = BTreeSet::new();
-    collect_turns_since_targets_from_flows_into(flows, &mut targets);
-    targets
 }
 
 fn collect_turns_since_targets_from_flows_into(flows: &[Flow], targets: &mut BTreeSet<String>) {
@@ -257,7 +254,9 @@ impl EmitContext {
                 .collect();
             list_items.insert(list_decl.name.clone(), items);
         }
-        let turns_since_targets = collect_turns_since_targets_from_flows(story.flows());
+        let mut turns_since_targets = BTreeSet::new();
+        collect_turns_since_targets_from_nodes(story.root(), &mut turns_since_targets);
+        collect_turns_since_targets_from_flows_into(story.flows(), &mut turns_since_targets);
         let qualified_choice_labels = collect_story_choice_labels(story);
         let function_ref_param_positions = story
             .flows()
@@ -320,6 +319,7 @@ impl EmitScope {
             path: "0".to_owned(),
             top_flow_name: None,
             child_flow_names: flows.iter().map(|flow| flow.name.clone()).collect(),
+            sibling_flow_names: BTreeSet::new(),
             choice_label_targets: BTreeMap::new(),
             param_offset: 0,
             param_names: BTreeSet::new(),
@@ -333,6 +333,14 @@ impl EmitScope {
             format!("{}.{}", self.path, child.name)
         };
 
+        // When entering a stitch (self already has a top_flow_name), pass down
+        // the current child_flow_names as siblings so the stitch can resolve them.
+        let siblings = if self.top_flow_name.is_some() {
+            self.child_flow_names.clone()
+        } else {
+            BTreeSet::new()
+        };
+
         Self {
             path,
             top_flow_name: self
@@ -344,6 +352,7 @@ impl EmitScope {
                 .iter()
                 .map(|nested| nested.name.clone())
                 .collect(),
+            sibling_flow_names: siblings,
             choice_label_targets: BTreeMap::new(),
             param_offset: child.parameters.len(),
             param_names: child.divert_parameters.iter().cloned().collect(),
@@ -355,6 +364,7 @@ impl EmitScope {
             path: format!("{}.{}", self.path, branch_name),
             top_flow_name: self.top_flow_name.clone(),
             child_flow_names: self.child_flow_names.clone(),
+            sibling_flow_names: self.sibling_flow_names.clone(),
             choice_label_targets: self.choice_label_targets.clone(),
             param_offset: 0,
             param_names: self.param_names.clone(),
@@ -369,6 +379,7 @@ impl EmitScope {
             path: self.path.clone(),
             top_flow_name: self.top_flow_name.clone(),
             child_flow_names: self.child_flow_names.clone(),
+            sibling_flow_names: self.sibling_flow_names.clone(),
             choice_label_targets: merged,
             param_offset: self.param_offset,
             param_names: self.param_names.clone(),
@@ -397,6 +408,13 @@ impl EmitScope {
         }
 
         if self.child_flow_names.contains(target)
+            && let Some(top_flow_name) = &self.top_flow_name
+        {
+            return format!("{top_flow_name}.{target}");
+        }
+
+        // Sibling stitch: target is a stitch of the same parent knot
+        if self.sibling_flow_names.contains(target)
             && let Some(top_flow_name) = &self.top_flow_name
         {
             return format!("{top_flow_name}.{target}");
@@ -495,7 +513,12 @@ fn emit_flow(flow: &Flow, context: &EmitContext) -> Result<Value, CompilerError>
     }
 
     let count_flags = if flow.is_function {
-        1
+        // Functions normally get VISITS (1), but if referenced by TURNS_SINCE they need TURNS (2)
+        if context.turns_since_targets.contains(&flow.name) {
+            2
+        } else {
+            1
+        }
     } else if context.count_all_visits {
         // Containers referenced by TURNS_SINCE need VISITS | TURNS (3).
         // Knots/stitches with top-level choices get VISITS | COUNTSTARTONLY (5)
@@ -509,7 +532,12 @@ fn emit_flow(flow: &Flow, context: &EmitContext) -> Result<Value, CompilerError>
             1
         }
     } else {
-        0
+        // Even without count_all_visits, containers referenced by TURNS_SINCE need TURNS tracking
+        if context.turns_since_targets.contains(&flow.name) {
+            3
+        } else {
+            0
+        }
     };
 
     container.into_json_array(None, Some(count_flags))
@@ -738,7 +766,8 @@ fn emit_nodes_with_continuation(
             }
             Node::Divert(divert) => emit_divert(&mut out, divert, scope, context),
             Node::TunnelDivert { target, args, .. } => {
-                let is_var = !context.top_flow_names.contains(target);
+                let resolved_target = scope.resolve_divert_target(target, context);
+                let is_var = scope.is_variable_divert(target, context);
                 if !args.is_empty() {
                     out.push(json!("ev"));
                     for arg in args {
@@ -749,7 +778,7 @@ fn emit_nodes_with_continuation(
                 if is_var {
                     out.push(json!({"->t->": target, "var": true}));
                 } else {
-                    out.push(json!({"->t->": target}));
+                    out.push(json!({"->t->": resolved_target}));
                 }
             }
             Node::TunnelReturn => {
@@ -854,6 +883,7 @@ fn emit_nodes_with_continuation(
                 }
                 out.push(json!("pop"));
                 out.push(json!("/ev"));
+                out.push(json!("\n"));
             }
             Node::Choice(first_choice) => {
                 let block_start = index;
@@ -966,17 +996,18 @@ fn emit_choice_block(
             .any(|n| matches!(n, Node::Choice(_)));
         let g_n_path = format!("{}.{}", scope.path, name);
         let fallback_is_self = fallback_continuation == Some(g_n_path.as_str());
-        if !branch_has_terminal_content(continuation_body) && !has_nested_choices_in_continuation {
-            if let Some(fb) = fallback_continuation {
-                if !fallback_is_self {
-                    // Fall through to an outer gather (e.g. nested choice body → parent gather)
-                    gather_container.push(json!({"->": fb}));
-                } else {
-                    // The fallback points to g-N itself (this gather IS the root-level gather).
-                    // Adding that divert would create an infinite loop.
-                    // Instead, append a `done` to terminate the story gracefully.
-                    gather_container.push(json!("done"));
-                }
+        if !branch_has_terminal_content(continuation_body)
+            && !has_nested_choices_in_continuation
+            && let Some(fb) = fallback_continuation
+        {
+            if !fallback_is_self {
+                // Fall through to an outer gather (e.g. nested choice body → parent gather)
+                gather_container.push(json!({"->": fb}));
+            } else {
+                // The fallback points to g-N itself (this gather IS the root-level gather).
+                // Adding that divert would create an infinite loop.
+                // Instead, append a `done` to terminate the story gracefully.
+                gather_container.push(json!("done"));
             }
         }
         let continuation_value = gather_container.into_json_array(gather_label.as_deref(), None)?;
@@ -1130,6 +1161,17 @@ fn emit_divert(
     }
 }
 
+fn expression_has_function_call(expr: &Expression) -> bool {
+    match expr {
+        Expression::FunctionCall { .. } => true,
+        Expression::Negate(inner) | Expression::Not(inner) => expression_has_function_call(inner),
+        Expression::Binary { left, right, .. } => {
+            expression_has_function_call(left) || expression_has_function_call(right)
+        }
+        _ => false,
+    }
+}
+
 fn emit_assignment(
     variable_name: &str,
     expression: &Expression,
@@ -1143,12 +1185,18 @@ fn emit_assignment(
             emit_expression_ctx(expression, &mut out.content, Some(context), None);
             out.push(json!("/ev"));
             out.push(json!({"VAR=": variable_name, "re": true}));
+            if expression_has_function_call(expression) {
+                out.push(json!("\n"));
+            }
         }
         AssignMode::TempSet => {
             out.push(json!("ev"));
             emit_expression_ctx(expression, &mut out.content, Some(context), None);
             out.push(json!("/ev"));
             out.push(json!({"temp=": variable_name}));
+            if expression_has_function_call(expression) {
+                out.push(json!("\n"));
+            }
         }
         AssignMode::AddAssign => {
             out.push(json!("ev"));
@@ -1303,7 +1351,20 @@ fn emit_choice(
     }
     out.insert_named(
         branch_name,
-        branch_container.into_json_array(None, Some(5))?,
+        branch_container.into_json_array(
+            None,
+            Some(
+                if choice
+                    .label
+                    .as_deref()
+                    .is_some_and(|l| context.turns_since_targets.contains(l))
+                {
+                    7 // VISITS | TURNS | COUNT_START_ONLY
+                } else {
+                    5 // VISITS | COUNT_START_ONLY
+                },
+            ),
+        )?,
     );
 
     Ok(())
@@ -1379,7 +1440,9 @@ fn emit_expression_ctx(
             } else if name.contains('.') {
                 out.push(json!({"CNT?": name}))
             } else if let (Some(s), Some(ctx)) = (scope, context)
-                && (ctx.top_flow_names.contains(name) || s.child_flow_names.contains(name))
+                && (ctx.top_flow_names.contains(name)
+                    || s.child_flow_names.contains(name)
+                    || s.sibling_flow_names.contains(name))
             {
                 out.push(json!({"CNT?": s.resolve_divert_target(name, ctx)}))
             } else if context.is_some_and(|ctx| ctx.top_flow_names.contains(name)) {
@@ -1388,7 +1451,14 @@ fn emit_expression_ctx(
                 out.push(json!({"VAR?": name}))
             }
         }
-        Expression::DivertTarget(target) => out.push(json!({"^->": target})),
+        Expression::DivertTarget(target) => {
+            let resolved = if let (Some(s), Some(ctx)) = (scope, context) {
+                s.resolve_divert_target(target, ctx)
+            } else {
+                target.clone()
+            };
+            out.push(json!({"^->": resolved}));
+        }
         Expression::Negate(expr) => {
             emit_expression_ctx(expr, out, context, scope);
             out.push(json!("_"));
@@ -1718,7 +1788,7 @@ fn emit_conditional(
     // First pass: emit only condition tokens to determine their lengths,
     // so we can compute the absolute index of each branch array in the parent.
     let mut cond_tokens_list: Vec<Option<Vec<Value>>> = Vec::new();
-    for (_, (branch_condition, _)) in branches.iter().enumerate() {
+    for (branch_condition, _) in branches.iter() {
         let cond_tokens = if let Some(cond) = branch_condition {
             let mut tokens = Vec::new();
             emit_condition(cond, &mut tokens, scope, context)?;

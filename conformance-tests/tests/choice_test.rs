@@ -221,7 +221,10 @@ Joe
     let mut story = Story::new(&json)?;
 
     story.continue_maximally()?;
-    assert_eq!("'Hello Joe, your name is Joe.'", story.get_current_choices()[0].text);
+    assert_eq!(
+        "'Hello Joe, your name is Joe.'",
+        story.get_current_choices()[0].text
+    );
     story.choose_choice_index(0)?;
     assert_eq!(
         "'Hello Joe,' I said, knowing full well that his name was Joe.\n",
@@ -604,5 +607,55 @@ Unreachable
     let json = Compiler::new().compile(ink).unwrap();
     let mut story = Story::new(&json)?;
     assert_eq!("1\n2\n3\n", story.continue_maximally()?);
+    Ok(())
+}
+
+// TestTempUsageInOptions (Tests.cs:2494)
+#[test]
+fn temp_usage_in_options_test() -> Result<(), StoryError> {
+    let ink = r#"
+~ temp one = 1
+* \ {one}
+- End of choice 
+    -> another
+* (another) this [is] another
+ -> DONE
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    story.continue_maximally()?;
+
+    assert_eq!(1, story.get_current_choices().len());
+    assert_eq!("1", story.get_current_choices()[0].text);
+
+    story.choose_choice_index(0)?;
+    let out = story.continue_maximally()?;
+    assert!(
+        out.starts_with("1\nEnd of choice\nthis another"),
+        "got: {out:?}"
+    );
+    assert_eq!(0, story.get_current_choices().len());
+    Ok(())
+}
+
+// TestStringsInChoices (Tests.cs:1899)
+#[test]
+fn strings_in_choices_test() -> Result<(), StoryError> {
+    let ink = r#"
+* \ {"test1"} ["test2 {"test3"}"] {"test4"}
+-> DONE
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    story.continue_maximally()?;
+
+    assert_eq!(1, story.get_current_choices().len());
+    assert_eq!(
+        r#"test1 "test2 test3""#,
+        story.get_current_choices()[0].text
+    );
+
+    story.choose_choice_index(0)?;
+    assert_eq!("test1 test4\n", &story.continue_maximally()?);
     Ok(())
 }

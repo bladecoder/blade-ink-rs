@@ -165,7 +165,24 @@ pub fn parse_conditional(
                 &mut when_true
             };
             if !rest.is_empty() {
-                target.extend(tokenize_inline_content(rest)?);
+                // If the branch content starts with `~`, treat it as a tilde statement,
+                // not as inline text. e.g. `- ~ x = 5` inside `{true: ... }`.
+                if rest.starts_with('~') {
+                    // Create a synthetic single-line array for parse_stmt
+                    let synthetic = [Line {
+                        content: rest,
+                        had_newline: false,
+                        indent: 0,
+                    }];
+                    let mut idx = 0;
+                    if let ParsedStatement::Nodes(mut nodes) =
+                        parse_stmt(&synthetic, &mut idx, true)?
+                    {
+                        target.append(&mut nodes);
+                    }
+                } else {
+                    target.extend(tokenize_inline_content(rest)?);
+                }
             }
             if body_line.had_newline {
                 target.push(Node::Newline);

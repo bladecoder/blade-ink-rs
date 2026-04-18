@@ -584,6 +584,15 @@ fn parse_content_line(
     }
 
     if line.had_newline {
+        // Trim trailing whitespace from the last text node (inklecate behavior)
+        if let Some(Node::Text(t)) = nodes.last_mut() {
+            let trimmed = t.trim_end().to_owned();
+            if trimmed.is_empty() {
+                nodes.pop();
+            } else {
+                *t = trimmed;
+            }
+        }
         nodes.push(Node::Newline);
     }
 
@@ -770,7 +779,10 @@ pub fn parse_header(line: &str) -> Option<Header> {
     None
 }
 
-fn parse_header_signature(text: &str) -> Option<(String, Vec<String>, Vec<String>, Vec<String>)> {
+/// Returns (name, params, ref_params, divert_params)
+type HeaderSignature = (String, Vec<String>, Vec<String>, Vec<String>);
+
+fn parse_header_signature(text: &str) -> Option<HeaderSignature> {
     use expression::split_top_level_commas;
 
     let open = text.find('(');

@@ -92,7 +92,8 @@ impl ValidationContext {
         for flow in story.flows() {
             // Collect all temps defined in this flow's own nodes (includes nested nodes)
             let flow_params: BTreeSet<String> = flow.parameters.iter().cloned().collect();
-            let flow_divert_params: BTreeSet<String> = flow.divert_parameters.iter().cloned().collect();
+            let flow_divert_params: BTreeSet<String> =
+                flow.divert_parameters.iter().cloned().collect();
             let flow_temps = collect_temps_from_nodes(&flow.nodes);
             let flow_scope = ScopeInfo {
                 forbidden: BTreeSet::new(),
@@ -360,11 +361,7 @@ impl ValidationContext {
                     divert_parameters,
                 )?;
                 if let Some(wf) = when_false {
-                    self.validate_nodes_variable_divert_targets(
-                        wf,
-                        parameters,
-                        divert_parameters,
-                    )?;
+                    self.validate_nodes_variable_divert_targets(wf, parameters, divert_parameters)?;
                 }
             }
             Node::SwitchConditional { branches, .. } => {

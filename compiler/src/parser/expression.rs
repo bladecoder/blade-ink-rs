@@ -498,7 +498,7 @@ impl ExpressionParser {
 
     fn parse_unary(&mut self) -> Result<Expression, CompilerError> {
         if self.match_token(&Token::Bang) {
-            let expr = self.parse_primary()?;
+            let expr = self.parse_unary()?;
             return Ok(Expression::Not(Box::new(expr)));
         }
         self.parse_primary()
