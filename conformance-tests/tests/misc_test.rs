@@ -335,3 +335,96 @@ In second.
 
     Ok(())
 }
+
+#[test]
+fn hello_world_test() -> Result<(), StoryError> {
+    let ink = "Hello world";
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("Hello world\n", &story.cont()?);
+    Ok(())
+}
+
+#[test]
+fn empty_test() -> Result<(), StoryError> {
+    let ink = "";
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    // Empty story: currentText should be empty (no content to output)
+    let text = story.continue_maximally()?;
+    assert_eq!("", text.as_str());
+    Ok(())
+}
+
+#[test]
+fn end_test() -> Result<(), StoryError> {
+    let ink = r#"
+hello
+-> END
+world
+-> END
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("hello\n", &story.continue_maximally()?);
+    Ok(())
+}
+
+#[test]
+fn end2_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> test
+
+== test ==
+hello
+-> END
+world
+-> END
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("hello\n", &story.continue_maximally()?);
+    Ok(())
+}
+
+#[test]
+fn whitespace_test() -> Result<(), StoryError> {
+    let ink = r#"
+-> firstKnot
+=== firstKnot
+    Hello!
+    -> anotherKnot
+
+=== anotherKnot
+    World.
+    -> END
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("Hello!\nWorld.\n", &story.continue_maximally()?);
+    Ok(())
+}
+
+#[test]
+fn escape_character_test() -> Result<(), StoryError> {
+    // \| is the escaped pipe character in Ink
+    let ink = "{true:this is a '\\|' character|this isn't}";
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    assert_eq!("this is a '|' character\n", &story.continue_maximally()?);
+    Ok(())
+}
+
+#[test]
+fn trivial_condition_test() -> Result<(), StoryError> {
+    let ink = r#"
+{
+- false:
+   beep
+}
+"#;
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json)?;
+    story.cont()?;
+    Ok(())
+}

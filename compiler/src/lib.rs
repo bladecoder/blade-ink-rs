@@ -3,6 +3,7 @@ mod emitter;
 pub mod error;
 mod parser;
 pub mod stats;
+mod validator;
 
 use std::path::{Path, PathBuf};
 
@@ -105,6 +106,7 @@ impl Compiler {
             .unwrap_or("<source>");
         let parsed_story =
             parse_story_with_includes(source, &file_handler, Path::new(""), source_name, 0)?;
+        validator::validate(&parsed_story)?;
         emitter::story_to_json_string(&parsed_story, self.options.count_all_visits)
             .map_err(|e| CompilerError::invalid_source(e.to_string()))
     }

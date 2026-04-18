@@ -609,6 +609,26 @@ fn parse_assignment(input: &str) -> Result<Node, CompilerError> {
         (input, false)
     };
 
+    // x++ sugar for x += 1
+    if let Some(name) = input.strip_suffix("++") {
+        let name = name.trim().to_owned();
+        return Ok(Node::Assignment {
+            variable_name: name,
+            expression: Expression::Int(1),
+            mode: AssignMode::AddAssign,
+        });
+    }
+
+    // x-- sugar for x -= 1
+    if let Some(name) = input.strip_suffix("--") {
+        let name = name.trim().to_owned();
+        return Ok(Node::Assignment {
+            variable_name: name,
+            expression: Expression::Int(1),
+            mode: AssignMode::SubtractAssign,
+        });
+    }
+
     // Check for a standalone function call (no '=' in the statement, but has '()')
     // e.g. `~ derp(2, 3, 4)` or `~ merchant_init()`
     if !input.contains('=')

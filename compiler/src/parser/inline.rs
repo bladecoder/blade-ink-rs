@@ -12,13 +12,14 @@ pub fn tokenize_inline_content(content: &str) -> Result<Vec<Node>, CompilerError
 
     while let Some((index, ch)) = chars.next() {
         // \# is an escaped hash — emit literal '#' instead of starting a tag
+        // \| is an escaped pipe — emit literal '|'
         if ch == '\\' {
-            if let Some((_, next_ch)) = chars.peek().copied()
-                && next_ch == '#'
-            {
-                chars.next();
-                text.push('#');
-                continue;
+            if let Some((_, next_ch)) = chars.peek().copied() {
+                if next_ch == '#' || next_ch == '|' {
+                    chars.next();
+                    text.push(next_ch);
+                    continue;
+                }
             }
             text.push(ch);
             continue;
@@ -273,17 +274,31 @@ pub fn split_top_level_pipe(input: &str) -> Vec<&str> {
     let mut result = Vec::new();
     let mut depth = 0;
     let mut start = 0;
+    let bytes = input.as_bytes();
+    let mut i = 0;
 
-    for (index, ch) in input.char_indices() {
+    while i < bytes.len() {
+        let ch = input[i..].chars().next().unwrap();
+        let ch_len = ch.len_utf8();
         match ch {
+            '\\' => {
+                // Skip escaped character (e.g. \| should not split)
+                i += ch_len;
+                if i < bytes.len() {
+                    let next = input[i..].chars().next().unwrap();
+                    i += next.len_utf8();
+                }
+                continue;
+            }
             '{' | '(' => depth += 1,
             '}' | ')' => depth -= 1,
             '|' if depth == 0 => {
-                result.push(&input[start..index]);
-                start = index + 1;
+                result.push(&input[start..i]);
+                start = i + 1;
             }
             _ => {}
         }
+        i += ch_len;
     }
 
     result.push(&input[start..]);
