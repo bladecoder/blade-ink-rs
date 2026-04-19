@@ -42,6 +42,9 @@ pub enum Header {
     },
     Stitch {
         name: String,
+        parameters: Vec<String>,
+        ref_parameters: Vec<String>,
+        divert_parameters: Vec<String>,
     },
 }
 
@@ -150,7 +153,12 @@ impl<'a> Parser<'a> {
                             children: Vec::new(),
                         });
                     }
-                    Header::Stitch { name } => {
+                    Header::Stitch {
+                        name,
+                        parameters,
+                        ref_parameters,
+                        divert_parameters,
+                    } => {
                         finalize_stitch(&mut current_flow, &mut current_stitch)
                             .map_err(|e| e.with_line(ln))?;
                         let parent_is_root_stitch =
@@ -164,9 +172,9 @@ impl<'a> Parser<'a> {
                                 name,
                                 is_function: false,
                                 is_root_stitch: true,
-                                parameters: Vec::new(),
-                                ref_parameters: Vec::new(),
-                                divert_parameters: Vec::new(),
+                                parameters,
+                                ref_parameters,
+                                divert_parameters,
                                 nodes: Vec::new(),
                                 children: Vec::new(),
                             });
@@ -175,9 +183,9 @@ impl<'a> Parser<'a> {
                                 name,
                                 is_function: false,
                                 is_root_stitch: false,
-                                parameters: Vec::new(),
-                                ref_parameters: Vec::new(),
-                                divert_parameters: Vec::new(),
+                                parameters,
+                                ref_parameters,
+                                divert_parameters,
                                 nodes: Vec::new(),
                                 children: Vec::new(),
                             });
@@ -598,9 +606,21 @@ pub fn parse_statement(
         return Ok(ParsedStatement::Nodes(vec![Node::TunnelReturn]));
     }
 
-    if let Some(rest) = trimmed.strip_prefix("<- ") {
+    let thread_rest = if let Some(r) = trimmed.strip_prefix("<- ") {
+        Some(r.trim())
+    } else if let Some(r) = trimmed.strip_prefix("<-") {
+        // Also handle "<-target(args)" without a space after "<-"
+        if r.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+            Some(r)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    if let Some(rest) = thread_rest {
         *line_index += 1;
-        let divert = parse_divert(rest.trim()).map_err(|e| e.with_line(ln))?;
+        let divert = parse_divert(rest).map_err(|e| e.with_line(ln))?;
         return Ok(ParsedStatement::Nodes(vec![Node::ThreadDivert(divert)]));
     }
 
@@ -822,9 +842,13 @@ pub fn parse_header(line: &str) -> Option<Header> {
 
     if trimmed.starts_with('=') {
         let inner = trimmed.trim_start_matches('=').trim();
-        let name = parse_path_identifier(inner)?;
+        let (name, parameters, ref_parameters, divert_parameters) =
+            parse_header_signature(inner)?;
         return Some(Header::Stitch {
-            name: name.to_owned(),
+            name,
+            parameters,
+            ref_parameters,
+            divert_parameters,
         });
     }
 

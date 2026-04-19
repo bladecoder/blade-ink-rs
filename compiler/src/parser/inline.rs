@@ -49,6 +49,36 @@ pub fn tokenize_inline_content(content: &str) -> Result<Vec<Node>, CompilerError
             continue;
         }
 
+        // Thread divert inline: <- target  or  <- target(args)
+        if ch == '<' && content[index..].starts_with("<-") {
+            if !text.is_empty() {
+                nodes.push(Node::Text(std::mem::take(&mut text)));
+            }
+            let after = &content[index + 2..]; // skip "<-"
+            let trimmed_after = after.trim_start();
+            let leading = after.len() - trimmed_after.len();
+            let call_len = if trimmed_after.contains('(') {
+                thread_divert_call_end(trimmed_after)
+            } else {
+                trimmed_after
+                    .find(|c: char| !matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '.'))
+                    .unwrap_or(trimmed_after.len())
+            };
+            let divert_str = &trimmed_after[..call_len];
+            let divert = parse_divert(divert_str)?;
+            nodes.push(Node::ThreadDivert(divert));
+            // Advance the iterator past the consumed "<-" + leading space + call text
+            let consume_end = index + 2 + leading + call_len;
+            while let Some((peek_idx, _)) = chars.peek() {
+                if *peek_idx < consume_end {
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            continue;
+        }
+
         // Divert or tunnel: -> target  or  -> target ->
         if ch == '-' && content[index..].starts_with("->") {
             if !text.is_empty() {
@@ -526,4 +556,26 @@ pub fn parse_inline_sequence(content: &str) -> Result<Option<Sequence>, Compiler
     }
 
     Ok(Some(Sequence { mode, branches }))
+}
+
+/// Find the byte length of a function call starting from the opening `(`,
+/// handling nested parens and string literals.  Returns the byte offset
+/// just past the matching `)`, or the full length of `s` if unmatched.
+fn thread_divert_call_end(s: &str) -> usize {
+    let mut depth = 0usize;
+    let mut in_string = false;
+    for (i, c) in s.char_indices() {
+        match c {
+            '"' => in_string = !in_string,
+            '(' if !in_string => depth += 1,
+            ')' if !in_string => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return i + c.len_utf8();
+                }
+            }
+            _ => {}
+        }
+    }
+    s.len()
 }
