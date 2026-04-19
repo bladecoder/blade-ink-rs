@@ -143,6 +143,25 @@ pub fn parse_choice(
             break;
         }
 
+        // Blank lines should not prematurely terminate a choice body when the next
+        // non-blank line is still indented as body content.
+        if body_trimmed.is_empty() {
+            let mut lookahead = *line_index + 1;
+            while lookahead < lines.len() && lines[lookahead].content.trim().is_empty() {
+                lookahead += 1;
+            }
+            if lookahead < lines.len()
+                && super::parse_header(lines[lookahead].content).is_none()
+                && lines[lookahead].indent > choice_indent
+            {
+                let statement = parse_stmt(lines, line_index, true)?;
+                if let ParsedStatement::Nodes(mut nodes) = statement {
+                    body.append(&mut nodes)
+                }
+                continue;
+            }
+        }
+
         let gather_level = gather_nesting_level(body_trimmed);
 
         // A gather whose nesting level matches ours AND which is indented deeper than the

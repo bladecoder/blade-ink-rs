@@ -302,6 +302,7 @@ mod tests {
             "expected line 2 in error, got: {display}"
         );
     }
+
 }
 
 /// Substitute CONST references in global variable initial values.

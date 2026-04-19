@@ -438,6 +438,20 @@ impl EmitScope {
         }
     }
 
+    fn with_relative_depth(&self, relative_depth: usize) -> Self {
+        Self {
+            path: self.path.clone(),
+            flow_path: self.flow_path.clone(),
+            top_flow_name: self.top_flow_name.clone(),
+            child_flow_names: self.child_flow_names.clone(),
+            sibling_flow_names: self.sibling_flow_names.clone(),
+            choice_label_targets: self.choice_label_targets.clone(),
+            param_offset: self.param_offset,
+            param_names: self.param_names.clone(),
+            relative_depth,
+        }
+    }
+
     /// Convert an absolute path like `knot.stitch` or `knot.stitch.7` to a relative path
     /// `.^...^.X` when we are currently inside that same knot/stitch.
     ///
@@ -600,7 +614,7 @@ fn emit_flow(flow: &Flow, context: &EmitContext) -> Result<Value, CompilerError>
         );
     }
 
-    let count_flags = if flow.is_function {
+    let count_flags = if flow.is_function && !context.external_functions.contains(&flow.name) {
         // Functions normally get VISITS (1), but if referenced by TURNS_SINCE they need TURNS (2)
         if context.turns_since_targets.contains(&flow.name) {
             2
@@ -664,7 +678,7 @@ fn emit_nested_flow(
         );
     }
 
-    let count_flags = if flow.is_function {
+    let count_flags = if flow.is_function && !context.external_functions.contains(&flow.name) {
         1
     } else if context.count_all_visits {
         if context.turns_since_targets.contains(&flow.name) {
@@ -849,6 +863,194 @@ fn fix_divert_paths(value: &mut Value, old_path: &str, new_path: &str) {
             }
         }
         _ => {}
+    }
+}
+
+fn threaded_loop_label_for_choice_block(continuation: &[Node]) -> Option<(String, bool)> {
+    let mut nodes = continuation;
+    while !nodes.is_empty() && matches!(nodes[0], Node::Newline) {
+        nodes = &nodes[1..];
+    }
+
+    if let Some(Node::GatherLabel(label)) = nodes.first() {
+        if label == "loop" {
+            return Some((label.clone(), true));
+        }
+    }
+
+    None
+}
+
+fn should_use_wrapped_choice_for_label(loop_label: &str, scope: &EmitScope) -> bool {
+    loop_label == "loop" && !scope.path.contains('.')
+}
+
+fn split_nodes_at_first_choice(nodes: &[Node]) -> (&[Node], &[Node], &[Node]) {
+    let mut idx = 0usize;
+    while idx < nodes.len() && !matches!(nodes[idx], Node::Choice(_)) {
+        idx += 1;
+    }
+    if idx >= nodes.len() {
+        return (nodes, &[], &[]);
+    }
+
+    let level = match &nodes[idx] {
+        Node::Choice(c) => c.nesting_level,
+        _ => unreachable!(),
+    };
+    let mut end = idx;
+    while end < nodes.len() {
+        match &nodes[end] {
+            Node::Choice(c) if c.nesting_level == level => end += 1,
+            _ => break,
+        }
+    }
+
+    (&nodes[..idx], &nodes[idx..end], &nodes[end..])
+}
+
+enum ChoiceEmissionMode {
+    Flat,
+    ThreadedLoopLabel { loop_label: String },
+    ThreadedAnonGather,
+}
+
+struct WeaveChoiceSection<'a> {
+    prefix_nodes: &'a [Node],
+    choices: &'a [Node],
+    continuation_nodes: &'a [Node],
+    mode: ChoiceEmissionMode,
+}
+
+fn skip_leading_newlines(nodes: &[Node]) -> &[Node] {
+    let mut index = 0;
+    while index < nodes.len() && matches!(nodes[index], Node::Newline) {
+        index += 1;
+    }
+    &nodes[index..]
+}
+
+fn nodes_contain_choice(nodes: &[Node]) -> bool {
+    for node in nodes {
+        match node {
+            Node::Choice(_) => return true,
+            Node::Conditional {
+                when_true,
+                when_false,
+                ..
+            } => {
+                if nodes_contain_choice(when_true)
+                    || when_false.as_deref().is_some_and(nodes_contain_choice)
+                {
+                    return true;
+                }
+            }
+            Node::SwitchConditional { branches, .. } => {
+                if branches
+                    .iter()
+                    .any(|(_, branch_nodes)| nodes_contain_choice(branch_nodes))
+                {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    false
+}
+
+fn choice_block_contains_nested_choices(choices: &[Node]) -> bool {
+    choices.iter().any(|node| {
+        if let Node::Choice(choice) = node {
+            nodes_contain_choice(&choice.body)
+        } else {
+            false
+        }
+    })
+}
+
+fn choice_is_invisible_default(choice: &Choice) -> bool {
+    choice.start_text.trim().is_empty() && choice.choice_only_text.trim().is_empty()
+}
+
+fn choice_block_has_invisible_default(choices: &[Node]) -> bool {
+    choices.iter().any(|node| {
+        if let Node::Choice(choice) = node {
+            choice_is_invisible_default(choice)
+        } else {
+            false
+        }
+    })
+}
+
+fn should_use_threaded_anon_gather(choices: &[Node], continuation: &[Node], scope: &EmitScope) -> bool {
+    let continuation = skip_leading_newlines(continuation);
+
+    if !matches!(continuation.first(), Some(Node::GatherPoint)) {
+        return false;
+    }
+
+    if scope.path.contains(".c-") {
+        return false;
+    }
+
+    if scope.path == "0"
+        || choice_block_contains_nested_choices(choices)
+        || choice_block_has_invisible_default(choices)
+    {
+        return false;
+    }
+
+    true
+}
+
+fn analyze_weave_choice_section<'a>(
+    choices: &'a [Node],
+    continuation: &'a [Node],
+    scope: &EmitScope,
+) -> WeaveChoiceSection<'a> {
+    if let Some((loop_label, strip_label)) = threaded_loop_label_for_choice_block(continuation)
+        && should_use_wrapped_choice_for_label(&loop_label, scope)
+    {
+        let mut continuation_tail = skip_leading_newlines(continuation);
+        if strip_label && matches!(continuation_tail.first(), Some(Node::GatherLabel(_))) {
+            continuation_tail = &continuation_tail[1..];
+        }
+
+        let (prefix, loop_choices, continuation_after_choices) =
+            split_nodes_at_first_choice(continuation_tail);
+        if !loop_choices.is_empty() {
+            return WeaveChoiceSection {
+                prefix_nodes: prefix,
+                choices: loop_choices,
+                continuation_nodes: continuation_after_choices,
+                mode: ChoiceEmissionMode::ThreadedLoopLabel { loop_label },
+            };
+        }
+
+        return WeaveChoiceSection {
+            prefix_nodes: &[],
+            choices,
+            continuation_nodes: continuation_tail,
+            mode: ChoiceEmissionMode::ThreadedLoopLabel { loop_label },
+        };
+    }
+
+    if should_use_threaded_anon_gather(choices, continuation, scope) {
+        return WeaveChoiceSection {
+            prefix_nodes: &[],
+            choices,
+            continuation_nodes: continuation,
+            mode: ChoiceEmissionMode::ThreadedAnonGather,
+        };
+    }
+
+    WeaveChoiceSection {
+        prefix_nodes: &[],
+        choices,
+        continuation_nodes: continuation,
+        mode: ChoiceEmissionMode::Flat,
     }
 }
 
@@ -1145,8 +1347,45 @@ fn emit_choice_block(
     context: &EmitContext,
     fallback_continuation: Option<&str>,
 ) -> Result<(), CompilerError> {
+    let section = analyze_weave_choice_section(choices, continuation, scope);
+
+    if !section.prefix_nodes.is_empty() {
+        for value in emit_nodes(section.prefix_nodes, scope, context)?.content {
+            out.push(value);
+        }
+    }
+
+    match &section.mode {
+        ChoiceEmissionMode::ThreadedAnonGather => {
+            let threaded = build_threaded_choice_block_no_label(
+                section.choices,
+                section.continuation_nodes,
+                scope,
+                next_choice_index,
+                context,
+                fallback_continuation,
+            )?;
+            pack_threaded_choice_output(out, threaded)?;
+            return Ok(());
+        }
+        ChoiceEmissionMode::ThreadedLoopLabel { loop_label } => {
+            let threaded = build_wrapped_loop_choice_block(
+                section.choices,
+                section.continuation_nodes,
+                loop_label,
+                scope,
+                next_choice_index,
+                context,
+                fallback_continuation,
+            )?;
+            pack_threaded_choice_output(out, threaded)?;
+            return Ok(());
+        }
+        ChoiceEmissionMode::Flat => {}
+    }
+
     let mut choice_labels = BTreeMap::new();
-    for (offset, choice) in choices.iter().enumerate() {
+    for (offset, choice) in section.choices.iter().enumerate() {
         let Node::Choice(choice) = choice else {
             continue;
         };
@@ -1159,7 +1398,7 @@ fn emit_choice_block(
         }
     }
     // Detect gather label for the continuation so it can be added to choice_labels
-    let gather_label: Option<String> = if let Some(Node::GatherLabel(lbl)) = continuation.first() {
+    let gather_label: Option<String> = if let Some(Node::GatherLabel(lbl)) = section.continuation_nodes.first() {
         let g_name = format!("g-{}", *next_choice_index);
         let path = format!("{}.{}", scope.path, g_name);
         choice_labels.insert(lbl.clone(), path);
@@ -1170,7 +1409,7 @@ fn emit_choice_block(
 
     let block_scope = scope.with_choice_labels(choice_labels);
 
-    let continuation_path: Option<String> = if continuation.is_empty() {
+    let continuation_path: Option<String> = if section.continuation_nodes.is_empty() {
         // No explicit continuation nodes — use fallback (parent's continuation) if available.
         // If the fallback path points to the g-N that belongs to THIS scope (e.g. "0.g-0"),
         // create a minimal gather container in the named dict to match inklecate's output.
@@ -1186,15 +1425,10 @@ fn emit_choice_block(
         let continuation_scope = block_scope.choice_branch(&name);
         // Strip leading GatherLabel — it's already handled via into_json_array(gather_label)
         let continuation_body = if gather_label.is_some() {
-            &continuation[1..]
+            &section.continuation_nodes[1..]
         } else {
-            continuation
+            section.continuation_nodes
         };
-        // When the fallback points to the g-N we are creating (fallback_is_self),
-        // propagating it into the inner content would create a self-referential loop.
-        // In that case, pass None so the inner content either falls off naturally or
-        // appends "done" via the terminal check below.  When the fallback points to
-        // something else (e.g. an outer gather), it is safe and correct to propagate.
         let has_nested_choices_in_continuation = continuation_body
             .iter()
             .any(|n| matches!(n, Node::Choice(_)));
@@ -1211,27 +1445,22 @@ fn emit_choice_block(
             context,
             inner_fallback,
         )?;
-        // If the gather doesn't end terminally AND doesn't have nested choices,
-        // append either the fallback continuation divert or a terminal `done`.
-        // If it has nested choices, those will carry the fallback themselves.
-        if !branch_has_terminal_content(continuation_body) && !has_nested_choices_in_continuation {
-            match fallback_continuation {
-                Some(fb) if !fallback_is_self => {
-                    // Fall through to an outer gather (e.g. nested choice body → parent gather)
-                    gather_container.push(json!({"->": fb}));
-                }
-                _ => {
-                    // Either fallback is self (loop), or no fallback — terminate gracefully.
-                    gather_container.push(json!("done"));
-                }
-            }
+        if let Some(token) = loose_end_append_for_nodes(
+            continuation_body,
+            has_nested_choices_in_continuation,
+            fallback_continuation,
+            Some(g_n_path.as_str()),
+            true,
+            LooseEndNoFallback::Done,
+        ) {
+            gather_container.push(token);
         }
         let continuation_value = gather_container.into_json_array(gather_label.as_deref(), None)?;
         out.insert_named(name.clone(), continuation_value);
         Some(format!("{}.{}", scope.path, name))
     };
 
-    for choice in choices {
+    for choice in section.choices {
         let Node::Choice(choice) = choice else {
             continue;
         };
@@ -1245,6 +1474,746 @@ fn emit_choice_block(
         )?;
         *next_choice_index += 1;
     }
+
+    Ok(())
+}
+
+enum ThreadedContinuationPlacement {
+    InsideGroup,
+    OutsideGroup,
+}
+
+struct ThreadedChoiceOutput {
+    group: EmittedContainer,
+    group_name: Option<String>,
+    continuation: Option<(String, Value)>,
+    continuation_placement: ThreadedContinuationPlacement,
+}
+
+enum LooseEndNoFallback<'a> {
+    None,
+    Done,
+    Token(&'a str),
+}
+
+fn loose_end_append_for_nodes<'a>(
+    nodes: &[Node],
+    has_nested_choices: bool,
+    fallback_path: Option<&'a str>,
+    self_path: Option<&str>,
+    suppress_on_explicit_transfer: bool,
+    no_fallback: LooseEndNoFallback<'a>,
+) -> Option<Value> {
+    if has_nested_choices || branch_has_terminal_content(nodes) {
+        return None;
+    }
+
+    if suppress_on_explicit_transfer && branch_has_explicit_flow_transfer(nodes) {
+        return None;
+    }
+
+    if let Some(path) = fallback_path
+        && self_path != Some(path)
+    {
+        return Some(json!({"->": path}));
+    }
+
+    match no_fallback {
+        LooseEndNoFallback::None => None,
+        LooseEndNoFallback::Done => Some(json!("done")),
+        LooseEndNoFallback::Token(token) => Some(json!(token)),
+    }
+}
+
+fn pack_threaded_choice_output(
+    out: &mut EmittedContainer,
+    mut threaded: ThreadedChoiceOutput,
+) -> Result<(), CompilerError> {
+    if let Some((name, value)) = threaded
+        .continuation
+        .as_ref()
+        .filter(|_| {
+            matches!(
+                threaded.continuation_placement,
+                ThreadedContinuationPlacement::InsideGroup
+            )
+        })
+        .cloned()
+    {
+        threaded.group.insert_named(name, value);
+    }
+
+    let group_value = threaded
+        .group
+        .into_json_array(threaded.group_name.as_deref(), None)?;
+
+    if let Some((name, value)) = threaded
+        .continuation
+        .filter(|_| {
+            matches!(
+                threaded.continuation_placement,
+                ThreadedContinuationPlacement::OutsideGroup
+            )
+        })
+    {
+        let mut outer = EmittedContainer::default();
+        outer.push(group_value);
+        outer.insert_named(name, value);
+        out.push(outer.into_json_array(None, None)?);
+    } else {
+        out.push(group_value);
+    }
+
+    Ok(())
+}
+
+fn build_threaded_choice_block_no_label(
+    choices: &[Node],
+    continuation: &[Node],
+    scope: &EmitScope,
+    next_choice_index: &mut usize,
+    context: &EmitContext,
+    fallback_continuation: Option<&str>,
+) -> Result<ThreadedChoiceOutput, CompilerError> {
+    let loop_choices = choices
+        .iter()
+        .filter_map(|node| match node {
+            Node::Choice(choice) => Some(choice),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let fallback_choice = loop_choices
+        .iter()
+        .find(|choice| choice.start_text.trim().is_empty() && choice.choice_only_text.trim().is_empty())
+        .copied();
+
+    let emit_choices = if fallback_choice.is_some() {
+        loop_choices
+            .iter()
+            .copied()
+            .filter(|choice| {
+                !(choice.start_text.trim().is_empty() && choice.choice_only_text.trim().is_empty())
+            })
+            .collect::<Vec<_>>()
+    } else {
+        loop_choices
+    };
+
+    let mut choice_labels = BTreeMap::new();
+    for (offset, choice) in emit_choices.iter().enumerate() {
+        if let Some(label) = &choice.label {
+            let label_target = if scope.path == "0" {
+                format!("0.c-{}", *next_choice_index + offset)
+            } else {
+                format!(".^.^.c-{}", *next_choice_index + offset)
+            };
+            choice_labels.insert(label.clone(), label_target);
+        }
+    }
+    let block_scope = scope.with_choice_labels(choice_labels);
+
+    let choices_prefix = if scope.path == "0" {
+        "0".to_owned()
+    } else if !scope.path.contains('.') {
+        format!("{}.0", scope.path)
+    } else {
+        scope.path.clone()
+    };
+    let header_scope = block_scope.with_relative_depth(block_scope.relative_depth + 3);
+
+    let mut choices_group = EmittedContainer::default();
+    let mut local_choice_index = *next_choice_index;
+
+    let g_name = format!("g-{}", *next_choice_index);
+    let continuation_path_abs = if scope.path == "0" {
+        format!("0.{g_name}")
+    } else {
+        format!("{}.{}", scope.path, g_name)
+    };
+    let continuation_path_rel = if scope.path == "0" {
+        continuation_path_abs.clone()
+    } else {
+        format!(".^.^.{g_name}")
+    };
+
+    let continuation_scope = block_scope.choice_branch(&g_name);
+    let continuation_body = match continuation.first() {
+        Some(Node::GatherPoint) => {
+            let mut idx = 1;
+            while idx < continuation.len() && matches!(continuation[idx], Node::Newline) {
+                idx += 1;
+            }
+            &continuation[idx..]
+        }
+        _ => continuation,
+    };
+    let continuation_has_nested_choices = continuation_body
+        .iter()
+        .any(|node| matches!(node, Node::Choice(_)));
+    let fallback_is_self = fallback_continuation == Some(continuation_path_abs.as_str());
+    let inner_fallback = if fallback_is_self {
+        None
+    } else {
+        fallback_continuation
+    };
+    let mut continuation_container = emit_nodes_with_continuation(
+        continuation_body,
+        &continuation_scope,
+        context,
+        inner_fallback,
+    )?;
+    if let Some(token) = loose_end_append_for_nodes(
+        continuation_body,
+        continuation_has_nested_choices,
+        fallback_continuation,
+        Some(continuation_path_abs.as_str()),
+        true,
+        LooseEndNoFallback::Done,
+    ) {
+        continuation_container.push(token);
+    }
+    let continuation_value = continuation_container.into_json_array(None, None)?;
+
+    for choice in emit_choices {
+
+        let header_idx = choices_group.content.len();
+        choices_group.push(emit_wrapped_loop_choice_header(
+            choice,
+            &header_scope,
+            local_choice_index,
+            header_idx,
+            &choices_prefix,
+            context,
+        )?);
+
+        let branch_name = format!("c-{local_choice_index}");
+        let branch_scope = block_scope
+            .choice_branch(&branch_name)
+            .with_relative_depth(block_scope.relative_depth + 3);
+        choices_group.insert_named(
+            branch_name,
+            emit_wrapped_loop_choice_body(
+                choice,
+                &branch_scope,
+                "",
+                local_choice_index,
+                header_idx,
+                &choices_prefix,
+                Some(&continuation_path_rel),
+                None,
+                context,
+            )?,
+        );
+
+        local_choice_index += 1;
+        *next_choice_index += 1;
+    }
+
+    if let Some(fallback_choice) = fallback_choice {
+        let branch_name = format!("c-{local_choice_index}");
+        let branch_scope = block_scope
+            .choice_branch(&branch_name)
+            .with_relative_depth(block_scope.relative_depth + 3);
+        choices_group.push(json!({"*": format!(".^.{}", branch_name), "flg": 8}));
+        choices_group.insert_named(
+            branch_name,
+            emit_wrapped_loop_choice_body(
+                fallback_choice,
+                &branch_scope,
+                "",
+                local_choice_index,
+                0,
+                &choices_prefix,
+                Some(&continuation_path_rel),
+                None,
+                context,
+            )?,
+        );
+        *next_choice_index += 1;
+    }
+
+    Ok(ThreadedChoiceOutput {
+        group: choices_group,
+        group_name: None,
+        continuation: Some((g_name, continuation_value)),
+        continuation_placement: ThreadedContinuationPlacement::InsideGroup,
+    })
+}
+
+fn build_wrapped_loop_choice_block(
+    choices: &[Node],
+    continuation: &[Node],
+    loop_label: &str,
+    scope: &EmitScope,
+    next_choice_index: &mut usize,
+    context: &EmitContext,
+    fallback_continuation: Option<&str>,
+) -> Result<ThreadedChoiceOutput, CompilerError> {
+    let mut choice_labels = BTreeMap::new();
+    for (offset, node) in choices.iter().enumerate() {
+        let Node::Choice(choice) = node else {
+            continue;
+        };
+        if let Some(label) = &choice.label {
+            let label_target = if scope.path == "0" {
+                format!("0.c-{}", *next_choice_index + offset)
+            } else {
+                format!(".^.^.c-{}", *next_choice_index + offset)
+            };
+            choice_labels.insert(label.clone(), label_target);
+        }
+    }
+    let loop_target = if scope.path == "0" {
+        "0".to_owned()
+    } else {
+        ".^.^".to_owned()
+    };
+    choice_labels.insert(loop_label.to_owned(), loop_target);
+    let block_scope = scope.with_choice_labels(choice_labels);
+
+    let choices_prefix = if scope.path == "0" {
+        format!("0.{loop_label}")
+    } else if !scope.path.contains('.') {
+        format!("{}.0.{loop_label}", scope.path)
+    } else {
+        format!("{}.{}", scope.path, loop_label)
+    };
+    let header_scope = block_scope.with_relative_depth(block_scope.relative_depth + 3);
+
+    let mut choices_group = EmittedContainer::default();
+    let mut local_choice_index = *next_choice_index;
+
+    // Build continuation g-N.
+    let g_name = format!("g-{}", *next_choice_index);
+    let continuation_path_abs = if scope.path == "0" {
+        format!("0.{g_name}")
+    } else {
+        format!("{}.{}", scope.path, g_name)
+    };
+    let continuation_path_rel = if scope.path == "0" {
+        continuation_path_abs.clone()
+    } else {
+        format!(".^.^.^.{g_name}")
+    };
+    let continuation_scope = block_scope.choice_branch(&g_name);
+    let continuation_body = match continuation.first() {
+        Some(Node::GatherPoint) => &continuation[1..],
+        _ => continuation,
+    };
+    let continuation_has_nested_choices = continuation_body
+        .iter()
+        .any(|node| matches!(node, Node::Choice(_)));
+    let simple_terminal_fallback = wrapped_loop_simple_terminal_fallback(continuation_body);
+    let fallback_is_self = fallback_continuation == Some(continuation_path_abs.as_str());
+    let inner_fallback = if fallback_is_self {
+        None
+    } else {
+        fallback_continuation
+    };
+
+    let continuation_value = if simple_terminal_fallback.is_none() {
+        let mut continuation_container = emit_nodes_with_continuation(
+            continuation_body,
+            &continuation_scope,
+            context,
+            inner_fallback,
+        )?;
+
+        if let Some(token) = loose_end_append_for_nodes(
+            continuation_body,
+            continuation_has_nested_choices,
+            fallback_continuation,
+            Some(continuation_path_abs.as_str()),
+            true,
+            LooseEndNoFallback::Done,
+        ) {
+            continuation_container.push(token);
+        }
+        Some(continuation_container.into_json_array(None, None)?)
+    } else {
+        None
+    };
+
+    for node in choices {
+        let Node::Choice(choice) = node else {
+            continue;
+        };
+
+        let header_idx = choices_group.content.len();
+        choices_group.push(emit_wrapped_loop_choice_header(
+            choice,
+            &header_scope,
+            local_choice_index,
+            header_idx,
+            &choices_prefix,
+            context,
+        )?);
+
+        let branch_name = format!("c-{local_choice_index}");
+        let branch_scope = block_scope
+            .choice_branch(&branch_name)
+            .with_relative_depth(block_scope.relative_depth + 3);
+        choices_group.insert_named(
+            branch_name,
+            emit_wrapped_loop_choice_body(
+                choice,
+                &branch_scope,
+                loop_label,
+                local_choice_index,
+                header_idx,
+                &choices_prefix,
+                if simple_terminal_fallback.is_some() {
+                    None
+                } else {
+                    Some(&continuation_path_rel)
+                },
+                simple_terminal_fallback,
+                context,
+            )?,
+        );
+
+        local_choice_index += 1;
+        *next_choice_index += 1;
+    }
+
+    Ok(ThreadedChoiceOutput {
+        group: choices_group,
+        group_name: Some(loop_label.to_owned()),
+        continuation: continuation_value.map(|value| (g_name, value)),
+        continuation_placement: ThreadedContinuationPlacement::OutsideGroup,
+    })
+}
+
+fn emit_wrapped_loop_choice_header(
+    choice: &Choice,
+    scope: &EmitScope,
+    choice_index: usize,
+    header_idx: usize,
+    choices_prefix: &str,
+    context: &EmitContext,
+) -> Result<Value, CompilerError> {
+    let mut arr = vec![
+        json!("ev"),
+        json!({"^->": format!("{choices_prefix}.{header_idx}.$r1")}),
+        json!({"temp=": "$r"}),
+        json!("str"),
+        json!({"->": ".^.s"}),
+        Value::Array(vec![json!({"#n": "$r1"})]),
+        json!("/str"),
+    ];
+
+    for (index, condition) in choice.conditions.iter().enumerate() {
+        emit_condition(condition, &mut arr, scope, context)?;
+        if index > 0 {
+            arr.push(json!("&&"));
+        }
+    }
+
+    arr.push(json!("/ev"));
+    arr.push(json!({"*": format!(".^.^.c-{choice_index}"), "flg": choice_flags(choice)}));
+
+    let mut s = Vec::new();
+    emit_choice_text_content(
+        &choice.start_text,
+        &choice.start_tags,
+        &mut s,
+        scope,
+        context,
+    )?;
+    emit_choice_text_content(
+        &choice.choice_only_text,
+        &choice.choice_only_tags,
+        &mut s,
+        scope,
+        context,
+    )?;
+    s.push(json!({"->": "$r", "var": true}));
+    s.push(Value::Null);
+    arr.push(json!({"s": s}));
+
+    Ok(Value::Array(arr))
+}
+
+fn emit_wrapped_loop_choice_body(
+    choice: &Choice,
+    branch_scope: &EmitScope,
+    _loop_label: &str,
+    choice_index: usize,
+    header_idx: usize,
+    choices_prefix: &str,
+    continuation_path: Option<&str>,
+    continuation_terminal: Option<&str>,
+    context: &EmitContext,
+) -> Result<Value, CompilerError> {
+    let mut branch_nodes = Vec::new();
+    let mut body_already_emitted = false;
+
+    if let Some(selected_text) = &choice.selected_text {
+        let recovered_inline_divert = if choice.body.is_empty() {
+            recover_selected_text_inline_divert(selected_text)
+        } else {
+            None
+        };
+
+        if choice.has_choice_only_content
+            && !choice.has_start_content
+            && matches!(choice.body.as_slice(), [Node::Divert(_)])
+        {
+            branch_nodes.extend(tokenize_inline_content(&format!(" {selected_text}"))?);
+            branch_nodes.extend(choice.body.clone());
+            branch_nodes.push(Node::Newline);
+            body_already_emitted = true;
+        } else if let Some((text, target)) = recovered_inline_divert {
+            if !text.is_empty() {
+                branch_nodes.extend(tokenize_inline_content(&text)?);
+            }
+            branch_nodes.push(Node::Divert(Divert {
+                target,
+                arguments: Vec::new(),
+            }));
+            body_already_emitted = true;
+        }
+        branch_nodes.extend(choice.selected_tags.iter().cloned().map(Node::Tag));
+        if !body_already_emitted && !choice.has_start_content {
+            let body_is_terminal_divert = matches!(
+                choice.body.as_slice(),
+                [Node::Divert(d)] if d.target == "END" || d.target == "DONE"
+            );
+            let body_is_inline_divert = matches!(choice.body.as_slice(), [Node::Divert(_)])
+                && selected_text.ends_with(char::is_whitespace);
+            if !body_is_terminal_divert && !body_is_inline_divert {
+                branch_nodes.push(Node::Newline);
+            }
+        }
+    }
+
+    if !body_already_emitted {
+        branch_nodes.extend(choice.body.clone());
+    }
+
+    let has_nested_choices = branch_nodes.iter().any(|n| matches!(n, Node::Choice(_)));
+    let mut branch_container = if has_nested_choices {
+        emit_nodes_with_continuation(&branch_nodes, branch_scope, context, continuation_path)?
+    } else {
+        emit_nodes(&branch_nodes, branch_scope, context)?
+    };
+    let no_fallback = if let Some(token) = continuation_terminal {
+        LooseEndNoFallback::Token(token)
+    } else {
+        LooseEndNoFallback::None
+    };
+    if let Some(token) = loose_end_append_for_nodes(
+        &branch_nodes,
+        has_nested_choices,
+        continuation_path,
+        None,
+        false,
+        no_fallback,
+    ) {
+        branch_container.push(token);
+    }
+
+    let branch_count_flags = if choice.once_only { Some(5) } else { None };
+    let mut arr = match branch_container.into_json_array(None, branch_count_flags)? {
+        Value::Array(arr) => arr,
+        _ => unreachable!(),
+    };
+    let last = arr.pop().unwrap();
+    let mut out = vec![
+        json!("ev"),
+        json!({"^->": format!("{choices_prefix}.c-{choice_index}.$r2")}),
+        json!("/ev"),
+        json!({"temp=": "$r"}),
+        json!({"->": format!(".^.^.{header_idx}.s")}),
+        Value::Array(vec![json!({"#n": "$r2"})]),
+        json!("\n"),
+    ];
+    out.append(&mut arr);
+    out.push(last);
+    Ok(Value::Array(out))
+}
+
+fn wrapped_loop_simple_terminal_fallback(nodes: &[Node]) -> Option<&'static str> {
+    let mut iter = nodes
+        .iter()
+        .filter(|n| !matches!(n, Node::Newline | Node::GatherPoint));
+    let first = iter.next()?;
+    if iter.next().is_some() {
+        return None;
+    }
+
+    match first {
+        Node::Divert(Divert { target, arguments }) if arguments.is_empty() && target == "END" => {
+            Some("end")
+        }
+        Node::Divert(Divert { target, arguments }) if arguments.is_empty() && target == "DONE" => {
+            Some("done")
+        }
+        _ => None,
+    }
+}
+
+fn emit_choice(
+    out: &mut EmittedContainer,
+    choice: &Choice,
+    scope: &EmitScope,
+    choice_index: usize,
+    continuation_path: Option<&str>,
+    context: &EmitContext,
+) -> Result<(), CompilerError> {
+    let has_ev_content = !choice.start_text.is_empty()
+        || !choice.start_tags.is_empty()
+        || !choice.choice_only_text.is_empty()
+        || !choice.choice_only_tags.is_empty()
+        || !choice.conditions.is_empty();
+
+    if has_ev_content {
+        out.push(json!("ev"));
+        emit_choice_text_segment(
+            &choice.start_text,
+            &choice.start_tags,
+            &mut out.content,
+            scope,
+            context,
+        )?;
+        emit_choice_text_segment(
+            &choice.choice_only_text,
+            &choice.choice_only_tags,
+            &mut out.content,
+            scope,
+            context,
+        )?;
+        for (index, condition) in choice.conditions.iter().enumerate() {
+            emit_condition(condition, &mut out.content, scope, context)?;
+            if index > 0 {
+                out.push(json!("&&"));
+            }
+        }
+        out.push(json!("/ev"));
+    }
+
+    let branch_name = format!("c-{choice_index}");
+    let branch_scope = scope.choice_branch(&branch_name);
+    // In root (scope.path == "0") inklecate emits absolute paths ("0.c-N"),
+    // in knots/stitches it emits relative paths (".^.c-N").
+    let choice_ptr = if scope.path == "0" {
+        format!("0.{}", branch_name)
+    } else {
+        format!(".^.{}", branch_name)
+    };
+    out.push(json!({"*": choice_ptr, "flg": choice_flags(choice)}));
+
+    let mut branch_nodes = Vec::new();
+    let mut body_already_emitted = false;
+    if let Some(selected_text) = &choice.selected_text {
+        let recovered_inline_divert = if choice.body.is_empty() {
+            recover_selected_text_inline_divert(selected_text)
+        } else {
+            None
+        };
+
+        if choice.has_choice_only_content
+            && !choice.has_start_content
+            && matches!(choice.body.as_slice(), [Node::Divert(_)])
+        {
+            branch_nodes.extend(tokenize_inline_content(&format!(" {selected_text}"))?);
+            branch_nodes.extend(choice.body.clone());
+            branch_nodes.push(Node::Newline);
+            body_already_emitted = true;
+        } else if let Some((text, target)) = recovered_inline_divert {
+            if !text.is_empty() {
+                branch_nodes.extend(tokenize_inline_content(&text)?);
+            }
+            branch_nodes.push(Node::Divert(Divert {
+                target,
+                arguments: Vec::new(),
+            }));
+            body_already_emitted = true;
+        } else {
+            branch_nodes.extend(tokenize_inline_content(selected_text)?);
+        }
+        branch_nodes.extend(choice.selected_tags.iter().cloned().map(Node::Tag));
+        if !body_already_emitted {
+            // Skip the auto-newline for terminal diverts, and also for inline diverts that are
+            // authored after inline selected text on the same source line (the selected text keeps
+            // the trailing whitespace needed to join the diverted content).
+            let body_is_terminal_divert = matches!(
+                choice.body.as_slice(),
+                [Node::Divert(d)] if d.target == "END" || d.target == "DONE"
+            );
+            let body_is_inline_divert = matches!(choice.body.as_slice(), [Node::Divert(_)])
+                && selected_text.ends_with(char::is_whitespace);
+            if !body_is_terminal_divert && !body_is_inline_divert {
+                branch_nodes.push(Node::Newline);
+            }
+        }
+    } else if choice.has_choice_only_content
+        && !choice.has_start_content
+        && matches!(choice.body.as_slice(), [Node::Divert(_)])
+    {
+        // choice-only with single divert body:
+        // - inline divert (same line): "^ " then divert then "\n" (inklecate behavior)
+        // - body divert (indented line): "\n" then divert
+        if choice.body_divert_is_inline {
+            branch_nodes.push(Node::Text(" ".to_owned()));
+            branch_nodes.extend(choice.body.clone());
+            branch_nodes.push(Node::Newline);
+        } else {
+            branch_nodes.push(Node::Newline);
+            branch_nodes.extend(choice.body.clone());
+        }
+        body_already_emitted = true;
+    } else if choice.has_choice_only_content
+        && !choice.has_start_content
+        && branch_nodes.is_empty()
+        && !choice.body.is_empty()
+    {
+        // choice-only with multi-node body: "\n" then body
+        branch_nodes.push(Node::Newline);
+        branch_nodes.extend(choice.body.clone());
+        body_already_emitted = true;
+    }
+    if !body_already_emitted {
+        branch_nodes.extend(choice.body.clone());
+    }
+
+    // Check if branch body contains nested choices (at any position)
+    let has_nested_choices = branch_nodes.iter().any(|n| matches!(n, Node::Choice(_)));
+    let mut branch_container = if has_nested_choices {
+        // Pass continuation_path as fallback so nested choice blocks and their
+        // gather continuations can inherit the outer continuation.
+        emit_nodes_with_continuation(&branch_nodes, &branch_scope, context, continuation_path)?
+    } else {
+        emit_nodes(&branch_nodes, &branch_scope, context)?
+    };
+    if let Some(token) = loose_end_append_for_nodes(
+        &branch_nodes,
+        has_nested_choices,
+        continuation_path,
+        None,
+        false,
+        LooseEndNoFallback::None,
+    ) {
+        branch_container.push(token);
+    }
+    out.insert_named(
+        branch_name,
+        branch_container.into_json_array(
+            None,
+            Some(
+                if choice
+                    .label
+                    .as_deref()
+                    .is_some_and(|l| context.turns_since_targets.contains(l))
+                {
+                    7 // VISITS | TURNS | COUNT_START_ONLY
+                } else {
+                    5 // VISITS | COUNT_START_ONLY
+                },
+            ),
+        )?,
+    );
 
     Ok(())
 }
@@ -1441,165 +2410,6 @@ fn emit_assignment(
             out.push(json!("/ev"));
         }
     }
-}
-
-fn emit_choice(
-    out: &mut EmittedContainer,
-    choice: &Choice,
-    scope: &EmitScope,
-    choice_index: usize,
-    continuation_path: Option<&str>,
-    context: &EmitContext,
-) -> Result<(), CompilerError> {
-    let has_ev_content = !choice.start_text.is_empty()
-        || !choice.start_tags.is_empty()
-        || !choice.choice_only_text.is_empty()
-        || !choice.choice_only_tags.is_empty()
-        || !choice.conditions.is_empty();
-
-    if has_ev_content {
-        out.push(json!("ev"));
-        emit_choice_text_segment(
-            &choice.start_text,
-            &choice.start_tags,
-            &mut out.content,
-            scope,
-            context,
-        )?;
-        emit_choice_text_segment(
-            &choice.choice_only_text,
-            &choice.choice_only_tags,
-            &mut out.content,
-            scope,
-            context,
-        )?;
-        for (index, condition) in choice.conditions.iter().enumerate() {
-            emit_condition(condition, &mut out.content, scope, context)?;
-            if index > 0 {
-                out.push(json!("&&"));
-            }
-        }
-        out.push(json!("/ev"));
-    }
-
-    let branch_name = format!("c-{choice_index}");
-    let branch_scope = scope.choice_branch(&branch_name);
-    // In root (scope.path == "0") inklecate emits absolute paths ("0.c-N"),
-    // in knots/stitches it emits relative paths (".^.c-N").
-    let choice_ptr = if scope.path == "0" {
-        format!("0.{}", branch_name)
-    } else {
-        format!(".^.{}", branch_name)
-    };
-    out.push(json!({"*": choice_ptr, "flg": choice_flags(choice)}));
-
-    let mut branch_nodes = Vec::new();
-    let mut body_already_emitted = false;
-    if let Some(selected_text) = &choice.selected_text {
-        let recovered_inline_divert = if choice.body.is_empty() {
-            recover_selected_text_inline_divert(selected_text)
-        } else {
-            None
-        };
-
-        if choice.has_choice_only_content
-            && !choice.has_start_content
-            && matches!(choice.body.as_slice(), [Node::Divert(_)])
-        {
-            branch_nodes.extend(tokenize_inline_content(&format!(" {selected_text}"))?);
-            branch_nodes.extend(choice.body.clone());
-            branch_nodes.push(Node::Newline);
-            body_already_emitted = true;
-        } else if let Some((text, target)) = recovered_inline_divert {
-            if !text.is_empty() {
-                branch_nodes.extend(tokenize_inline_content(&text)?);
-            }
-            branch_nodes.push(Node::Divert(Divert {
-                target,
-                arguments: Vec::new(),
-            }));
-            body_already_emitted = true;
-        } else {
-            branch_nodes.extend(tokenize_inline_content(selected_text)?);
-        }
-        branch_nodes.extend(choice.selected_tags.iter().cloned().map(Node::Tag));
-        if !body_already_emitted {
-            // Skip the auto-newline for terminal diverts, and also for inline diverts that are
-            // authored after inline selected text on the same source line (the selected text keeps
-            // the trailing whitespace needed to join the diverted content).
-            let body_is_terminal_divert = matches!(
-                choice.body.as_slice(),
-                [Node::Divert(d)] if d.target == "END" || d.target == "DONE"
-            );
-            let body_is_inline_divert = matches!(choice.body.as_slice(), [Node::Divert(_)])
-                && selected_text.ends_with(char::is_whitespace);
-            if !body_is_terminal_divert && !body_is_inline_divert {
-                branch_nodes.push(Node::Newline);
-            }
-        }
-    } else if choice.has_choice_only_content
-        && !choice.has_start_content
-        && matches!(choice.body.as_slice(), [Node::Divert(_)])
-    {
-        // choice-only with single divert body:
-        // - inline divert (same line): "^ " then divert then "\n" (inklecate behavior)
-        // - body divert (indented line): "\n" then divert
-        if choice.body_divert_is_inline {
-            branch_nodes.push(Node::Text(" ".to_owned()));
-            branch_nodes.extend(choice.body.clone());
-            branch_nodes.push(Node::Newline);
-        } else {
-            branch_nodes.push(Node::Newline);
-            branch_nodes.extend(choice.body.clone());
-        }
-        body_already_emitted = true;
-    } else if choice.has_choice_only_content
-        && !choice.has_start_content
-        && branch_nodes.is_empty()
-        && !choice.body.is_empty()
-    {
-        // choice-only with multi-node body: "\n" then body
-        branch_nodes.push(Node::Newline);
-        branch_nodes.extend(choice.body.clone());
-        body_already_emitted = true;
-    }
-    if !body_already_emitted {
-        branch_nodes.extend(choice.body.clone());
-    }
-
-    // Check if branch body contains nested choices (at any position)
-    let has_nested_choices = branch_nodes.iter().any(|n| matches!(n, Node::Choice(_)));
-    let mut branch_container = if has_nested_choices {
-        // Pass continuation_path as fallback so nested choice blocks and their
-        // gather continuations can inherit the outer continuation.
-        emit_nodes_with_continuation(&branch_nodes, &branch_scope, context, continuation_path)?
-    } else {
-        emit_nodes(&branch_nodes, &branch_scope, context)?
-    };
-    if let Some(path) = continuation_path
-        .filter(|_| !branch_has_terminal_content(&branch_nodes) && !has_nested_choices)
-    {
-        branch_container.push(json!({"->": path}));
-    }
-    out.insert_named(
-        branch_name,
-        branch_container.into_json_array(
-            None,
-            Some(
-                if choice
-                    .label
-                    .as_deref()
-                    .is_some_and(|l| context.turns_since_targets.contains(l))
-                {
-                    7 // VISITS | TURNS | COUNT_START_ONLY
-                } else {
-                    5 // VISITS | COUNT_START_ONLY
-                },
-            ),
-        )?,
-    );
-
-    Ok(())
 }
 
 fn emit_expression(expression: &Expression, out: &mut Vec<Value>) {
@@ -1916,6 +2726,38 @@ fn emit_choice_text_segment(
     Ok(())
 }
 
+fn emit_choice_text_content(
+    text: &str,
+    tags: &[DynamicString],
+    out: &mut Vec<Value>,
+    scope: &EmitScope,
+    context: &EmitContext,
+) -> Result<(), CompilerError> {
+    if text.is_empty() && tags.is_empty() {
+        return Ok(());
+    }
+
+    if !text.is_empty() {
+        let dynamic = parse_dynamic_string(text).unwrap_or_else(|_| DynamicString {
+            parts: vec![DynamicStringPart::Text(text.to_owned())],
+        });
+        let has_inline = dynamic
+            .parts
+            .iter()
+            .any(|p| !matches!(p, DynamicStringPart::Text(_)));
+        if has_inline {
+            emit_dynamic_string_parts(&dynamic.parts, out, scope, context)?;
+        } else {
+            out.push(json!(format!("^{text}")));
+        }
+    }
+    for tag in tags {
+        emit_tag(tag, out, scope, context)?;
+    }
+
+    Ok(())
+}
+
 fn emit_condition(
     condition: &Condition,
     out: &mut Vec<Value>,
@@ -1958,10 +2800,26 @@ fn branch_has_terminal_content(nodes: &[Node]) -> bool {
         .is_some_and(node_is_terminal)
 }
 
+fn branch_has_explicit_flow_transfer(nodes: &[Node]) -> bool {
+    nodes
+        .iter()
+        .rev()
+        .find(|node| !matches!(node, Node::Newline))
+        .is_some_and(|node| {
+            matches!(
+                node,
+                Node::Divert(Divert { target, .. }) if target != "END" && target != "DONE"
+            )
+        })
+}
+
 fn node_is_terminal(node: &Node) -> bool {
     match node {
-        Node::Divert(_)
-        | Node::TunnelReturn
+        // Only diverts to END/DONE are truly terminal — they mean "stop here, no gather
+        // continuation needed".  Diverts to knots/stitches are NOT terminal: inklecate
+        // still appends the gather continuation divert after them.
+        Node::Divert(d) => d.target == "END" || d.target == "DONE",
+        Node::TunnelReturn
         | Node::TunnelOnwardsWithTarget { .. }
         | Node::ReturnBool(_)
         | Node::ReturnExpr(_) => true,

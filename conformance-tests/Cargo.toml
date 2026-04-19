@@ -8,3 +8,4 @@ edition.workspace = true
 bladeink.workspace = true
 bladeink-compiler.workspace = true
 rand = { workspace = true, features = ["std_rng"] }
+serde_json.workspace = true

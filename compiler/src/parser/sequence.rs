@@ -71,8 +71,13 @@ pub fn parse_sequence(
         let trimmed = body_line.content.trim();
 
         if trimmed == "}" {
+            let had_newline = body_line.had_newline;
             *line_index += 1;
-            return Ok(vec![Node::Sequence(Sequence { mode, branches })]);
+            let mut result = vec![Node::Sequence(Sequence { mode, branches })];
+            if had_newline {
+                result.push(Node::Newline);
+            }
+            return Ok(result);
         }
 
         // Skip blank lines and comments between branches
@@ -144,7 +149,13 @@ pub fn parse_sequence(
             };
             if body_line.had_newline {
                 nodes.insert(0, Node::Newline);
-                nodes.push(Node::Newline);
+                // Only add the trailing Newline when there is inline content.
+                // When inline_text is empty (dash on its own line), the body lines
+                // already produce their own trailing Newline; adding one here would
+                // produce an extra blank line between the leading \n and the content.
+                if !inline_text.is_empty() {
+                    nodes.push(Node::Newline);
+                }
             }
             // Collect body lines (stops at }, next branch header, or knot/stitch header)
             while *line_index < lines.len() {
