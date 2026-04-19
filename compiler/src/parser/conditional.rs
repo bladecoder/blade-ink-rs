@@ -32,9 +32,9 @@ pub fn parse_conditional(
         // Split the branch text by top-level `|` to get true and false branches
         use super::inline::split_top_level_pipe;
         let branches: Vec<&str> = split_top_level_pipe(branch_text);
-        let when_true = tokenize_inline_content(branches[0].trim())?;
+        let when_true = tokenize_inline_content(branches[0].trim_end())?;
         let when_false = if branches.len() > 1 {
-            Some(tokenize_inline_content(branches[1].trim())?)
+            Some(tokenize_inline_content(branches[1].trim_end())?)
         } else {
             None
         };

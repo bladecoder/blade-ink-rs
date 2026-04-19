@@ -13,6 +13,17 @@ use crate::{
     parser::inline::{parse_dynamic_string, tokenize_inline_content},
 };
 
+/// Serialise an `f32` literal using the shortest decimal representation that
+/// round-trips correctly as a 32-bit float, matching inklecate's output.
+/// `serde_json::json!(f32_value)` would widen to `f64` first, introducing
+/// conversion artefacts like `0.4 → 0.4000000059604645`.
+fn float_to_json(value: f32) -> Value {
+    let mut buf = ryu::Buffer::new();
+    let s = buf.format(value);
+    let n: serde_json::Number = s.parse().expect("ryu produced invalid number");
+    Value::Number(n)
+}
+
 pub fn story_to_json_string(
     story: &ParsedStory,
     count_all_visits: bool,
@@ -61,19 +72,22 @@ pub fn story_to_json_value(
         list_defs.insert(list_decl.name.clone(), Value::Object(items));
     }
 
-    Ok(json!({
-        "inkVersion": INK_VERSION_CURRENT,
-        "root": [
-            root_container.into_json_array(None, None)?,
-            "done",
-            if named_content.is_empty() {
-                Value::Null
-            } else {
-                Value::Object(named_content)
-            }
-        ],
-        "listDefs": Value::Object(list_defs)
-    }))
+    // Emit keys in inklecate-compatible order: inkVersion, root, listDefs.
+    let root_value = json!([
+        root_container.into_json_array(None, None)?,
+        "done",
+        if named_content.is_empty() {
+            Value::Null
+        } else {
+            Value::Object(named_content)
+        }
+    ]);
+
+    let mut output = serde_json::Map::new();
+    output.insert("inkVersion".to_owned(), json!(INK_VERSION_CURRENT));
+    output.insert("root".to_owned(), root_value);
+    output.insert("listDefs".to_owned(), Value::Object(list_defs));
+    Ok(Value::Object(output))
 }
 
 #[derive(Debug, Default)]
@@ -145,12 +159,13 @@ impl EmittedContainer {
     ) -> Result<Value, CompilerError> {
         let mut values = self.content;
         let has_name = name.is_some();
-        let has_flags = count_flags.unwrap_or_default() > 0;
+        let flags = count_flags.unwrap_or_default();
+        let has_flags = flags > 0;
 
         if !self.named.is_empty() || has_name || has_flags {
             let mut terminator = self.named;
 
-            if let Some(flags) = count_flags.filter(|flags| *flags > 0) {
+            if has_flags {
                 terminator.insert("#f".to_owned(), json!(flags));
             }
 
@@ -591,6 +606,9 @@ fn emit_flow(flow: &Flow, context: &EmitContext) -> Result<Value, CompilerError>
 
     prepend_parameters(&mut container, &flow.parameters);
 
+
+
+
     if container.content.is_empty() && !flow.children.is_empty() {
         // Auto-divert to the first child stitch. Use a relative path when possible.
         let target = if scope.relative_depth > 0 {
@@ -615,11 +633,12 @@ fn emit_flow(flow: &Flow, context: &EmitContext) -> Result<Value, CompilerError>
     }
 
     let count_flags = if flow.is_function && !context.external_functions.contains(&flow.name) {
-        // Functions normally get VISITS (1), but if referenced by TURNS_SINCE they need TURNS (2)
+        // inklecate does not set VISITS for function containers. If referenced by TURNS_SINCE
+        // they need TURNS (2), otherwise no flags (0) → null terminator.
         if context.turns_since_targets.contains(&flow.name) {
             2
         } else {
-            1
+            0
         }
     } else if context.count_all_visits {
         // Containers referenced by TURNS_SINCE need VISITS | TURNS (3).
@@ -655,6 +674,9 @@ fn emit_nested_flow(
 
     prepend_parameters(&mut container, &flow.parameters);
 
+
+
+
     if container.content.is_empty() && !flow.children.is_empty() {
         // Auto-divert to the first child stitch. Use a relative path when possible.
         let target = if scope.relative_depth > 0 {
@@ -679,7 +701,8 @@ fn emit_nested_flow(
     }
 
     let count_flags = if flow.is_function && !context.external_functions.contains(&flow.name) {
-        1
+        // inklecate does not set VISITS for function containers.
+        0
     } else if context.count_all_visits {
         if context.turns_since_targets.contains(&flow.name) {
             3
@@ -708,6 +731,9 @@ fn prepend_parameters(container: &mut EmittedContainer, parameters: &[String]) {
     prefix.append(&mut container.content);
     container.content = prefix;
 }
+
+
+
 
 /// Pre-scan all nodes (including continuations) to collect every choice label
 /// as an absolute path. This allows cross-block label references (e.g., {greet}
@@ -995,7 +1021,7 @@ fn should_use_threaded_anon_gather(choices: &[Node], continuation: &[Node], scop
         return false;
     }
 
-    if scope.path == "0"
+    if !scope.path.contains('.')
         || choice_block_contains_nested_choices(choices)
         || choice_block_has_invisible_default(choices)
     {
@@ -1210,7 +1236,7 @@ fn emit_nodes_with_continuation(
                 variable_name,
                 expression,
                 mode,
-            } => emit_assignment(variable_name, expression, mode, &mut out, context),
+            } => emit_assignment(variable_name, expression, mode, &mut out, context, Some(scope)),
             Node::VoidCall { name, args } => {
                 out.push(json!("ev"));
                 for (index, arg) in args.iter().enumerate() {
@@ -1409,56 +1435,62 @@ fn emit_choice_block(
 
     let block_scope = scope.with_choice_labels(choice_labels);
 
-    let continuation_path: Option<String> = if section.continuation_nodes.is_empty() {
-        // No explicit continuation nodes — use fallback (parent's continuation) if available.
-        // If the fallback path points to the g-N that belongs to THIS scope (e.g. "0.g-0"),
-        // create a minimal gather container in the named dict to match inklecate's output.
-        let name = format!("g-{}", *next_choice_index);
-        let expected_path = format!("{}.{}", scope.path, name);
-        if fallback_continuation.is_some_and(|fb| fb == expected_path) {
-            let gather_value = Value::Array(vec![json!("done"), Value::Null]);
-            out.insert_named(name, gather_value);
-        }
-        fallback_continuation.map(|s| s.to_owned())
-    } else {
-        let name = format!("g-{}", *next_choice_index);
-        let continuation_scope = block_scope.choice_branch(&name);
-        // Strip leading GatherLabel — it's already handled via into_json_array(gather_label)
-        let continuation_body = if gather_label.is_some() {
-            &section.continuation_nodes[1..]
+    // Compute gather container and continuation path, but defer insert_named so that
+    // choice containers (c-N) are inserted into out.named first (matching inklecate order).
+    let (continuation_path, deferred_gather): (Option<String>, Option<(String, Value)>) =
+        if section.continuation_nodes.is_empty() {
+            // No explicit continuation nodes — use fallback if available.
+            // If the fallback path points to the g-N for this scope, we'll create the minimal
+            // gather container after emitting choices.
+            let name = format!("g-{}", *next_choice_index);
+            let expected_path = format!("{}.{}", scope.path, name);
+            let deferred = if fallback_continuation.is_some_and(|fb| fb == expected_path) {
+                let gather_value = Value::Array(vec![json!("done"), Value::Null]);
+                Some((name, gather_value))
+            } else {
+                None
+            };
+            (fallback_continuation.map(|s| s.to_owned()), deferred)
         } else {
-            section.continuation_nodes
+            let name = format!("g-{}", *next_choice_index);
+            let continuation_scope = block_scope.choice_branch(&name);
+            // Strip leading GatherLabel — it's already handled via into_json_array(gather_label)
+            let continuation_body = if gather_label.is_some() {
+                &section.continuation_nodes[1..]
+            } else {
+                section.continuation_nodes
+            };
+            let has_nested_choices_in_continuation = continuation_body
+                .iter()
+                .any(|n| matches!(n, Node::Choice(_)));
+            let g_n_path = format!("{}.{}", scope.path, name);
+            let fallback_is_self = fallback_continuation == Some(g_n_path.as_str());
+            let inner_fallback = if fallback_is_self {
+                None
+            } else {
+                fallback_continuation
+            };
+            let mut gather_container = emit_nodes_with_continuation(
+                continuation_body,
+                &continuation_scope,
+                context,
+                inner_fallback,
+            )?;
+            if let Some(token) = loose_end_append_for_nodes(
+                continuation_body,
+                has_nested_choices_in_continuation,
+                fallback_continuation,
+                Some(g_n_path.as_str()),
+                true,
+                LooseEndNoFallback::Done,
+            ) {
+                gather_container.push(token);
+            }
+            let continuation_value =
+                gather_container.into_json_array(gather_label.as_deref(), None)?;
+            let path = format!("{}.{}", scope.path, name);
+            (Some(path), Some((name, continuation_value)))
         };
-        let has_nested_choices_in_continuation = continuation_body
-            .iter()
-            .any(|n| matches!(n, Node::Choice(_)));
-        let g_n_path = format!("{}.{}", scope.path, name);
-        let fallback_is_self = fallback_continuation == Some(g_n_path.as_str());
-        let inner_fallback = if fallback_is_self {
-            None
-        } else {
-            fallback_continuation
-        };
-        let mut gather_container = emit_nodes_with_continuation(
-            continuation_body,
-            &continuation_scope,
-            context,
-            inner_fallback,
-        )?;
-        if let Some(token) = loose_end_append_for_nodes(
-            continuation_body,
-            has_nested_choices_in_continuation,
-            fallback_continuation,
-            Some(g_n_path.as_str()),
-            true,
-            LooseEndNoFallback::Done,
-        ) {
-            gather_container.push(token);
-        }
-        let continuation_value = gather_container.into_json_array(gather_label.as_deref(), None)?;
-        out.insert_named(name.clone(), continuation_value);
-        Some(format!("{}.{}", scope.path, name))
-    };
 
     for choice in section.choices {
         let Node::Choice(choice) = choice else {
@@ -1473,6 +1505,12 @@ fn emit_choice_block(
             context,
         )?;
         *next_choice_index += 1;
+    }
+
+    // Insert the gather container AFTER the choice containers so it appears last in the
+    // named map, matching inklecate's insertion order (c-0, c-1, ..., g-0).
+    if let Some((name, value)) = deferred_gather {
+        out.insert_named(name, value);
     }
 
     Ok(())
@@ -1615,10 +1653,8 @@ fn build_threaded_choice_block_no_label(
 
     let choices_prefix = if scope.path == "0" {
         "0".to_owned()
-    } else if !scope.path.contains('.') {
-        format!("{}.0", scope.path)
     } else {
-        scope.path.clone()
+        format!("{}.0", scope.path)
     };
     let header_scope = block_scope.with_relative_depth(block_scope.relative_depth + 3);
 
@@ -1774,10 +1810,8 @@ fn build_wrapped_loop_choice_block(
 
     let choices_prefix = if scope.path == "0" {
         format!("0.{loop_label}")
-    } else if !scope.path.contains('.') {
-        format!("{}.0.{loop_label}", scope.path)
     } else {
-        format!("{}.{}", scope.path, loop_label)
+        format!("{}.0.{loop_label}", scope.path)
     };
     let header_scope = block_scope.with_relative_depth(block_scope.relative_depth + 3);
 
@@ -1835,6 +1869,12 @@ fn build_wrapped_loop_choice_block(
         None
     };
 
+    let continuation_path_fallback_rel = if scope.path == "0" {
+        format!("0.{g_name}")
+    } else {
+        continuation_path_rel.clone()
+    };
+
     for node in choices {
         let Node::Choice(choice) = node else {
             continue;
@@ -1866,7 +1906,7 @@ fn build_wrapped_loop_choice_block(
                 if simple_terminal_fallback.is_some() {
                     None
                 } else {
-                    Some(&continuation_path_rel)
+                    Some(&continuation_path_fallback_rel)
                 },
                 simple_terminal_fallback,
                 context,
@@ -2173,6 +2213,14 @@ fn emit_choice(
         branch_nodes.push(Node::Newline);
         branch_nodes.extend(choice.body.clone());
         body_already_emitted = true;
+    } else if choice.has_choice_only_content
+        && !choice.has_start_content
+        && choice.body.is_empty()
+    {
+        // choice-only with completely empty body: inklecate always opens the c-N
+        // container with a "\n" (representing the line break after the user selects).
+        branch_nodes.push(Node::Newline);
+        body_already_emitted = true;
     }
     if !body_already_emitted {
         branch_nodes.extend(choice.body.clone());
@@ -2363,20 +2411,30 @@ fn emit_assignment(
     mode: &AssignMode,
     out: &mut EmittedContainer,
     context: &EmitContext,
+    scope: Option<&EmitScope>,
 ) {
+    // When the target variable is a parameter of the enclosing function/knot, it lives
+    // in the temp-variable frame, so inklecate uses `{"temp=": name, "re": true}` rather
+    // than `{"VAR=": name, "re": true}`.
+    let is_param = scope.is_some_and(|s| s.param_names.contains(variable_name));
+
     match mode {
         AssignMode::Set => {
             out.push(json!("ev"));
-            emit_expression_ctx(expression, &mut out.content, Some(context), None);
+            emit_expression_ctx(expression, &mut out.content, Some(context), scope);
             out.push(json!("/ev"));
-            out.push(json!({"VAR=": variable_name, "re": true}));
+            if is_param {
+                out.push(json!({"temp=": variable_name, "re": true}));
+            } else {
+                out.push(json!({"VAR=": variable_name, "re": true}));
+            }
             if expression_has_function_call(expression) {
                 out.push(json!("\n"));
             }
         }
         AssignMode::TempSet => {
             out.push(json!("ev"));
-            emit_expression_ctx(expression, &mut out.content, Some(context), None);
+            emit_expression_ctx(expression, &mut out.content, Some(context), scope);
             out.push(json!("/ev"));
             out.push(json!({"temp=": variable_name}));
             if expression_has_function_call(expression) {
@@ -2389,11 +2447,15 @@ fn emit_assignment(
                 &Expression::Variable(variable_name.to_owned()),
                 &mut out.content,
                 Some(context),
-                None,
+                scope,
             );
-            emit_expression_ctx(expression, &mut out.content, Some(context), None);
+            emit_expression_ctx(expression, &mut out.content, Some(context), scope);
             out.push(json!("+"));
-            out.push(json!({"VAR=": variable_name, "re": true}));
+            if is_param {
+                out.push(json!({"temp=": variable_name, "re": true}));
+            } else {
+                out.push(json!({"VAR=": variable_name, "re": true}));
+            }
             out.push(json!("/ev"));
         }
         AssignMode::SubtractAssign => {
@@ -2402,11 +2464,15 @@ fn emit_assignment(
                 &Expression::Variable(variable_name.to_owned()),
                 &mut out.content,
                 Some(context),
-                None,
+                scope,
             );
-            emit_expression_ctx(expression, &mut out.content, Some(context), None);
+            emit_expression_ctx(expression, &mut out.content, Some(context), scope);
             out.push(json!("-"));
-            out.push(json!({"VAR=": variable_name, "re": true}));
+            if is_param {
+                out.push(json!({"temp=": variable_name, "re": true}));
+            } else {
+                out.push(json!({"VAR=": variable_name, "re": true}));
+            }
             out.push(json!("/ev"));
         }
     }
@@ -2425,7 +2491,7 @@ fn emit_expression_ctx(
     match expression {
         Expression::Bool(value) => out.push(json!(value)),
         Expression::Int(value) => out.push(json!(value)),
-        Expression::Float(value) => out.push(json!(value)),
+        Expression::Float(value) => out.push(float_to_json(*value)),
         Expression::Str(value) => {
             // Parse the string content for {expr} interpolations
             let dynamic = parse_dynamic_string(value).unwrap_or_else(|_| DynamicString {
@@ -2502,8 +2568,16 @@ fn emit_expression_ctx(
             out.push(json!({"^->": resolved}));
         }
         Expression::Negate(expr) => {
-            emit_expression_ctx(expr, out, context, scope);
-            out.push(json!("_"));
+            // Constant-fold negation of integer/float literals to match inklecate's
+            // output: emit `-3` directly instead of `3, "_"`.
+            match expr.as_ref() {
+                Expression::Int(n) => out.push(json!(-n)),
+                Expression::Float(f) => out.push(float_to_json(-f)),
+                other => {
+                    emit_expression_ctx(other, out, context, scope);
+                    out.push(json!("_"));
+                }
+            }
         }
         Expression::Not(expr) => {
             emit_expression_ctx(expr, out, context, scope);
@@ -2634,7 +2708,7 @@ fn emit_call_argument(
         .unwrap_or(false);
 
     if is_ref_arg && let Expression::Variable(name) = arg {
-        out.push(json!({"^var": name}));
+        out.push(json!({"^var": name, "ci": -1}));
     } else {
         emit_expression_ctx(arg, out, context, scope);
     }

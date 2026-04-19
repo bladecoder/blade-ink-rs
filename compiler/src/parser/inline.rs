@@ -74,9 +74,11 @@ pub fn tokenize_inline_content(content: &str) -> Result<Vec<Node>, CompilerError
             if let Some((condition, branch_text)) = parse_inline_conditional(inline)? {
                 // Split on top-level '|' to get optional false branch.
                 let branches: Vec<&str> = split_top_level_pipe(branch_text);
-                let when_true = tokenize_inline_content(branches[0].trim())?;
+                // Use trim_end (not trim) to preserve the leading space that authors
+                // write after ':' — inklecate keeps it as part of the text token.
+                let when_true = tokenize_inline_content(branches[0].trim_end())?;
                 let when_false = if branches.len() > 1 {
-                    Some(tokenize_inline_content(branches[1].trim())?)
+                    Some(tokenize_inline_content(branches[1].trim_end())?)
                 } else {
                     None
                 };
@@ -475,7 +477,9 @@ pub fn parse_inline_conditional(
 
     Ok(Some((
         parse_condition(condition.trim())?,
-        branch.trim_start(),
+        // Do NOT trim the leading whitespace from the branch text: inklecate preserves
+        // the space that authors write after ':' (e.g. `{cond: text}` → `" text"`).
+        branch,
     )))
 }
 

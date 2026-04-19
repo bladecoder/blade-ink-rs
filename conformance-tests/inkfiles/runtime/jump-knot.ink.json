@@ -1,1 +1,1 @@
-{"inkVersion":21,"root":[[["done",{"#n":"g-0"}],null],"done",{"one":["^One ",{"->":"end"},"\n",null],"two":["^Two ",{"->":"end"},"\n",null],"three":["^Three ",{"->":"end"},"\n",null],"end":["end",null]}],"listDefs":{}}
+{"inkVersion":21,"root":[[["done",{"#f":5,"#n":"g-0"}],null],"done",{"one":["^One ",{"->":"end"},"\n",{"#f":1}],"two":["^Two ",{"->":"end"},"\n",{"#f":1}],"three":["^Three ",{"->":"end"},"\n",{"#f":1}],"end":["end",{"#f":1}],"#f":1}],"listDefs":{}}
