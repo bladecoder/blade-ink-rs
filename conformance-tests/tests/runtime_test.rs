@@ -11,7 +11,6 @@ use bladeink_compiler::Compiler;
 mod common;
 
 struct ExtFunc1;
-struct ExtFunc2;
 struct ExtFunc3;
 struct ExtFunc4;
 struct ExtFunc5;
@@ -33,12 +32,6 @@ impl ExternalFunction for ExtFunc1 {
         let y = args[1].coerce_to_int().unwrap_or_default();
 
         Some(ValueType::Int(x - y))
-    }
-}
-
-impl ExternalFunction for ExtFunc2 {
-    fn call(&mut self, _: &str, _: Vec<ValueType>) -> Option<ValueType> {
-        Some(ValueType::new::<&str>("Hello world"))
     }
 }
 

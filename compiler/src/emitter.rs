@@ -141,6 +141,51 @@ struct EmitContext {
     qualified_choice_labels: BTreeMap<String, String>,
     /// For each function, whether each parameter position is `ref`.
     function_ref_param_positions: BTreeMap<String, Vec<bool>>,
+    /// Unqualified flow/stitch target names mapped to their absolute path
+    /// when the name is unique across the story.
+    unqualified_flow_targets: BTreeMap<String, String>,
+}
+
+fn register_unqualified_flow_target(
+    shortcuts: &mut BTreeMap<String, Option<String>>,
+    short_name: &str,
+    absolute_path: String,
+) {
+    match shortcuts.get(short_name) {
+        None => {
+            shortcuts.insert(short_name.to_owned(), Some(absolute_path));
+        }
+        Some(Some(existing)) if existing == &absolute_path => {}
+        _ => {
+            shortcuts.insert(short_name.to_owned(), None);
+        }
+    }
+}
+
+fn collect_unqualified_flow_targets_recursive(
+    flow: &Flow,
+    absolute_path: &str,
+    shortcuts: &mut BTreeMap<String, Option<String>>,
+) {
+    register_unqualified_flow_target(shortcuts, &flow.name, absolute_path.to_owned());
+
+    for child in &flow.children {
+        let child_path = format!("{absolute_path}.{}", child.name);
+        collect_unqualified_flow_targets_recursive(child, &child_path, shortcuts);
+    }
+}
+
+fn collect_unqualified_flow_targets(story: &ParsedStory) -> BTreeMap<String, String> {
+    let mut shortcuts: BTreeMap<String, Option<String>> = BTreeMap::new();
+
+    for flow in story.flows() {
+        collect_unqualified_flow_targets_recursive(flow, &flow.name, &mut shortcuts);
+    }
+
+    shortcuts
+        .into_iter()
+        .filter_map(|(name, maybe_path)| maybe_path.map(|path| (name, path)))
+        .collect()
 }
 
 impl EmittedContainer {
@@ -284,6 +329,7 @@ impl EmitContext {
         collect_turns_since_targets_from_nodes(story.root(), &mut turns_since_targets);
         collect_turns_since_targets_from_flows_into(story.flows(), &mut turns_since_targets);
         let qualified_choice_labels = collect_story_choice_labels(story);
+        let unqualified_flow_targets = collect_unqualified_flow_targets(story);
         let function_ref_param_positions = story
             .flows()
             .iter()
@@ -312,6 +358,7 @@ impl EmitContext {
             turns_since_targets,
             qualified_choice_labels,
             function_ref_param_positions,
+            unqualified_flow_targets,
         }
     }
 
@@ -528,6 +575,10 @@ impl EmitScope {
             return self.make_relative(&abs);
         }
 
+        if let Some(abs) = context.unqualified_flow_targets.get(target) {
+            return abs.clone();
+        }
+
         target.to_owned()
     }
 
@@ -606,9 +657,6 @@ fn emit_flow(flow: &Flow, context: &EmitContext) -> Result<Value, CompilerError>
 
     prepend_parameters(&mut container, &flow.parameters);
 
-
-
-
     if container.content.is_empty() && !flow.children.is_empty() {
         // Auto-divert to the first child stitch. Use a relative path when possible.
         let target = if scope.relative_depth > 0 {
@@ -674,9 +722,6 @@ fn emit_nested_flow(
 
     prepend_parameters(&mut container, &flow.parameters);
 
-
-
-
     if container.content.is_empty() && !flow.children.is_empty() {
         // Auto-divert to the first child stitch. Use a relative path when possible.
         let target = if scope.relative_depth > 0 {
@@ -731,9 +776,6 @@ fn prepend_parameters(container: &mut EmittedContainer, parameters: &[String]) {
     prefix.append(&mut container.content);
     container.content = prefix;
 }
-
-
-
 
 /// Pre-scan all nodes (including continuations) to collect every choice label
 /// as an absolute path. This allows cross-block label references (e.g., {greet}
@@ -898,10 +940,10 @@ fn threaded_loop_label_for_choice_block(continuation: &[Node]) -> Option<(String
         nodes = &nodes[1..];
     }
 
-    if let Some(Node::GatherLabel(label)) = nodes.first() {
-        if label == "loop" {
-            return Some((label.clone(), true));
-        }
+    if let Some(Node::GatherLabel(label)) = nodes.first()
+        && label == "loop"
+    {
+        return Some((label.clone(), true));
     }
 
     None
@@ -964,20 +1006,17 @@ fn nodes_contain_choice(nodes: &[Node]) -> bool {
                 when_true,
                 when_false,
                 ..
-            } => {
-                if nodes_contain_choice(when_true)
-                    || when_false.as_deref().is_some_and(nodes_contain_choice)
-                {
-                    return true;
-                }
+            } if nodes_contain_choice(when_true)
+                || when_false.as_deref().is_some_and(nodes_contain_choice) =>
+            {
+                return true;
             }
-            Node::SwitchConditional { branches, .. } => {
+            Node::SwitchConditional { branches, .. }
                 if branches
                     .iter()
-                    .any(|(_, branch_nodes)| nodes_contain_choice(branch_nodes))
-                {
-                    return true;
-                }
+                    .any(|(_, branch_nodes)| nodes_contain_choice(branch_nodes)) =>
+            {
+                return true;
             }
             _ => {}
         }
@@ -1010,7 +1049,11 @@ fn choice_block_has_invisible_default(choices: &[Node]) -> bool {
     })
 }
 
-fn should_use_threaded_anon_gather(choices: &[Node], continuation: &[Node], scope: &EmitScope) -> bool {
+fn should_use_threaded_anon_gather(
+    choices: &[Node],
+    continuation: &[Node],
+    scope: &EmitScope,
+) -> bool {
     let continuation = skip_leading_newlines(continuation);
 
     if !matches!(continuation.first(), Some(Node::GatherPoint)) {
@@ -1236,7 +1279,14 @@ fn emit_nodes_with_continuation(
                 variable_name,
                 expression,
                 mode,
-            } => emit_assignment(variable_name, expression, mode, &mut out, context, Some(scope)),
+            } => emit_assignment(
+                variable_name,
+                expression,
+                mode,
+                &mut out,
+                context,
+                Some(scope),
+            ),
             Node::VoidCall { name, args } => {
                 out.push(json!("ev"));
                 for (index, arg) in args.iter().enumerate() {
@@ -1424,14 +1474,15 @@ fn emit_choice_block(
         }
     }
     // Detect gather label for the continuation so it can be added to choice_labels
-    let gather_label: Option<String> = if let Some(Node::GatherLabel(lbl)) = section.continuation_nodes.first() {
-        let g_name = format!("g-{}", *next_choice_index);
-        let path = format!("{}.{}", scope.path, g_name);
-        choice_labels.insert(lbl.clone(), path);
-        Some(lbl.clone())
-    } else {
-        None
-    };
+    let gather_label: Option<String> =
+        if let Some(Node::GatherLabel(lbl)) = section.continuation_nodes.first() {
+            let g_name = format!("g-{}", *next_choice_index);
+            let path = format!("{}.{}", scope.path, g_name);
+            choice_labels.insert(lbl.clone(), path);
+            Some(lbl.clone())
+        } else {
+            None
+        };
 
     let block_scope = scope.with_choice_labels(choice_labels);
 
@@ -1585,15 +1636,12 @@ fn pack_threaded_choice_output(
         .group
         .into_json_array(threaded.group_name.as_deref(), None)?;
 
-    if let Some((name, value)) = threaded
-        .continuation
-        .filter(|_| {
-            matches!(
-                threaded.continuation_placement,
-                ThreadedContinuationPlacement::OutsideGroup
-            )
-        })
-    {
+    if let Some((name, value)) = threaded.continuation.filter(|_| {
+        matches!(
+            threaded.continuation_placement,
+            ThreadedContinuationPlacement::OutsideGroup
+        )
+    }) {
         let mut outer = EmittedContainer::default();
         outer.push(group_value);
         outer.insert_named(name, value);
@@ -1623,7 +1671,9 @@ fn build_threaded_choice_block_no_label(
 
     let fallback_choice = loop_choices
         .iter()
-        .find(|choice| choice.start_text.trim().is_empty() && choice.choice_only_text.trim().is_empty())
+        .find(|choice| {
+            choice.start_text.trim().is_empty() && choice.choice_only_text.trim().is_empty()
+        })
         .copied();
 
     let emit_choices = if fallback_choice.is_some() {
@@ -1712,7 +1762,6 @@ fn build_threaded_choice_block_no_label(
     let continuation_value = continuation_container.into_json_array(None, None)?;
 
     for choice in emit_choices {
-
         let header_idx = choices_group.content.len();
         choices_group.push(emit_wrapped_loop_choice_header(
             choice,
@@ -1732,12 +1781,13 @@ fn build_threaded_choice_block_no_label(
             emit_wrapped_loop_choice_body(
                 choice,
                 &branch_scope,
-                "",
-                local_choice_index,
-                header_idx,
-                &choices_prefix,
-                Some(&continuation_path_rel),
-                None,
+                WrappedLoopChoiceBodyConfig {
+                    choice_index: local_choice_index,
+                    header_idx,
+                    choices_prefix: &choices_prefix,
+                    continuation_path: Some(&continuation_path_rel),
+                    continuation_terminal: None,
+                },
                 context,
             )?,
         );
@@ -1757,12 +1807,13 @@ fn build_threaded_choice_block_no_label(
             emit_wrapped_loop_choice_body(
                 fallback_choice,
                 &branch_scope,
-                "",
-                local_choice_index,
-                0,
-                &choices_prefix,
-                Some(&continuation_path_rel),
-                None,
+                WrappedLoopChoiceBodyConfig {
+                    choice_index: local_choice_index,
+                    header_idx: 0,
+                    choices_prefix: &choices_prefix,
+                    continuation_path: Some(&continuation_path_rel),
+                    continuation_terminal: None,
+                },
                 context,
             )?,
         );
@@ -1899,16 +1950,17 @@ fn build_wrapped_loop_choice_block(
             emit_wrapped_loop_choice_body(
                 choice,
                 &branch_scope,
-                loop_label,
-                local_choice_index,
-                header_idx,
-                &choices_prefix,
-                if simple_terminal_fallback.is_some() {
-                    None
-                } else {
-                    Some(&continuation_path_fallback_rel)
+                WrappedLoopChoiceBodyConfig {
+                    choice_index: local_choice_index,
+                    header_idx,
+                    choices_prefix: &choices_prefix,
+                    continuation_path: if simple_terminal_fallback.is_some() {
+                        None
+                    } else {
+                        Some(&continuation_path_fallback_rel)
+                    },
+                    continuation_terminal: simple_terminal_fallback,
                 },
-                simple_terminal_fallback,
                 context,
             )?,
         );
@@ -1975,15 +2027,18 @@ fn emit_wrapped_loop_choice_header(
     Ok(Value::Array(arr))
 }
 
+struct WrappedLoopChoiceBodyConfig<'a> {
+    choice_index: usize,
+    header_idx: usize,
+    choices_prefix: &'a str,
+    continuation_path: Option<&'a str>,
+    continuation_terminal: Option<&'a str>,
+}
+
 fn emit_wrapped_loop_choice_body(
     choice: &Choice,
     branch_scope: &EmitScope,
-    _loop_label: &str,
-    choice_index: usize,
-    header_idx: usize,
-    choices_prefix: &str,
-    continuation_path: Option<&str>,
-    continuation_terminal: Option<&str>,
+    config: WrappedLoopChoiceBodyConfig<'_>,
     context: &EmitContext,
 ) -> Result<Value, CompilerError> {
     let mut branch_nodes = Vec::new();
@@ -2034,11 +2089,16 @@ fn emit_wrapped_loop_choice_body(
 
     let has_nested_choices = branch_nodes.iter().any(|n| matches!(n, Node::Choice(_)));
     let mut branch_container = if has_nested_choices {
-        emit_nodes_with_continuation(&branch_nodes, branch_scope, context, continuation_path)?
+        emit_nodes_with_continuation(
+            &branch_nodes,
+            branch_scope,
+            context,
+            config.continuation_path,
+        )?
     } else {
         emit_nodes(&branch_nodes, branch_scope, context)?
     };
-    let no_fallback = if let Some(token) = continuation_terminal {
+    let no_fallback = if let Some(token) = config.continuation_terminal {
         LooseEndNoFallback::Token(token)
     } else {
         LooseEndNoFallback::None
@@ -2046,7 +2106,7 @@ fn emit_wrapped_loop_choice_body(
     if let Some(token) = loose_end_append_for_nodes(
         &branch_nodes,
         has_nested_choices,
-        continuation_path,
+        config.continuation_path,
         None,
         false,
         no_fallback,
@@ -2062,10 +2122,10 @@ fn emit_wrapped_loop_choice_body(
     let last = arr.pop().unwrap();
     let mut out = vec![
         json!("ev"),
-        json!({"^->": format!("{choices_prefix}.c-{choice_index}.$r2")}),
+        json!({"^->": format!("{}.c-{}.$r2", config.choices_prefix, config.choice_index)}),
         json!("/ev"),
         json!({"temp=": "$r"}),
-        json!({"->": format!(".^.^.{header_idx}.s")}),
+        json!({"->": format!(".^.^.{}.s", config.header_idx)}),
         Value::Array(vec![json!({"#n": "$r2"})]),
         json!("\n"),
     ];
@@ -2134,7 +2194,9 @@ fn emit_choice(
     }
 
     let branch_name = format!("c-{choice_index}");
-    let branch_scope = scope.choice_branch(&branch_name);
+    let branch_scope = scope
+        .choice_branch(&branch_name)
+        .with_relative_depth(scope.relative_depth + 1);
     // In root (scope.path == "0") inklecate emits absolute paths ("0.c-N"),
     // in knots/stitches it emits relative paths (".^.c-N").
     let choice_ptr = if scope.path == "0" {
@@ -2213,9 +2275,7 @@ fn emit_choice(
         branch_nodes.push(Node::Newline);
         branch_nodes.extend(choice.body.clone());
         body_already_emitted = true;
-    } else if choice.has_choice_only_content
-        && !choice.has_start_content
-        && choice.body.is_empty()
+    } else if choice.has_choice_only_content && !choice.has_start_content && choice.body.is_empty()
     {
         // choice-only with completely empty body: inklecate always opens the c-N
         // container with a "\n" (representing the line break after the user selects).

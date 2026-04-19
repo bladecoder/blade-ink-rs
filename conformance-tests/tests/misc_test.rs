@@ -1180,7 +1180,6 @@ VAR global_var = 5
 // TestEmptyListOriginAfterAssignment (Tests.cs)
 // After assigning an empty list, LIST_ALL should still return all items.
 #[test]
-#[test]
 fn list_multiline_block_comments_test() -> Result<(), StoryError> {
     // LIST declarations spanning multiple indented lines with /* block comments */
     // should parse all items correctly (block comments are stripped in preprocessing).

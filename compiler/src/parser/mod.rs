@@ -608,15 +608,11 @@ pub fn parse_statement(
 
     let thread_rest = if let Some(r) = trimmed.strip_prefix("<- ") {
         Some(r.trim())
-    } else if let Some(r) = trimmed.strip_prefix("<-") {
-        // Also handle "<-target(args)" without a space after "<-"
-        if r.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
-            Some(r)
-        } else {
-            None
-        }
     } else {
-        None
+        // Also handle "<-target(args)" without a space after "<-"
+        trimmed
+            .strip_prefix("<-")
+            .filter(|&r| r.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
     };
     if let Some(rest) = thread_rest {
         *line_index += 1;
@@ -842,8 +838,7 @@ pub fn parse_header(line: &str) -> Option<Header> {
 
     if trimmed.starts_with('=') {
         let inner = trimmed.trim_start_matches('=').trim();
-        let (name, parameters, ref_parameters, divert_parameters) =
-            parse_header_signature(inner)?;
+        let (name, parameters, ref_parameters, divert_parameters) = parse_header_signature(inner)?;
         return Some(Header::Stitch {
             name,
             parameters,

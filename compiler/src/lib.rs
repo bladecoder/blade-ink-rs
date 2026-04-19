@@ -239,72 +239,6 @@ fn normalize_include_path(current_dir: &Path, filename: &str) -> PathBuf {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{Compiler, CompilerError, CompilerOptions};
-
-    #[test]
-    fn error_includes_line_number() {
-        // VAR with a bad assignment — error should reference line 3
-        let source = "Hello.\nWorld.\nVAR x ==\n";
-        let err = Compiler::new().compile(source).unwrap_err();
-        let display = err.to_string();
-        assert!(
-            display.contains("line 3") || display.contains(":3:"),
-            "expected line 3 in error, got: {display}"
-        );
-    }
-
-    #[test]
-    fn error_includes_filename_when_set() {
-        let source = "VAR x ==\n";
-        let options = CompilerOptions {
-            source_filename: Some("story.ink".to_owned()),
-            ..Default::default()
-        };
-        let err = Compiler::with_options(options).compile(source).unwrap_err();
-        let display = err.to_string();
-        assert!(
-            display.starts_with("story.ink"),
-            "expected filename in error, got: {display}"
-        );
-    }
-
-    #[test]
-    fn error_from_included_file_shows_included_filename() {
-        // The main file includes "sub.ink" which has a bad divert on its line 2.
-        // The error should report "sub.ink:2", not the main file.
-        let main_source = "Hello.\nINCLUDE sub.ink\n";
-        let sub_source = "Good line.\n->\n";
-
-        let options = CompilerOptions {
-            source_filename: Some("main.ink".to_owned()),
-            ..Default::default()
-        };
-        let err = Compiler::with_options(options)
-            .compile_with_file_handler(main_source, |name| {
-                if name == "sub.ink" {
-                    Ok(sub_source.to_owned())
-                } else {
-                    Err(CompilerError::invalid_source(format!(
-                        "file not found: {name}"
-                    )))
-                }
-            })
-            .unwrap_err();
-        let display = err.to_string();
-        assert!(
-            display.contains("sub.ink"),
-            "expected 'sub.ink' in error, got: {display}"
-        );
-        assert!(
-            display.contains(":2:") || display.contains("line 2"),
-            "expected line 2 in error, got: {display}"
-        );
-    }
-
-}
-
 /// Substitute CONST references in global variable initial values.
 /// Any `Expression::Variable(name)` where `name` is a known const is replaced
 /// with the const's literal value.
@@ -466,4 +400,69 @@ fn strip_block_comments(source: &str) -> String {
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Compiler, CompilerError, CompilerOptions};
+
+    #[test]
+    fn error_includes_line_number() {
+        // VAR with a bad assignment — error should reference line 3
+        let source = "Hello.\nWorld.\nVAR x ==\n";
+        let err = Compiler::new().compile(source).unwrap_err();
+        let display = err.to_string();
+        assert!(
+            display.contains("line 3") || display.contains(":3:"),
+            "expected line 3 in error, got: {display}"
+        );
+    }
+
+    #[test]
+    fn error_includes_filename_when_set() {
+        let source = "VAR x ==\n";
+        let options = CompilerOptions {
+            source_filename: Some("story.ink".to_owned()),
+            ..Default::default()
+        };
+        let err = Compiler::with_options(options).compile(source).unwrap_err();
+        let display = err.to_string();
+        assert!(
+            display.starts_with("story.ink"),
+            "expected filename in error, got: {display}"
+        );
+    }
+
+    #[test]
+    fn error_from_included_file_shows_included_filename() {
+        // The main file includes "sub.ink" which has a bad divert on its line 2.
+        // The error should report "sub.ink:2", not the main file.
+        let main_source = "Hello.\nINCLUDE sub.ink\n";
+        let sub_source = "Good line.\n->\n";
+
+        let options = CompilerOptions {
+            source_filename: Some("main.ink".to_owned()),
+            ..Default::default()
+        };
+        let err = Compiler::with_options(options)
+            .compile_with_file_handler(main_source, |name| {
+                if name == "sub.ink" {
+                    Ok(sub_source.to_owned())
+                } else {
+                    Err(CompilerError::invalid_source(format!(
+                        "file not found: {name}"
+                    )))
+                }
+            })
+            .unwrap_err();
+        let display = err.to_string();
+        assert!(
+            display.contains("sub.ink"),
+            "expected 'sub.ink' in error, got: {display}"
+        );
+        assert!(
+            display.contains(":2:") || display.contains("line 2"),
+            "expected line 2 in error, got: {display}"
+        );
+    }
 }
