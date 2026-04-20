@@ -1,5 +1,5 @@
 use crate::{
-    ast::{BinaryOperator, Expression},
+    bootstrap::ast::{BinaryOperator, Expression},
     error::CompilerError,
 };
 

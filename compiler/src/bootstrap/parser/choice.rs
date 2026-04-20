@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Choice, Condition, Divert, DynamicString, Node},
+    bootstrap::ast::{Choice, Condition, Divert, DynamicString, Node},
     error::CompilerError,
 };
 

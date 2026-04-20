@@ -280,6 +280,7 @@ fn count_all_visits_option_changes_compiled_container_flags() {
     let json_without_count_all_visits = Compiler::with_options(CompilerOptions {
         count_all_visits: false,
         source_filename: None,
+        ..Default::default()
     })
     .compile(ink_source)
     .unwrap();
@@ -287,6 +288,7 @@ fn count_all_visits_option_changes_compiled_container_flags() {
     let json_with_count_all_visits = Compiler::with_options(CompilerOptions {
         count_all_visits: true,
         source_filename: None,
+        ..Default::default()
     })
     .compile(ink_source)
     .unwrap();

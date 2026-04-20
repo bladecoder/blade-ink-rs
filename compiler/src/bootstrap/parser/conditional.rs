@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Expression, Node},
+    bootstrap::ast::{Expression, Node},
     error::CompilerError,
 };
 
@@ -260,8 +260,8 @@ pub fn parse_multi_branch_conditional(
 ) -> Result<Vec<Node>, CompilerError> {
     *line_index += 1;
 
-    let mut branches: Vec<(Option<crate::ast::Condition>, Vec<Node>)> = Vec::new();
-    let mut current_condition: Option<crate::ast::Condition> = None;
+    let mut branches: Vec<(Option<crate::bootstrap::ast::Condition>, Vec<Node>)> = Vec::new();
+    let mut current_condition: Option<crate::bootstrap::ast::Condition> = None;
     let mut current_nodes = Vec::new();
 
     while *line_index < lines.len() {
@@ -427,7 +427,7 @@ pub fn parse_multi_branch_conditional(
 }
 
 pub fn fold_conditional_branches(
-    mut branches: Vec<(Option<crate::ast::Condition>, Vec<Node>)>,
+    mut branches: Vec<(Option<crate::bootstrap::ast::Condition>, Vec<Node>)>,
 ) -> Result<Vec<Node>, CompilerError> {
     if branches.is_empty() {
         return Ok(Vec::new());

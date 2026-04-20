@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Node, Sequence, SequenceMode},
+    bootstrap::ast::{Node, Sequence, SequenceMode},
     error::CompilerError,
 };
 

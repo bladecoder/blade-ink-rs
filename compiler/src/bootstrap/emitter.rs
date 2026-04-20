@@ -4,13 +4,13 @@ use bladeink::story::INK_VERSION_CURRENT;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    ast::{
+    bootstrap::ast::{
         AssignMode, BinaryOperator, Choice, Condition, Divert, DynamicString, DynamicStringPart,
         Expression, Flow, GlobalVariable, ListDeclaration, Node, ParsedStory, Sequence,
         SequenceMode,
     },
+    bootstrap::parser::inline::{parse_dynamic_string, tokenize_inline_content},
     error::CompilerError,
-    parser::inline::{parse_dynamic_string, tokenize_inline_content},
 };
 
 /// Serialise an `f32` literal using the shortest decimal representation that
@@ -2724,7 +2724,7 @@ fn emit_expression_ctx(
                     list_map.insert(qname, json!(val));
                 } else {
                     // Fallback: use bare name with value 0 (unknown list)
-                    list_map.insert(bare_name.clone(), json!(0));
+                    list_map.insert(bare_name.to_string(), json!(0));
                 }
             }
             out.push(json!({"list": list_map}));

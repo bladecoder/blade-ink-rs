@@ -44,7 +44,9 @@ pub struct Story {
 }
 mod misc {
     use crate::{
+        json::json_write,
         json::{json_read, json_read_stream},
+        list_definition::ListDefinition,
         object::{Object, RTObject},
         path::Path,
         story::{INK_VERSION_CURRENT, Story},
@@ -53,6 +55,7 @@ mod misc {
         value::Value,
     };
     use rand::{RngExt, SeedableRng, rngs::StdRng};
+    use serde_json::{Map, json};
     use std::{collections::HashMap, rc::Rc};
 
     impl Story {
@@ -91,6 +94,60 @@ mod misc {
             }
 
             Ok(story)
+        }
+
+        pub fn from_compiled(
+            main_content_container: Rc<crate::container::Container>,
+            mut list_definitions: Vec<ListDefinition>,
+        ) -> Result<Self, StoryError> {
+            let list_definitions =
+                Rc::new(crate::list_definitions_origin::ListDefinitionsOrigin::new(
+                    &mut list_definitions,
+                ));
+
+            let mut story = Story {
+                main_content_container: main_content_container.clone(),
+                state: StoryState::new(main_content_container.clone(), list_definitions.clone()),
+                temporary_evaluation_container: None,
+                recursive_continue_count: 0,
+                async_continue_active: false,
+                async_saving: false,
+                saw_lookahead_unsafe_function_after_new_line: false,
+                state_snapshot_at_last_new_line: None,
+                on_error: None,
+                prev_containers: Vec::new(),
+                list_definitions,
+                variable_observers: HashMap::with_capacity(0),
+                has_validated_externals: false,
+                allow_external_function_fallbacks: false,
+                externals: HashMap::with_capacity(0),
+            };
+
+            story.reset_globals()?;
+            Ok(story)
+        }
+
+        pub fn to_compiled_json(&self) -> Result<String, StoryError> {
+            let root = json_write::write_rt_container(self.main_content_container.as_ref(), false)?;
+
+            let mut list_defs = Map::new();
+            for (name, list) in self.list_definitions.definitions() {
+                let mut items = Map::new();
+                for (item_name, value) in list.item_name_to_values() {
+                    items.insert(item_name.clone(), json!(*value));
+                }
+                list_defs.insert(name.clone(), serde_json::Value::Object(items));
+            }
+
+            let json = json!({
+                "inkVersion": INK_VERSION_CURRENT,
+                "root": root,
+                "listDefs": list_defs,
+            });
+
+            serde_json::to_string(&json).map_err(|error| {
+                StoryError::BadJson(format!("Failed to serialize compiled story JSON: {error}"))
+            })
         }
 
         /// Creates a string representing the hierarchy of objects and

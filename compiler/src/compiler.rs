@@ -1,0 +1,190 @@
+use std::rc::Rc;
+
+use bladeink::story::Story as RuntimeStory;
+
+use crate::{
+    bootstrap::legacy_root::{Compiler as BootstrapCompiler, CompilerOptions as BootstrapOptions},
+    error::CompilerError,
+    file_handler::FileHandler,
+    parsed_hierarchy::Story,
+    stats,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorType {
+    Warning,
+    Error,
+}
+
+pub type ErrorHandler = Rc<dyn Fn(String, ErrorType)>;
+
+#[derive(Clone)]
+pub struct CompilerOptions {
+    pub source_filename: Option<String>,
+    pub plugin_directories: Vec<String>,
+    pub count_all_visits: bool,
+    pub error_handler: Option<ErrorHandler>,
+    pub file_handler: Option<Rc<dyn FileHandler>>,
+}
+
+impl std::fmt::Debug for CompilerOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompilerOptions")
+            .field("source_filename", &self.source_filename)
+            .field("plugin_directories", &self.plugin_directories)
+            .field("count_all_visits", &self.count_all_visits)
+            .field("has_error_handler", &self.error_handler.is_some())
+            .field("has_file_handler", &self.file_handler.is_some())
+            .finish()
+    }
+}
+
+impl Default for CompilerOptions {
+    fn default() -> Self {
+        Self {
+            source_filename: None,
+            plugin_directories: Vec::new(),
+            count_all_visits: true,
+            error_handler: None,
+            file_handler: None,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct Compiler {
+    source: Option<String>,
+    options: CompilerOptions,
+}
+
+impl Compiler {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_options(options: CompilerOptions) -> Self {
+        Self {
+            source: None,
+            options,
+        }
+    }
+
+    pub fn from_source(source: impl Into<String>) -> Self {
+        Self {
+            source: Some(source.into()),
+            options: CompilerOptions::default(),
+        }
+    }
+
+    pub fn from_source_with_options(source: impl Into<String>, options: CompilerOptions) -> Self {
+        Self {
+            source: Some(source.into()),
+            options,
+        }
+    }
+
+    pub fn options(&self) -> &CompilerOptions {
+        &self.options
+    }
+
+    pub fn parse(&self) -> Result<Story, CompilerError> {
+        let source = self.source.as_deref().ok_or_else(|| {
+            CompilerError::unsupported_feature(
+                "Compiler::parse requires the source to be provided via Compiler::from_source"
+                    .to_owned(),
+            )
+        })?;
+
+        Ok(Story::new(
+            source,
+            self.options.source_filename.clone(),
+            self.options.count_all_visits,
+        ))
+    }
+
+    pub fn compile_story(&self) -> Result<RuntimeStory, CompilerError> {
+        let parsed = self.parse()?;
+        self.compile_story_from_source(parsed.source())
+    }
+
+    pub fn compile_story_from_source(&self, source: &str) -> Result<RuntimeStory, CompilerError> {
+        let json = self.compile_internal(source)?;
+        RuntimeStory::new(&json).map_err(|err| CompilerError::invalid_source(err.to_string()))
+    }
+
+    pub fn compile_story_with_file_handler<F>(
+        &self,
+        source: &str,
+        file_handler: F,
+    ) -> Result<RuntimeStory, CompilerError>
+    where
+        F: Fn(&str) -> Result<String, CompilerError>,
+    {
+        let json = self.compile_json_with_file_handler(source, file_handler)?;
+        RuntimeStory::new(&json).map_err(|err| CompilerError::invalid_source(err.to_string()))
+    }
+
+    pub fn compile(&self, source: &str) -> Result<String, CompilerError> {
+        self.compile_json(source)
+    }
+
+    pub fn compile_json(&self, source: &str) -> Result<String, CompilerError> {
+        self.compile_internal(source)
+    }
+
+    pub fn compile_to_stats(&self, source: &str) -> Result<stats::Stats, CompilerError> {
+        self.bootstrap().compile_to_stats(source)
+    }
+
+    pub fn compile_to_stats_with_file_handler<F>(
+        &self,
+        source: &str,
+        file_handler: F,
+    ) -> Result<stats::Stats, CompilerError>
+    where
+        F: Fn(&str) -> Result<String, CompilerError>,
+    {
+        self.bootstrap()
+            .compile_to_stats_with_file_handler(source, file_handler)
+    }
+
+    pub fn compile_with_file_handler<F>(
+        &self,
+        source: &str,
+        file_handler: F,
+    ) -> Result<String, CompilerError>
+    where
+        F: Fn(&str) -> Result<String, CompilerError>,
+    {
+        self.compile_json_with_file_handler(source, file_handler)
+    }
+
+    pub fn compile_json_with_file_handler<F>(
+        &self,
+        source: &str,
+        file_handler: F,
+    ) -> Result<String, CompilerError>
+    where
+        F: Fn(&str) -> Result<String, CompilerError>,
+    {
+        self.bootstrap()
+            .compile_with_file_handler(source, file_handler)
+    }
+
+    fn compile_internal(&self, source: &str) -> Result<String, CompilerError> {
+        if let Some(file_handler) = &self.options.file_handler {
+            return self.compile_json_with_file_handler(source, |filename| {
+                file_handler.load_ink_file_contents(filename)
+            });
+        }
+
+        self.bootstrap().compile(source)
+    }
+
+    fn bootstrap(&self) -> BootstrapCompiler {
+        BootstrapCompiler::with_options(BootstrapOptions {
+            count_all_visits: self.options.count_all_visits,
+            source_filename: self.options.source_filename.clone(),
+        })
+    }
+}

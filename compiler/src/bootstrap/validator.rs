@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    ast::{AssignMode, Condition, Divert, Expression, Flow, Node, ParsedStory},
+    bootstrap::ast::{AssignMode, Condition, Divert, Expression, Flow, Node, ParsedStory},
     error::CompilerError,
 };
 
@@ -972,7 +972,7 @@ fn collect_labels_from_nodes(nodes: &[Node], prefix: &str, targets: &mut BTreeSe
 
 /// Returns true if a choice has an explicit divert at the end of its body
 /// (i.e., the choice explicitly redirects flow rather than falling through).
-fn choice_has_explicit_divert(choice: &crate::ast::Choice) -> bool {
+fn choice_has_explicit_divert(choice: &crate::bootstrap::ast::Choice) -> bool {
     nodes_end_with_divert(&choice.body)
 }
 

@@ -1,5 +1,7 @@
 use crate::{
-    ast::{Divert, DynamicString, DynamicStringPart, Expression, Node, Sequence, SequenceMode},
+    bootstrap::ast::{
+        Divert, DynamicString, DynamicStringPart, Expression, Node, Sequence, SequenceMode,
+    },
     error::CompilerError,
 };
 
@@ -493,7 +495,7 @@ pub fn find_matching_brace(content: &str, start: usize) -> Option<usize> {
 
 pub fn parse_inline_conditional(
     content: &str,
-) -> Result<Option<(crate::ast::Condition, &str)>, CompilerError> {
+) -> Result<Option<(crate::bootstrap::ast::Condition, &str)>, CompilerError> {
     let trimmed = content.trim();
     if !(trimmed.starts_with('{') && trimmed.ends_with('}')) {
         return Ok(None);
@@ -513,8 +515,8 @@ pub fn parse_inline_conditional(
     )))
 }
 
-pub fn parse_condition(condition: &str) -> Result<crate::ast::Condition, CompilerError> {
-    use crate::ast::Condition;
+pub fn parse_condition(condition: &str) -> Result<crate::bootstrap::ast::Condition, CompilerError> {
+    use crate::bootstrap::ast::Condition;
     match condition {
         "true" => Ok(Condition::Bool(true)),
         "false" => Ok(Condition::Bool(false)),

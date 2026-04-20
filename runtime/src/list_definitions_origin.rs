@@ -49,4 +49,8 @@ impl ListDefinitionsOrigin {
 
         self.all_unambiguous_list_value_cache.get(name)
     }
+
+    pub fn definitions(&self) -> &HashMap<String, ListDefinition> {
+        &self.lists
+    }
 }

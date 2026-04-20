@@ -35,6 +35,10 @@ impl ListDefinition {
         &self.name
     }
 
+    pub fn item_name_to_values(&self) -> &HashMap<String, i32> {
+        &self.item_name_to_values
+    }
+
     pub fn get_value_for_item(&self, item: &InkListItem) -> Option<&i32> {
         self.item_name_to_values.get(item.get_item_name())
     }
