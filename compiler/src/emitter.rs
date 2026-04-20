@@ -109,8 +109,10 @@ struct EmitScope {
     /// before the content emitted by emit_nodes. This offset is added when
     /// computing absolute indices (e.g. conditional rejoin targets).
     param_offset: usize,
-    /// Parameter names for the current flow (used to detect variable diverts to params)
-    param_names: BTreeSet<String>,
+    /// Parameter names for the current flow (live in temp-variable frame).
+    temp_param_names: BTreeSet<String>,
+    /// Divert-typed parameter names for the current flow (valid `-> var` targets).
+    divert_param_names: BTreeSet<String>,
     /// Number of `^` hops needed to navigate from content in this scope back to
     /// the enclosing knot/stitch container (used for relative divert paths).
     /// - 0  : root (relative paths not used)
@@ -395,7 +397,8 @@ impl EmitScope {
             sibling_flow_names: BTreeSet::new(),
             choice_label_targets: BTreeMap::new(),
             param_offset: 0,
-            param_names: BTreeSet::new(),
+            temp_param_names: BTreeSet::new(),
+            divert_param_names: BTreeSet::new(),
             relative_depth: 0,
             flow_path: "0".to_owned(),
         }
@@ -438,7 +441,8 @@ impl EmitScope {
             sibling_flow_names: siblings,
             choice_label_targets: BTreeMap::new(),
             param_offset: child.parameters.len(),
-            param_names: child.divert_parameters.iter().cloned().collect(),
+            temp_param_names: child.parameters.iter().cloned().collect(),
+            divert_param_names: child.divert_parameters.iter().cloned().collect(),
             relative_depth: new_depth,
         }
     }
@@ -452,7 +456,8 @@ impl EmitScope {
             sibling_flow_names: self.sibling_flow_names.clone(),
             choice_label_targets: self.choice_label_targets.clone(),
             param_offset: 0,
-            param_names: self.param_names.clone(),
+            temp_param_names: self.temp_param_names.clone(),
+            divert_param_names: self.divert_param_names.clone(),
             relative_depth: self.relative_depth,
         }
     }
@@ -478,7 +483,8 @@ impl EmitScope {
             sibling_flow_names: self.sibling_flow_names.clone(),
             choice_label_targets: self.choice_label_targets.clone(),
             param_offset: 0,
-            param_names: self.param_names.clone(),
+            temp_param_names: self.temp_param_names.clone(),
+            divert_param_names: self.divert_param_names.clone(),
             relative_depth: branch_depth,
         }
     }
@@ -495,7 +501,8 @@ impl EmitScope {
             sibling_flow_names: self.sibling_flow_names.clone(),
             choice_label_targets: merged,
             param_offset: self.param_offset,
-            param_names: self.param_names.clone(),
+            temp_param_names: self.temp_param_names.clone(),
+            divert_param_names: self.divert_param_names.clone(),
             relative_depth: self.relative_depth,
         }
     }
@@ -509,7 +516,8 @@ impl EmitScope {
             sibling_flow_names: self.sibling_flow_names.clone(),
             choice_label_targets: self.choice_label_targets.clone(),
             param_offset: self.param_offset,
-            param_names: self.param_names.clone(),
+            temp_param_names: self.temp_param_names.clone(),
+            divert_param_names: self.divert_param_names.clone(),
             relative_depth,
         }
     }
@@ -583,7 +591,7 @@ impl EmitScope {
     }
 
     fn is_variable_divert(&self, target: &str, context: &EmitContext) -> bool {
-        self.param_names.contains(target)
+        self.divert_param_names.contains(target)
             || (context.global_variables.contains(target)
                 && !context.top_flow_names.contains(target))
     }
@@ -2476,7 +2484,7 @@ fn emit_assignment(
     // When the target variable is a parameter of the enclosing function/knot, it lives
     // in the temp-variable frame, so inklecate uses `{"temp=": name, "re": true}` rather
     // than `{"VAR=": name, "re": true}`.
-    let is_param = scope.is_some_and(|s| s.param_names.contains(variable_name));
+    let is_param = scope.is_some_and(|s| s.temp_param_names.contains(variable_name));
 
     match mode {
         AssignMode::Set => {

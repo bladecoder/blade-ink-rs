@@ -404,7 +404,26 @@ fn strip_block_comments(source: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use bladeink::story::Story;
+    use serde_json::Value;
+
     use super::{Compiler, CompilerError, CompilerOptions};
+
+    fn json_has_assignment_token(value: &Value, key: &str, var_name: &str) -> bool {
+        match value {
+            Value::Object(map) => {
+                map.get(key).and_then(Value::as_str) == Some(var_name)
+                    && map.get("re").and_then(Value::as_bool) == Some(true)
+                    || map
+                        .values()
+                        .any(|child| json_has_assignment_token(child, key, var_name))
+            }
+            Value::Array(items) => items
+                .iter()
+                .any(|child| json_has_assignment_token(child, key, var_name)),
+            _ => false,
+        }
+    }
 
     #[test]
     fn error_includes_line_number() {
@@ -463,6 +482,55 @@ mod tests {
         assert!(
             display.contains(":2:") || display.contains("line 2"),
             "expected line 2 in error, got: {display}"
+        );
+    }
+
+    #[test]
+    fn mixed_tabs_and_spaces_keep_choice_body_scope() {
+        let ink = r#"
+-> start
+
+== start ==
+	- (opts)
+ 		* [Think]
+ 			Thinking.
+			-> opts
+ 		* [Wait]
+	- -> END
+"#;
+
+        let json = Compiler::new().compile(ink).unwrap();
+        let mut story = Story::new(&json).unwrap();
+
+        story.continue_maximally().unwrap();
+        assert_eq!(2, story.get_current_choices().len());
+
+        story.choose_choice_index(0).unwrap();
+        let text = story.continue_maximally().unwrap();
+        assert!(text.contains("Thinking."), "got: {text:?}");
+
+        let choices = story.get_current_choices();
+        assert_eq!(1, choices.len());
+        assert_eq!("Wait", choices[0].text);
+    }
+
+    #[test]
+    fn ref_parameter_assignment_uses_temp_frame() {
+        let ink = r#"
+=== function lower(ref x)
+    ~ x = x - 1
+"#;
+
+        let json = Compiler::new().compile(ink).unwrap();
+        let value: Value = serde_json::from_str(&json).unwrap();
+
+        assert!(
+            json_has_assignment_token(&value, "temp=", "x"),
+            "expected ref parameter assignment to emit temp= with re:true, got: {json}"
+        );
+        assert!(
+            !json_has_assignment_token(&value, "VAR=", "x"),
+            "ref parameter assignment should not emit VAR= with re:true, got: {json}"
         );
     }
 }

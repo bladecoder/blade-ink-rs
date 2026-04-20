@@ -307,6 +307,54 @@ fn the_intercept_compiles_test() {
     Compiler::new().compile(&ink_source).unwrap();
 }
 
+#[test]
+fn the_intercept_runtime_choices_test() -> Result<(), StoryError> {
+    let ink_source = common::get_file_string("inkfiles/TheIntercept.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
+    let mut story = Story::new(&json_string)?;
+
+    story.continue_maximally()?;
+
+    let first_choices: Vec<String> = story
+        .get_current_choices()
+        .iter()
+        .map(|choice| choice.text.clone())
+        .collect();
+    assert_eq!(vec!["Hut 14".to_string()], first_choices);
+
+    story.choose_choice_index(0)?;
+    story.continue_maximally()?;
+
+    let second_choices: Vec<String> = story
+        .get_current_choices()
+        .iter()
+        .map(|choice| choice.text.clone())
+        .collect();
+    assert_eq!(3, second_choices.len());
+    assert_eq!("Think", second_choices[0]);
+    assert_eq!("Plan", second_choices[1]);
+    assert_eq!("Wait", second_choices[2]);
+
+    story.choose_choice_index(1)?;
+    story.continue_maximally()?;
+
+    let third_choices: Vec<String> = story
+        .get_current_choices()
+        .iter()
+        .map(|choice| choice.text.clone())
+        .collect();
+    assert_eq!(3, third_choices.len());
+    assert!(
+        third_choices[0].starts_with("Co") && third_choices[0].contains("operate"),
+        "unexpected first choice text: {}",
+        third_choices[0]
+    );
+    assert_eq!("Dissemble", third_choices[1]);
+    assert_eq!("Divert", third_choices[2]);
+
+    Ok(())
+}
+
 // --- Tests ported from the official Ink C# suite (../ink/tests/Tests.cs) ---
 
 // TestReadCountAcrossCallstack (Tests.cs:1651)

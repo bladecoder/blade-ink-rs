@@ -277,10 +277,7 @@ pub fn split_lines(source: &str) -> Vec<Line<'_>> {
             let content = strip_inline_comment(content);
             Line {
                 content,
-                indent: content
-                    .chars()
-                    .take_while(|ch| matches!(ch, ' ' | '\t'))
-                    .count(),
+                indent: count_indent_columns(content),
                 had_newline: line.ends_with('\n'),
             }
         })
@@ -294,6 +291,28 @@ pub fn split_lines(source: &str) -> Vec<Line<'_>> {
     }
 
     lines
+}
+
+fn count_indent_columns(content: &str) -> usize {
+    let mut columns = 0usize;
+
+    for ch in content.chars() {
+        match ch {
+            ' ' => columns += 1,
+            '\t' => {
+                const TAB_STOP: usize = 4;
+                let offset = columns % TAB_STOP;
+                columns += if offset == 0 {
+                    TAB_STOP
+                } else {
+                    TAB_STOP - offset
+                };
+            }
+            _ => break,
+        }
+    }
+
+    columns
 }
 
 /// Strip all `/* ... */` block comments from a string.
