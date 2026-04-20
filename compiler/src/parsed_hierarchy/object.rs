@@ -12,6 +12,9 @@ pub enum ObjectKind {
     FlowBase,
     Knot,
     Stitch,
+    Choice,
+    Gather,
+    Weave,
 }
 
 #[derive(Debug, Clone)]

@@ -6,6 +6,25 @@ use crate::{
     },
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChoiceMarker {
+    pub indentation_depth: usize,
+    pub once_only: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChoiceClause {
+    pub start_text: String,
+    pub choice_only_text: Option<String>,
+    pub inner_text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GatherMarker {
+    pub indentation_depth: usize,
+    pub identifier: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct InkParser {
     source_name: Option<String>,
@@ -120,6 +139,114 @@ impl InkParser {
             .parse_characters_from_char_set(&self.identifier_character_set(), true, -1)
             .unwrap_or_default();
         Some(format!("{first}{rest}"))
+    }
+
+    pub fn bracketed_name(&mut self) -> Option<String> {
+        let rule_id = self.parser.begin_rule();
+        if self.parser.parse_string("(").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+        let _ = self.whitespace();
+        let identifier = self.parse_identifier();
+        if identifier.is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+        let _ = self.whitespace();
+        if self.parser.parse_string(")").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+        self.parser.succeed_rule(rule_id, identifier)
+    }
+
+    pub fn choice_marker(&mut self) -> Option<ChoiceMarker> {
+        let _ = self.whitespace();
+        let marker = self.parser.parse_single_character()?;
+        let once_only = match marker {
+            '*' => true,
+            '+' => false,
+            _ => return None,
+        };
+
+        let mut indentation_depth = 1;
+        loop {
+            if self
+                .parser
+                .parse_object(|parser| {
+                    let _ = parser.parse_characters_from_string(" \t", true, -1);
+                    match parser.parse_single_character() {
+                        Some('*') | Some('+') => Some(ParseSuccess),
+                        _ => None,
+                    }
+                })
+                .is_some()
+            {
+                indentation_depth += 1;
+            } else {
+                break;
+            }
+        }
+
+        Some(ChoiceMarker {
+            indentation_depth,
+            once_only,
+        })
+    }
+
+    pub fn gather_marker(&mut self) -> Option<GatherMarker> {
+        let _ = self.whitespace();
+        let mut indentation_depth = 0;
+
+        loop {
+            if self
+                .parser
+                .parse_object(|parser| {
+                    let _ = parser.parse_characters_from_string(" \t", true, -1);
+                    if parser.parse_string("->").is_some() {
+                        return None;
+                    }
+                    parser.parse_string("-").map(|_| ParseSuccess)
+                })
+                .is_some()
+            {
+                indentation_depth += 1;
+                let _ = self.whitespace();
+            } else {
+                break;
+            }
+        }
+
+        if indentation_depth == 0 {
+            return None;
+        }
+
+        let identifier = self.bracketed_name();
+        let _ = self.whitespace();
+
+        Some(GatherMarker {
+            indentation_depth,
+            identifier,
+        })
+    }
+
+    pub fn split_choice_clause(text: &str) -> ChoiceClause {
+        let mut start_text = text.to_owned();
+        let mut choice_only_text = None;
+        let mut inner_text = String::new();
+
+        if let Some(open) = text.find('[')
+            && let Some(close) = text[open + 1..].find(']')
+        {
+            let close = open + 1 + close;
+            start_text = text[..open].to_owned();
+            choice_only_text = Some(text[open + 1..close].to_owned());
+            inner_text = text[close + 1..].to_owned();
+        }
+
+        ChoiceClause {
+            start_text,
+            choice_only_text,
+            inner_text,
+        }
     }
 
     pub fn content_text(&mut self) -> Option<String> {
@@ -299,5 +426,46 @@ mod tests {
             })
             .collect();
         assert_eq!(vec!["hello", "\n"], pieces);
+    }
+
+    #[test]
+    fn bracketed_name_parses_choice_and_gather_labels() {
+        let mut parser = InkParser::new("(route_name)", None);
+        assert_eq!(Some("route_name".to_owned()), parser.bracketed_name());
+    }
+
+    #[test]
+    fn choice_marker_supports_sticky_and_nested_depth() {
+        let mut parser = InkParser::new(" + + option", None);
+        assert_eq!(
+            Some(super::ChoiceMarker {
+                indentation_depth: 2,
+                once_only: false
+            }),
+            parser.choice_marker()
+        );
+    }
+
+    #[test]
+    fn gather_marker_stops_before_arrow_and_reads_optional_name() {
+        let mut parser = InkParser::new(" - (join) continue", None);
+        assert_eq!(
+            Some(super::GatherMarker {
+                indentation_depth: 1,
+                identifier: Some("join".to_owned())
+            }),
+            parser.gather_marker()
+        );
+
+        let mut divert = InkParser::new("-> target", None);
+        assert_eq!(None, divert.gather_marker());
+    }
+
+    #[test]
+    fn split_choice_clause_supports_weave_style_inline_brackets() {
+        let clause = InkParser::split_choice_clause("\"I am tired[.]\" he said");
+        assert_eq!("\"I am tired", clause.start_text);
+        assert_eq!(Some(".".to_owned()), clause.choice_only_text);
+        assert_eq!("\" he said", clause.inner_text);
     }
 }
