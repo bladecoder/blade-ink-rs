@@ -1,5 +1,5 @@
 use crate::{
-    parsed_hierarchy::{ContentList, DebugMetadata},
+    parsed_hierarchy::{ContentList, DebugMetadata, Number, NumberValue, SequenceType, Tag},
     string_parser::{
         CharacterRange, CharacterSet, CommentEliminator, ParseSuccess, StringParser,
         StringParserStateElement,
@@ -25,12 +25,18 @@ pub struct GatherMarker {
     pub identifier: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SequenceTypeAnnotation {
+    pub flags: u8,
+}
+
 #[derive(Debug, Clone)]
 pub struct InkParser {
     source_name: Option<String>,
     parser: StringParser,
     parsing_string_expression: bool,
     parsing_choice: bool,
+    tag_active: bool,
 }
 
 impl InkParser {
@@ -41,6 +47,7 @@ impl InkParser {
             parser: StringParser::new(processed),
             parsing_string_expression: false,
             parsing_choice: false,
+            tag_active: false,
         }
     }
 
@@ -249,6 +256,97 @@ impl InkParser {
         }
     }
 
+    pub fn parse_number_literal(&mut self) -> Option<Number> {
+        self.parser
+            .peek(|parser| parser.parse_float())
+            .map(|_| Number::new(NumberValue::Float(self.parser.parse_float().expect("peeked float"))))
+            .or_else(|| self.parser.parse_int().map(|value| Number::new(NumberValue::Int(value))))
+    }
+
+    pub fn parse_bool_literal(&mut self) -> Option<Number> {
+        let identifier_characters = self.identifier_character_set();
+        self.parser
+            .parse_object(|parser| match parser.parse_characters_from_char_set(&identifier_characters, true, -1) {
+                Some(word) if word == "true" => Some(Number::new(NumberValue::Bool(true))),
+                Some(word) if word == "false" => Some(Number::new(NumberValue::Bool(false))),
+                _ => None,
+            })
+    }
+
+    pub fn sequence_type_symbol_annotation(&mut self) -> Option<SequenceTypeAnnotation> {
+        let annotations = self
+            .parser
+            .parse_characters_from_string("!&~$ ", true, -1)?;
+
+        let mut flags = 0u8;
+        for ch in annotations.chars() {
+            match ch {
+                '!' => flags |= SequenceType::Once as u8,
+                '&' => flags |= SequenceType::Cycle as u8,
+                '~' => flags |= SequenceType::Shuffle as u8,
+                '$' => flags |= SequenceType::Stopping as u8,
+                ' ' => {}
+                _ => return None,
+            }
+        }
+
+        (flags != 0).then_some(SequenceTypeAnnotation { flags })
+    }
+
+    pub fn sequence_type_word_annotation(&mut self) -> Option<SequenceTypeAnnotation> {
+        let rule_id = self.parser.begin_rule();
+        let mut flags = 0u8;
+        let mut parsed_any = false;
+
+        loop {
+            let checkpoint = self.parser.begin_rule();
+            let Some(word) = self.parse_identifier() else {
+                self.parser.cancel_rule(checkpoint);
+                break;
+            };
+
+            let flag = match word.as_str() {
+                "once" => SequenceType::Once as u8,
+                "cycle" => SequenceType::Cycle as u8,
+                "shuffle" => SequenceType::Shuffle as u8,
+                "stopping" => SequenceType::Stopping as u8,
+                _ => {
+                    self.parser.fail_rule::<()>(checkpoint);
+                    break;
+                }
+            };
+            self.parser.succeed_rule(checkpoint, Some(()));
+            parsed_any = true;
+            flags |= flag;
+            let _ = self.whitespace();
+        }
+
+        if !parsed_any || self.parser.parse_string(":").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        self.parser
+            .succeed_rule(rule_id, Some(SequenceTypeAnnotation { flags }))
+    }
+
+    pub fn start_tag(&mut self) -> Option<Tag> {
+        let _ = self.whitespace();
+        self.parser.parse_string("#")?;
+        let was_active = self.tag_active;
+        self.tag_active = true;
+        let _ = self.whitespace();
+        Some(Tag::new(true, self.parsing_choice || was_active))
+    }
+
+    pub fn end_tag_if_necessary(&mut self) -> Option<Tag> {
+        if !self.tag_active {
+            return None;
+        }
+
+        self.tag_active = false;
+        Some(Tag::new(false, self.parsing_choice))
+    }
+
     pub fn content_text(&mut self) -> Option<String> {
         self.content_text_allowing_escape_char()
     }
@@ -371,7 +469,7 @@ impl InkParser {
 mod tests {
     use super::InkParser;
     use crate::{
-        parsed_hierarchy::Content,
+        parsed_hierarchy::{Content, NumberValue},
         string_parser::{ParseSuccess, StringParserStateElement},
     };
 
@@ -467,5 +565,45 @@ mod tests {
         assert_eq!("\"I am tired", clause.start_text);
         assert_eq!(Some(".".to_owned()), clause.choice_only_text);
         assert_eq!("\" he said", clause.inner_text);
+    }
+
+    #[test]
+    fn number_and_bool_literals_match_reference_shapes() {
+        let mut ints = InkParser::new("12", None);
+        assert!(matches!(
+            ints.parse_number_literal().map(|n| n.value().clone()),
+            Some(NumberValue::Int(12))
+        ));
+
+        let mut floats = InkParser::new("12.5", None);
+        assert!(matches!(
+            floats.parse_number_literal().map(|n| n.value().clone()),
+            Some(NumberValue::Float(value)) if (value - 12.5).abs() < f32::EPSILON
+        ));
+
+        let mut bools = InkParser::new("true", None);
+        assert!(matches!(
+            bools.parse_bool_literal().map(|n| n.value().clone()),
+            Some(NumberValue::Bool(true))
+        ));
+    }
+
+    #[test]
+    fn sequence_type_annotations_support_symbol_and_word_forms() {
+        let mut symbols = InkParser::new("!~", None);
+        assert_eq!(Some((super::SequenceType::Once as u8) | (super::SequenceType::Shuffle as u8)), symbols.sequence_type_symbol_annotation().map(|a| a.flags));
+
+        let mut words = InkParser::new("once shuffle:", None);
+        assert_eq!(Some((super::SequenceType::Once as u8) | (super::SequenceType::Shuffle as u8)), words.sequence_type_word_annotation().map(|a| a.flags));
+    }
+
+    #[test]
+    fn start_and_end_tag_track_active_state() {
+        let mut parser = InkParser::new("# tag", None);
+        let start = parser.start_tag().expect("start tag");
+        assert!(start.is_start());
+        let end = parser.end_tag_if_necessary().expect("end tag");
+        assert!(!end.is_start());
+        assert!(parser.end_tag_if_necessary().is_none());
     }
 }

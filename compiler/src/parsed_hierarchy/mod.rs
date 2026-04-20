@@ -1,5 +1,6 @@
 mod content_list;
 mod debug_metadata;
+mod expressions;
 mod flow;
 mod object;
 mod story;
@@ -8,6 +9,11 @@ mod weave;
 
 pub use content_list::{Content, ContentList};
 pub use debug_metadata::DebugMetadata;
+pub use expressions::{
+    AuthorWarning, Conditional, ConditionalSingleBranch, ConstDeclaration, Expression,
+    ExpressionNode, ExternalDeclaration, Number, NumberValue, Sequence, SequenceType,
+    StringExpression, Tag, VariableAssignment, VariableReference,
+};
 pub use flow::{FlowArgument, FlowBase, FlowLevel, Knot, Stitch};
 pub use object::{ObjectKind, ParsedObject};
 pub use story::Story;
