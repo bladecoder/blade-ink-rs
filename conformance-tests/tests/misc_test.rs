@@ -355,6 +355,29 @@ fn the_intercept_runtime_choices_test() -> Result<(), StoryError> {
     Ok(())
 }
 
+#[test]
+fn nested_choice_parent_sibling_visibility_test() -> Result<(), StoryError> {
+    let ink_source =
+        common::get_file_string("inkfiles/misc/nested-choice-parent-sibling.ink").unwrap();
+    let json_string = Compiler::new().compile(&ink_source).unwrap();
+    let mut story = Story::new(&json_string)?;
+
+    story.continue_maximally()?;
+
+    let choices: Vec<String> = story
+        .get_current_choices()
+        .iter()
+        .map(|choice| choice.text.clone())
+        .collect();
+
+    assert_eq!(
+        vec!["A".to_string(), "AA".to_string(), "AB".to_string()],
+        choices
+    );
+
+    Ok(())
+}
+
 // --- Tests ported from the official Ink C# suite (../ink/tests/Tests.cs) ---
 
 // TestReadCountAcrossCallstack (Tests.cs:1651)

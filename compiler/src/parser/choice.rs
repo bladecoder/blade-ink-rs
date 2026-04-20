@@ -138,8 +138,18 @@ pub fn parse_choice(
     while *line_index < lines.len() {
         let body_line = &lines[*line_index];
         let body_trimmed = body_line.content.trim();
+        let body_trimmed_start = body_line.content.trim_start();
         // Terminate on knot/stitch headers
         if super::parse_header(body_line.content).is_some() {
+            break;
+        }
+
+        // A choice line whose marker nesting level is <= ours starts a sibling choice
+        // block, even if it's indented deeper (Ink weave semantics).
+        if !absorbed_gather
+            && let Some(body_choice_level) = choice_marker_nesting_level(body_trimmed_start)
+            && body_choice_level <= nesting_level
+        {
             break;
         }
 
@@ -221,6 +231,22 @@ pub fn parse_choice(
         nesting_level,
         body_divert_is_inline: choice_text.inline_target.is_some(),
     })]))
+}
+
+fn choice_marker_nesting_level(trimmed_start: &str) -> Option<usize> {
+    let marker = trimmed_start.chars().next()?;
+    if marker != '*' && marker != '+' {
+        return None;
+    }
+
+    let mut nesting_level = 1usize;
+    let mut remainder = trimmed_start[marker.len_utf8()..].trim_start();
+    while let Some(rest) = remainder.strip_prefix(|c| c == '*' || c == '+') {
+        remainder = rest.trim_start();
+        nesting_level += 1;
+    }
+
+    Some(nesting_level)
 }
 
 /// Count the gather nesting level of a trimmed line (e.g. "- text" = 1, "- - text" = 2).
