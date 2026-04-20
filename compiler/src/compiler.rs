@@ -8,6 +8,7 @@ use crate::{
     file_handler::FileHandler,
     parsed_hierarchy::Story,
     stats,
+    wave1,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,7 +109,11 @@ impl Compiler {
     }
 
     pub fn compile_story_from_source(&self, source: &str) -> Result<RuntimeStory, CompilerError> {
-        let json = self.compile_internal(source)?;
+        if let Some(story) = self.try_compile_wave1_story(source)? {
+            return Ok(story);
+        }
+
+        let json = self.bootstrap().compile(source)?;
         RuntimeStory::new(&json).map_err(|err| CompilerError::invalid_source(err.to_string()))
     }
 
@@ -178,6 +183,12 @@ impl Compiler {
             });
         }
 
+        if let Some(story) = self.try_compile_wave1_story(source)? {
+            return story
+                .to_compiled_json()
+                .map_err(|err| CompilerError::invalid_source(err.to_string()));
+        }
+
         self.bootstrap().compile(source)
     }
 
@@ -186,5 +197,13 @@ impl Compiler {
             count_all_visits: self.options.count_all_visits,
             source_filename: self.options.source_filename.clone(),
         })
+    }
+
+    fn try_compile_wave1_story(&self, source: &str) -> Result<Option<RuntimeStory>, CompilerError> {
+        match wave1::compile(source, self.options.count_all_visits) {
+            Ok(compiled) => Ok(Some(compiled.story)),
+            Err(CompilerError::UnsupportedFeature { .. }) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 }
