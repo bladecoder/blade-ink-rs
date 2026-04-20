@@ -378,8 +378,6 @@ fn nested_choice_parent_sibling_visibility_test() -> Result<(), StoryError> {
     Ok(())
 }
 
-// --- Tests ported from the official Ink C# suite (../ink/tests/Tests.cs) ---
-
 // TestReadCountAcrossCallstack (Tests.cs:1651)
 #[test]
 fn read_count_across_callstack_test() -> Result<(), StoryError> {
@@ -767,14 +765,14 @@ fn weave_options_test() -> Result<(), StoryError> {
 fn multiline_logic_with_glue_test() -> Result<(), StoryError> {
     let ink = r#"
 {true:
-    a 
+    a
 } <> b
 
 
 {true:
-    a 
-} <> { true: 
-    b 
+    a
+} <> { true:
+    b
 }
 "#;
     let json = Compiler::new().compile(ink).unwrap();
@@ -788,8 +786,8 @@ fn multiline_logic_with_glue_test() -> Result<(), StoryError> {
 fn evaluation_stack_leaks_test() -> Result<(), StoryError> {
     let ink = r#"
 {false:
-    
-- else: 
+
+- else:
     else
 }
 
@@ -917,9 +915,9 @@ fn tunnel_onwards_to_variable_divert_target_test() -> Result<(), StoryError> {
 This is outer
 -> cut_to(-> the_esc)
 
-=== cut_to(-> escape) 
+=== cut_to(-> escape)
     ->-> escape
-    
+
 == the_esc
 This is the_esc
 -> END
@@ -939,7 +937,7 @@ fn newline_consistency_test() -> Result<(), StoryError> {
     let ink = r#"
 hello -> world
 == world
-world 
+world
 -> END"#;
     let json = Compiler::new().compile(ink).unwrap();
     let mut story = Story::new(&json)?;

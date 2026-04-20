@@ -174,8 +174,6 @@ fn complex_flow2_test() -> Result<(), StoryError> {
     Ok(())
 }
 
-// --- Tests ported from the official Ink C# suite (../ink/tests/Tests.cs) ---
-
 // TestGatherChoiceSameLine (Tests.cs:1017)
 #[test]
 fn gather_choice_same_line_test() -> Result<(), StoryError> {

@@ -441,8 +441,6 @@ fn nested_choice_test() -> Result<(), StoryError> {
     Ok(())
 }
 
-// --- Tests ported from the official Ink C# suite (../ink/tests/Tests.cs) ---
-
 // TestChoiceDivertsToDone (Tests.cs:277)
 #[test]
 fn choice_diverts_to_done_test() -> Result<(), StoryError> {
@@ -616,7 +614,7 @@ fn temp_usage_in_options_test() -> Result<(), StoryError> {
     let ink = r#"
 ~ temp one = 1
 * \ {one}
-- End of choice 
+- End of choice
     -> another
 * (another) this [is] another
  -> DONE
