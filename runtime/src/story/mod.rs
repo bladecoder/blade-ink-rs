@@ -100,10 +100,9 @@ mod misc {
             main_content_container: Rc<crate::container::Container>,
             mut list_definitions: Vec<ListDefinition>,
         ) -> Result<Self, StoryError> {
-            let list_definitions =
-                Rc::new(crate::list_definitions_origin::ListDefinitionsOrigin::new(
-                    &mut list_definitions,
-                ));
+            let list_definitions = Rc::new(
+                crate::list_definitions_origin::ListDefinitionsOrigin::new(&mut list_definitions),
+            );
 
             let mut story = Story {
                 main_content_container: main_content_container.clone(),

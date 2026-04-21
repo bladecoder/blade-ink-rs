@@ -1,10 +1,8 @@
 use std::{collections::HashMap, rc::Rc};
 
 use bladeink::{
-    CommandType, Container, ControlCommand, Divert, Glue,
-    PushPopType, RTObject,
+    CommandType, Container, ControlCommand, Divert, Glue, PushPopType, RTObject, Value,
     story::Story as RuntimeStory,
-    Value,
 };
 
 use crate::{error::CompilerError, string_parser::CommentEliminator};
@@ -132,7 +130,9 @@ fn parse_story(source: &str) -> Result<ParsedStory, CompilerError> {
         }
 
         let statement = parse_statement(trimmed, line_number)?;
-        current_flow_mut(&mut story, &cursor).statements.push(statement);
+        current_flow_mut(&mut story, &cursor)
+            .statements
+            .push(statement);
     }
 
     Ok(story)
@@ -155,10 +155,8 @@ fn parse_statement(line: &str, line_number: usize) -> Result<Statement, Compiler
         return Ok(Statement::Divert { target });
     }
 
-    if matches!(
-        line.chars().next(),
-        Some('*' | '+' | '-' | '~' | '{' | '#')
-    ) || line.starts_with("INCLUDE ")
+    if matches!(line.chars().next(), Some('*' | '+' | '-' | '~' | '{' | '#'))
+        || line.starts_with("INCLUDE ")
         || line.starts_with("EXTERNAL ")
         || line.starts_with("LIST ")
         || line.starts_with("CONST ")
@@ -177,11 +175,8 @@ fn parse_statement(line: &str, line_number: usize) -> Result<Statement, Compiler
         || line.contains(']')
         || line.contains('{')
         || line.contains('}')
-        || line.contains('<')
-            && !line.contains("<>")
-        || line.contains('>')
-            && !line.contains("->")
-            && !line.contains("<>")
+        || line.contains('<') && !line.contains("<>")
+        || line.contains('>') && !line.contains("->") && !line.contains("<>")
     {
         return Err(CompilerError::unsupported_feature(format!(
             "wave 1 parser does not support this syntax yet: {line}"
@@ -336,7 +331,11 @@ fn target_exists(parsed: &ParsedStory, scope: Scope<'_>, target: &str) -> bool {
             .knots
             .iter()
             .find(|knot| knot.name == knot_name)
-            .map(|knot| knot.stitches.iter().any(|stitch| stitch.name == stitch_name))
+            .map(|knot| {
+                knot.stitches
+                    .iter()
+                    .any(|stitch| stitch.name == stitch_name)
+            })
             .unwrap_or(false);
     }
 
@@ -344,7 +343,10 @@ fn target_exists(parsed: &ParsedStory, scope: Scope<'_>, target: &str) -> bool {
         Scope::Root => parsed.knots.iter().any(|knot| knot.name == target),
         Scope::Knot(knot) | Scope::Stitch(knot) => {
             knot.stitches.iter().any(|stitch| stitch.name == target)
-                || parsed.knots.iter().any(|candidate| candidate.name == target)
+                || parsed
+                    .knots
+                    .iter()
+                    .any(|candidate| candidate.name == target)
         }
     }
 }
@@ -378,7 +380,10 @@ fn compile_knot(parsed: &ParsedStory, knot: &Knot, count_all_visits: bool) -> Rc
         .collect();
 
     let mut content = if knot.body.statements.is_empty() && !knot.stitches.is_empty() {
-        vec![divert_object(&format!("{}.{}", knot.name, knot.stitches[0].name))]
+        vec![divert_object(&format!(
+            "{}.{}",
+            knot.name, knot.stitches[0].name
+        ))]
     } else {
         compile_flow(parsed, &knot.body, Scope::Knot(knot))
     };
@@ -475,7 +480,11 @@ fn resolve_target(parsed: &ParsedStory, scope: Scope<'_>, target: &str) -> Strin
                 return format!("{}.{}", knot.name, target);
             }
 
-            if parsed.knots.iter().any(|candidate| candidate.name == target) {
+            if parsed
+                .knots
+                .iter()
+                .any(|candidate| candidate.name == target)
+            {
                 return target.to_owned();
             }
 
@@ -521,7 +530,10 @@ mod tests {
     fn compiles_basic_text_with_glue() {
         let compiled = compile("Some <>\ncontent <>\nwith glue.\n", true).expect("compile");
         let mut story = compiled.story;
-        assert_eq!("Some content with glue.\n", story.continue_maximally().expect("continue"));
+        assert_eq!(
+            "Some content with glue.\n",
+            story.continue_maximally().expect("continue")
+        );
     }
 
     #[test]
@@ -537,10 +549,14 @@ mod tests {
 
     #[test]
     fn compiles_simple_knot_and_stitch_resolution() {
-        let ink = "-> travel\n\n=== travel ===\n-> first\n\n= first\nI settled my master.\n-> END\n";
+        let ink =
+            "-> travel\n\n=== travel ===\n-> first\n\n= first\nI settled my master.\n-> END\n";
         let compiled = compile(ink, true).expect("compile");
         let mut story = compiled.story;
-        assert_eq!("I settled my master.\n", story.continue_maximally().expect("continue"));
+        assert_eq!(
+            "I settled my master.\n",
+            story.continue_maximally().expect("continue")
+        );
     }
 
     #[test]

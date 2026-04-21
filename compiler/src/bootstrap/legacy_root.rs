@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use super::{ast, emitter, parser, validator};
 use super::ast::{Node, ParsedStory};
+use super::{ast, emitter, parser, validator};
 use crate::error::CompilerError;
 use crate::stats::Stats;
 

@@ -11,7 +11,7 @@
 //!    -s              Print stats about story (word count, knots, etc.)
 //!    -v              Verbose mode — print compilation timings
 //!    -k              Keep rinklecate running in play mode after story is complete
-//!    -x <directory>  Import plugins (accepted but ignored — not supported in this implementation)
+//!    -x <directory>  Import plugins
 
 mod compiler_tool;
 mod player;
@@ -31,7 +31,7 @@ pub struct Options {
     pub output_file: Option<String>,
     pub count_all_visits: bool,
     pub keep_open_after_story_finish: bool,
-    /// Plugin directories — accepted for interface compatibility but ignored.
+    /// Plugin directories passed through to the compiler.
     pub plugin_directories: Vec<String>,
 }
 
@@ -114,12 +114,6 @@ fn run(mut opts: Options) -> anyhow::Result<()> {
 
     if input_is_json && opts.stats {
         anyhow::bail!("Cannot show stats for .json, only for .ink");
-    }
-
-    if !opts.plugin_directories.is_empty() {
-        eprintln!(
-            "Warning: -x (plugin directories) is not supported in this implementation and will be ignored."
-        );
     }
 
     if input_is_json {
@@ -214,7 +208,7 @@ fn print_usage() {
    -s              Print stats about story including word count
    -v              Verbose mode - print compilation timings
    -k              Keep rinklecate running in play mode even after story is complete
-   -x <directory>  Import plugins for the compiler (not supported, ignored)"
+   -x <directory>  Import plugins for the compiler"
     );
 }
 

@@ -9,11 +9,7 @@ pub struct CharacterRange {
 }
 
 impl CharacterRange {
-    pub fn define(
-        start: char,
-        end: char,
-        excludes: impl IntoIterator<Item = char>,
-    ) -> Self {
+    pub fn define(start: char, end: char, excludes: impl IntoIterator<Item = char>) -> Self {
         Self {
             start,
             end,

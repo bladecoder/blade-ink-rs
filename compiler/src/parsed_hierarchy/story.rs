@@ -60,7 +60,10 @@ mod tests {
     #[test]
     fn story_sets_root_content_parent() {
         let story = Story::new("hello", Some("main.ink".to_owned()), true);
-        assert_eq!(Some(story.object().id()), story.root_content().object().parent_id());
+        assert_eq!(
+            Some(story.object().id()),
+            story.root_content().object().parent_id()
+        );
     }
 
     #[test]

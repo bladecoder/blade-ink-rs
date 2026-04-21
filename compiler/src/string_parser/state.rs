@@ -100,10 +100,7 @@ impl StringParserState {
     }
 
     pub fn push(&mut self) -> usize {
-        assert!(
-            self.stack.len() < 200,
-            "Stack overflow in parser state"
-        );
+        assert!(self.stack.len() < 200, "Stack overflow in parser state");
         let previous = self.current_element().clone();
         let mut new_element = StringParserStateElement::default();
         new_element.copy_from(&previous, self.next_unique_id);
@@ -159,7 +156,9 @@ impl StringParserState {
     }
 
     fn current_element(&self) -> &StringParserStateElement {
-        self.stack.last().expect("parser state stack must never be empty")
+        self.stack
+            .last()
+            .expect("parser state stack must never be empty")
     }
 
     fn current_element_mut(&mut self) -> &mut StringParserStateElement {

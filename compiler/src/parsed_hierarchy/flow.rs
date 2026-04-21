@@ -82,7 +82,11 @@ pub struct Knot {
 }
 
 impl Knot {
-    pub fn new(identifier: impl Into<String>, arguments: Vec<FlowArgument>, is_function: bool) -> Self {
+    pub fn new(
+        identifier: impl Into<String>,
+        arguments: Vec<FlowArgument>,
+        is_function: bool,
+    ) -> Self {
         Self {
             flow: FlowBase::new(
                 FlowLevel::Knot,

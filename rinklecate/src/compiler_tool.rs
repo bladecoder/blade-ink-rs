@@ -23,6 +23,7 @@ pub fn compile(
     let compiler_opts = CompilerOptions {
         count_all_visits: opts.count_all_visits,
         source_filename: Some(filename.to_owned()),
+        plugin_directories: opts.plugin_directories.clone(),
         ..Default::default()
     };
     let compiler = Compiler::with_options(compiler_opts);

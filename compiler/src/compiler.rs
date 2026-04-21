@@ -7,8 +7,7 @@ use crate::{
     error::CompilerError,
     file_handler::FileHandler,
     parsed_hierarchy::Story,
-    stats,
-    wave1,
+    stats, wave1,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

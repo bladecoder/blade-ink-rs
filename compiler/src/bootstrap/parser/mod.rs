@@ -5,7 +5,9 @@ pub mod inline;
 pub mod sequence;
 
 use crate::{
-    bootstrap::ast::{AssignMode, Expression, Flow, GlobalVariable, ListDeclaration, Node, ParsedStory},
+    bootstrap::ast::{
+        AssignMode, Expression, Flow, GlobalVariable, ListDeclaration, Node, ParsedStory,
+    },
     error::CompilerError,
 };
 

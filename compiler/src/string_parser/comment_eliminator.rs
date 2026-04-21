@@ -62,7 +62,10 @@ impl CommentEliminator {
         let _ = self
             .parser
             .parse_until_characters_from_string("\n\r", -1)
-            .or_else(|| self.parser.parse_characters_from_char_set(&newline_chars, false, -1));
+            .or_else(|| {
+                self.parser
+                    .parse_characters_from_char_set(&newline_chars, false, -1)
+            });
         true
     }
 
@@ -73,11 +76,9 @@ impl CommentEliminator {
 
         let start_line = self.parser.line_index();
         let end_marker = CharacterSet::from("*");
-        let _ = self.parser.parse_until(
-            |parser| parser.parse_string("*/"),
-            Some(&end_marker),
-            None,
-        );
+        let _ =
+            self.parser
+                .parse_until(|parser| parser.parse_string("*/"), Some(&end_marker), None);
 
         if !self.parser.end_of_input() {
             let _ = self.parser.parse_string("*/");

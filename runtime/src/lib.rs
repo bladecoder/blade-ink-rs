@@ -76,8 +76,8 @@ mod variable_reference;
 mod variables_state;
 mod void;
 
-pub use container::Container;
 pub use choice_point::ChoicePoint;
+pub use container::Container;
 pub use control_command::{CommandType, ControlCommand};
 pub use divert::Divert;
 pub use glue::Glue;

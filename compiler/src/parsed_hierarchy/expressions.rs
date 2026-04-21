@@ -1,4 +1,4 @@
-use super::{ContentList, ObjectKind, ParsedObject};
+use super::{ContentList, List, ObjectKind, ParsedObject};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NumberValue {
@@ -239,7 +239,10 @@ pub struct Conditional {
 }
 
 impl Conditional {
-    pub fn new(initial_condition: Option<ExpressionNode>, branches: Vec<ConditionalSingleBranch>) -> Self {
+    pub fn new(
+        initial_condition: Option<ExpressionNode>,
+        branches: Vec<ConditionalSingleBranch>,
+    ) -> Self {
         Self {
             object: ParsedObject::new(ObjectKind::Conditional),
             initial_condition,
@@ -412,6 +415,7 @@ pub enum ExpressionNode {
     Number(Number),
     StringExpression(StringExpression),
     VariableReference(VariableReference),
+    List(List),
 }
 
 impl ExpressionNode {
@@ -420,6 +424,7 @@ impl ExpressionNode {
             Self::Number(number) => number.expression().object(),
             Self::StringExpression(string) => string.expression().object(),
             Self::VariableReference(var_ref) => var_ref.expression().object(),
+            Self::List(list) => list.expression().object(),
         }
     }
 }
@@ -427,8 +432,8 @@ impl ExpressionNode {
 #[cfg(test)]
 mod tests {
     use super::{
-        Conditional, ConditionalSingleBranch, ConstDeclaration, ExpressionNode, Number, NumberValue,
-        Sequence, StringExpression, Tag, VariableReference,
+        Conditional, ConditionalSingleBranch, ConstDeclaration, ExpressionNode, Number,
+        NumberValue, Sequence, StringExpression, Tag, VariableReference,
     };
     use crate::parsed_hierarchy::ContentList;
 

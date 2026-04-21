@@ -206,8 +206,17 @@ mod tests {
 
         let choice = Choice::new(1, true, None, Some(start), None, inner);
 
-        assert_eq!(Some(choice.object().id()), choice.start_content().map(|c| c.object().parent_id()).flatten());
-        assert_eq!(Some(choice.object().id()), choice.inner_content().object().parent_id());
+        assert_eq!(
+            Some(choice.object().id()),
+            choice
+                .start_content()
+                .map(|c| c.object().parent_id())
+                .flatten()
+        );
+        assert_eq!(
+            Some(choice.object().id()),
+            choice.inner_content().object().parent_id()
+        );
         assert!(choice.once_only());
     }
 
@@ -216,7 +225,10 @@ mod tests {
         let mut content = ContentList::new();
         content.push_text("join");
         let gather = Gather::new(1, None, Some(content));
-        assert_eq!(Some(gather.object().id()), gather.content().map(|c| c.object().parent_id()).flatten());
+        assert_eq!(
+            Some(gather.object().id()),
+            gather.content().map(|c| c.object().parent_id()).flatten()
+        );
     }
 
     #[test]

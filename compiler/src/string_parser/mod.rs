@@ -147,10 +147,7 @@ impl StringParser {
         result
     }
 
-    pub fn parse_object<T>(
-        &mut self,
-        mut rule: impl FnMut(&mut Self) -> Option<T>,
-    ) -> Option<T> {
+    pub fn parse_object<T>(&mut self, mut rule: impl FnMut(&mut Self) -> Option<T>) -> Option<T> {
         let rule_id = self.begin_rule();
         let stack_height_before = self.state.stack_height();
         let result = rule(self);
@@ -270,11 +267,7 @@ impl StringParser {
         chars: &str,
         max_count: isize,
     ) -> Option<String> {
-        self.parse_characters_from_char_set(
-            &CharacterSet::from(chars),
-            false,
-            max_count,
-        )
+        self.parse_characters_from_char_set(&CharacterSet::from(chars), false, max_count)
     }
 
     pub fn parse_characters_from_string(
@@ -359,9 +352,7 @@ impl StringParser {
         let mut parsed = String::new();
 
         loop {
-            if let Some(partial) =
-                self.parse_characters_from_char_set(&pause_and_end, false, -1)
-            {
+            if let Some(partial) = self.parse_characters_from_char_set(&pause_and_end, false, -1) {
                 parsed.push_str(&partial);
             }
 
@@ -396,15 +387,15 @@ impl StringParser {
 
         let negative = self.parse_string("-").is_some();
         let _ = self.parse_characters_from_string(" \t", true, -1);
-        let parsed = self.parse_characters_from_char_set(&Self::numbers_character_set(), true, -1)?;
+        let parsed =
+            self.parse_characters_from_char_set(&Self::numbers_character_set(), true, -1)?;
 
         let parsed_int = parsed.parse::<i32>().ok()?;
-        Some(if negative { -parsed_int } else { parsed_int })
-            .or_else(|| {
-                self.set_index(old_index);
-                self.set_character_in_line_index(old_cli);
-                None
-            })
+        Some(if negative { -parsed_int } else { parsed_int }).or_else(|| {
+            self.set_index(old_index);
+            self.set_character_in_line_index(old_cli);
+            None
+        })
     }
 
     pub fn parse_float(&mut self) -> Option<f32> {

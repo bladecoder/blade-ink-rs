@@ -1,7 +1,8 @@
 use crate::{
     parsed_hierarchy::{
-        ContentList, DebugMetadata, ExternalDeclaration, FlowArgument, FlowDecl, Number,
-        NumberValue, Return as ParsedReturn, SequenceType, Tag,
+        ContentList, DebugMetadata, ExternalDeclaration, FlowArgument, FlowDecl, List,
+        ListDefinition, ListElementDefinition, Number, NumberValue, Return as ParsedReturn,
+        SequenceType, Tag, VariableAssignment,
     },
     string_parser::{
         CharacterRange, CharacterSet, CommentEliminator, ParseSuccess, StringParser,
@@ -38,6 +39,16 @@ pub struct DivertPrototype {
     pub target: Vec<String>,
     pub arguments: Vec<String>,
     pub is_thread: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CommandLineInput {
+    pub is_help: bool,
+    pub is_exit: bool,
+    pub choice_input: Option<i32>,
+    pub debug_source: Option<i32>,
+    pub debug_path_lookup: Option<String>,
+    pub user_immediate_mode_statement: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -113,10 +124,7 @@ impl InkParser {
         found.then_some(ParseSuccess)
     }
 
-    pub fn spaced<T>(
-        &mut self,
-        mut rule: impl FnMut(&mut StringParser) -> Option<T>,
-    ) -> Option<T> {
+    pub fn spaced<T>(&mut self, mut rule: impl FnMut(&mut StringParser) -> Option<T>) -> Option<T> {
         let _ = self.whitespace();
         let result = self.parser.parse_object(|parser| rule(parser))?;
         let _ = self.whitespace();
@@ -148,9 +156,11 @@ impl InkParser {
     }
 
     pub fn parse_identifier(&mut self) -> Option<String> {
-        let first = self
-            .parser
-            .parse_characters_from_char_set(&self.identifier_character_set(), true, 1)?;
+        let first = self.parser.parse_characters_from_char_set(
+            &self.identifier_character_set(),
+            true,
+            1,
+        )?;
         let rest = self
             .parser
             .parse_characters_from_char_set(&self.identifier_character_set(), true, -1)
@@ -269,18 +279,27 @@ impl InkParser {
     pub fn parse_number_literal(&mut self) -> Option<Number> {
         self.parser
             .peek(|parser| parser.parse_float())
-            .map(|_| Number::new(NumberValue::Float(self.parser.parse_float().expect("peeked float"))))
-            .or_else(|| self.parser.parse_int().map(|value| Number::new(NumberValue::Int(value))))
+            .map(|_| {
+                Number::new(NumberValue::Float(
+                    self.parser.parse_float().expect("peeked float"),
+                ))
+            })
+            .or_else(|| {
+                self.parser
+                    .parse_int()
+                    .map(|value| Number::new(NumberValue::Int(value)))
+            })
     }
 
     pub fn parse_bool_literal(&mut self) -> Option<Number> {
         let identifier_characters = self.identifier_character_set();
-        self.parser
-            .parse_object(|parser| match parser.parse_characters_from_char_set(&identifier_characters, true, -1) {
+        self.parser.parse_object(|parser| {
+            match parser.parse_characters_from_char_set(&identifier_characters, true, -1) {
                 Some(word) if word == "true" => Some(Number::new(NumberValue::Bool(true))),
                 Some(word) if word == "false" => Some(Number::new(NumberValue::Bool(false))),
                 _ => None,
-            })
+            }
+        })
     }
 
     pub fn sequence_type_symbol_annotation(&mut self) -> Option<SequenceTypeAnnotation> {
@@ -435,7 +454,9 @@ impl InkParser {
         let _ = self.whitespace();
         let target = self.dot_separated_divert_path_components()?;
         let _ = self.whitespace();
-        let arguments = self.expression_function_call_arguments().unwrap_or_default();
+        let arguments = self
+            .expression_function_call_arguments()
+            .unwrap_or_default();
         let _ = self.whitespace();
 
         Some(DivertPrototype {
@@ -589,6 +610,227 @@ impl InkParser {
             .succeed_rule(rule_id, Some(ExternalDeclaration::new(name, arguments)))
     }
 
+    pub fn list_declaration(&mut self) -> Option<VariableAssignment> {
+        let rule_id = self.parser.begin_rule();
+        let _ = self.whitespace();
+        let keyword = self.parse_identifier()?;
+        if keyword != "LIST" {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        let _ = self.whitespace();
+        let var_name = self.parse_identifier()?;
+        let _ = self.whitespace();
+        if self.parser.parse_string("=").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+        let _ = self.whitespace();
+
+        let mut definition = self.list_definition()?;
+        definition.set_identifier(var_name.clone());
+
+        let assignment = VariableAssignment::new(var_name, None);
+        self.parser.succeed_rule(rule_id, Some(assignment))
+    }
+
+    pub fn list_definition(&mut self) -> Option<ListDefinition> {
+        let _ = self.any_whitespace();
+        let mut elements = Vec::new();
+
+        let first = self.list_element_definition()?;
+        elements.push(first);
+
+        loop {
+            let checkpoint = self.parser.begin_rule();
+            let _ = self.any_whitespace();
+            if self.parser.parse_string(",").is_none() {
+                self.parser.cancel_rule(checkpoint);
+                break;
+            }
+            let _ = self.any_whitespace();
+            let Some(element) = self.list_element_definition() else {
+                return self.parser.fail_rule(checkpoint);
+            };
+            self.parser.succeed_rule(checkpoint, Some(()));
+            elements.push(element);
+        }
+
+        Some(ListDefinition::new(elements))
+    }
+
+    pub fn list_element_definition(&mut self) -> Option<ListElementDefinition> {
+        let rule_id = self.parser.begin_rule();
+        let in_initial_list = self.parser.parse_string("(").is_some();
+        let mut needs_to_close_paren = in_initial_list;
+
+        let _ = self.whitespace();
+        let name = self.parse_identifier()?;
+        let _ = self.whitespace();
+
+        if in_initial_list && self.parser.parse_string(")").is_some() {
+            needs_to_close_paren = false;
+            let _ = self.whitespace();
+        }
+
+        let mut explicit_value = None;
+        if self.parser.parse_string("=").is_some() {
+            let _ = self.whitespace();
+            let number = self.parse_number_literal()?;
+            let NumberValue::Int(value) = number.value() else {
+                return self.parser.fail_rule(rule_id);
+            };
+            explicit_value = Some(*value);
+
+            if needs_to_close_paren {
+                let _ = self.whitespace();
+                if self.parser.parse_string(")").is_some() {
+                    needs_to_close_paren = false;
+                }
+            }
+        }
+
+        if needs_to_close_paren {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        self.parser.succeed_rule(
+            rule_id,
+            Some(ListElementDefinition::new(
+                name,
+                in_initial_list,
+                explicit_value,
+            )),
+        )
+    }
+
+    pub fn list_expression(&mut self) -> Option<List> {
+        let rule_id = self.parser.begin_rule();
+        let _ = self.whitespace();
+        if self.parser.parse_string("(").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        let _ = self.whitespace();
+        if self.parser.parse_string(")").is_some() {
+            return self.parser.succeed_rule(rule_id, Some(List::new(None)));
+        }
+
+        let mut items = Vec::new();
+        loop {
+            let path = self.dot_separated_divert_path_components()?;
+            items.push(path.join("."));
+            let _ = self.whitespace();
+
+            if self.parser.parse_string(")").is_some() {
+                break;
+            }
+            self.parser.parse_string(",")?;
+            let _ = self.whitespace();
+        }
+
+        self.parser
+            .succeed_rule(rule_id, Some(List::new(Some(items))))
+    }
+
+    pub fn command_line_user_input(&mut self) -> Option<CommandLineInput> {
+        let _ = self.whitespace();
+
+        if self.parser.parse_string("help").is_some() {
+            return Some(CommandLineInput {
+                is_help: true,
+                ..Default::default()
+            });
+        }
+
+        if self.parser.parse_string("exit").is_some() || self.parser.parse_string("quit").is_some()
+        {
+            return Some(CommandLineInput {
+                is_exit: true,
+                ..Default::default()
+            });
+        }
+
+        self.debug_source()
+            .or_else(|| self.debug_path_lookup())
+            .or_else(|| self.user_choice_number())
+            .or_else(|| self.user_immediate_mode_statement())
+    }
+
+    fn debug_source(&mut self) -> Option<CommandLineInput> {
+        let rule_id = self.parser.begin_rule();
+        let _ = self.whitespace();
+        if self.parser.parse_string("DebugSource").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+        let _ = self.whitespace();
+        self.parser.parse_string("(")?;
+        let _ = self.whitespace();
+        let offset = self.parser.parse_int()?;
+        let _ = self.whitespace();
+        self.parser.parse_string(")")?;
+
+        self.parser.succeed_rule(
+            rule_id,
+            Some(CommandLineInput {
+                debug_source: Some(offset),
+                ..Default::default()
+            }),
+        )
+    }
+
+    fn debug_path_lookup(&mut self) -> Option<CommandLineInput> {
+        let rule_id = self.parser.begin_rule();
+        let _ = self.whitespace();
+        if self.parser.parse_string("DebugPath").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+        self.whitespace()?;
+        let path = self.parser.parse_characters_from_char_set(
+            &self.runtime_path_character_set(),
+            true,
+            -1,
+        )?;
+
+        self.parser.succeed_rule(
+            rule_id,
+            Some(CommandLineInput {
+                debug_path_lookup: Some(path),
+                ..Default::default()
+            }),
+        )
+    }
+
+    fn user_choice_number(&mut self) -> Option<CommandLineInput> {
+        let rule_id = self.parser.begin_rule();
+        let _ = self.whitespace();
+        let number = self.parser.parse_int()?;
+        let _ = self.whitespace();
+        if self.end_of_line().is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        self.parser.succeed_rule(
+            rule_id,
+            Some(CommandLineInput {
+                choice_input: Some(number),
+                ..Default::default()
+            }),
+        )
+    }
+
+    fn user_immediate_mode_statement(&mut self) -> Option<CommandLineInput> {
+        let _ = self.whitespace();
+        let statement = self
+            .parser
+            .parse_until_characters_from_string("\n\r", -1)?
+            .trim()
+            .to_owned();
+        (!statement.is_empty()).then_some(CommandLineInput {
+            user_immediate_mode_statement: Some(statement),
+            ..Default::default()
+        })
+    }
+
     pub fn include_statement_filename(&mut self) -> Option<String> {
         let rule_id = self.parser.begin_rule();
         let _ = self.whitespace();
@@ -613,7 +855,8 @@ impl InkParser {
             return self.parser.fail_rule(rule_id);
         }
         let _ = self.whitespace();
-        self.parser.succeed_rule(rule_id, Some(ParsedReturn::new(None)))
+        self.parser
+            .succeed_rule(rule_id, Some(ParsedReturn::new(None)))
     }
 
     pub fn content_text(&mut self) -> Option<String> {
@@ -643,11 +886,7 @@ impl InkParser {
             }
         }
 
-        if out.is_empty() {
-            None
-        } else {
-            Some(out)
-        }
+        if out.is_empty() { None } else { Some(out) }
     }
 
     pub fn line_of_mixed_text(&mut self) -> Option<ContentList> {
@@ -699,6 +938,11 @@ impl InkParser {
         set
     }
 
+    fn runtime_path_character_set(&self) -> CharacterSet {
+        self.identifier_character_set()
+            .add_characters(['-', '.'].into_iter())
+    }
+
     fn list_all_character_ranges() -> Vec<CharacterRange> {
         vec![
             CharacterRange::define('\u{0041}', '\u{007A}', "[\\]^_`".chars()),
@@ -711,15 +955,12 @@ impl InkParser {
                     .chars()
                     .chain('\u{0378}'..='\u{0385}'),
             ),
-            CharacterRange::define(
-                '\u{0400}',
-                '\u{04FF}',
-                '\u{0482}'..='\u{0489}',
-            ),
+            CharacterRange::define('\u{0400}', '\u{04FF}', '\u{0482}'..='\u{0489}'),
             CharacterRange::define(
                 '\u{0530}',
                 '\u{058F}',
-                "\u{0530}".chars()
+                "\u{0530}"
+                    .chars()
                     .chain('\u{0557}'..='\u{0560}')
                     .chain('\u{0588}'..='\u{058E}'),
             ),
@@ -778,7 +1019,10 @@ mod tests {
     fn content_text_honours_escape_and_stops_before_divert() {
         let mut parser = InkParser::new(r#"hello \-> world -> target"#, None);
         assert_eq!(Some("hello -> world ".to_owned()), parser.content_text());
-        assert_eq!(Some("->".to_owned()), parser.parser_mut().parse_string("->"));
+        assert_eq!(
+            Some("->".to_owned()),
+            parser.parser_mut().parse_string("->")
+        );
     }
 
     #[test]
@@ -860,10 +1104,16 @@ mod tests {
     #[test]
     fn sequence_type_annotations_support_symbol_and_word_forms() {
         let mut symbols = InkParser::new("!~", None);
-        assert_eq!(Some((super::SequenceType::Once as u8) | (super::SequenceType::Shuffle as u8)), symbols.sequence_type_symbol_annotation().map(|a| a.flags));
+        assert_eq!(
+            Some((super::SequenceType::Once as u8) | (super::SequenceType::Shuffle as u8)),
+            symbols.sequence_type_symbol_annotation().map(|a| a.flags)
+        );
 
         let mut words = InkParser::new("once shuffle:", None);
-        assert_eq!(Some((super::SequenceType::Once as u8) | (super::SequenceType::Shuffle as u8)), words.sequence_type_word_annotation().map(|a| a.flags));
+        assert_eq!(
+            Some((super::SequenceType::Once as u8) | (super::SequenceType::Shuffle as u8)),
+            words.sequence_type_word_annotation().map(|a| a.flags)
+        );
     }
 
     #[test]
@@ -915,7 +1165,10 @@ mod tests {
         let mut external = InkParser::new("EXTERNAL my_func(x, y)", None);
         let declaration = external.external_declaration().expect("external");
         assert_eq!("my_func", declaration.name());
-        assert_eq!(&["x".to_owned(), "y".to_owned()], declaration.argument_names());
+        assert_eq!(
+            &["x".to_owned(), "y".to_owned()],
+            declaration.argument_names()
+        );
 
         let mut include = InkParser::new("INCLUDE path/to/file.ink\n", None);
         assert_eq!(
@@ -925,5 +1178,61 @@ mod tests {
 
         let mut ret = InkParser::new("return\n", None);
         assert!(ret.return_statement().is_some());
+    }
+
+    #[test]
+    fn parses_list_definitions_and_literals() {
+        let mut definition = InkParser::new("a, (b = 5), c", None);
+        let list_definition = definition.list_definition().expect("list definition");
+        let items = list_definition.item_definitions();
+        assert_eq!("a", items[0].name());
+        assert_eq!(1, items[0].series_value());
+        assert_eq!("b", items[1].name());
+        assert!(items[1].in_initial_list());
+        assert_eq!(Some(5), items[1].explicit_value());
+        assert_eq!(6, items[2].series_value());
+
+        let mut literal = InkParser::new("(alpha, things.beta)", None);
+        let list = literal.list_expression().expect("list literal");
+        assert_eq!(
+            Some(&["alpha".to_owned(), "things.beta".to_owned()][..]),
+            list.item_identifier_list()
+        );
+
+        let mut empty = InkParser::new("()", None);
+        assert!(empty.list_expression().expect("empty list").is_empty());
+    }
+
+    #[test]
+    fn parses_command_line_input_shapes() {
+        let mut help = InkParser::new("help", None);
+        assert!(help.command_line_user_input().expect("help").is_help);
+
+        let mut choice = InkParser::new("3\n", None);
+        assert_eq!(
+            Some(3),
+            choice
+                .command_line_user_input()
+                .expect("choice")
+                .choice_input
+        );
+
+        let mut debug_source = InkParser::new("DebugSource(12)", None);
+        assert_eq!(
+            Some(12),
+            debug_source
+                .command_line_user_input()
+                .expect("debug source")
+                .debug_source
+        );
+
+        let mut debug_path = InkParser::new("DebugPath knot.0.c-0", None);
+        assert_eq!(
+            Some("knot.0.c-0".to_owned()),
+            debug_path
+                .command_line_user_input()
+                .expect("debug path")
+                .debug_path_lookup
+        );
     }
 }
