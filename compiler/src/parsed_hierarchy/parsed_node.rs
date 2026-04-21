@@ -81,6 +81,12 @@ pub struct ParsedNode {
     arguments: Vec<ParsedExpression>,
     expression: Option<ParsedExpression>,
     children: Vec<ParsedNode>,
+    // Choice / Gather specific
+    pub indentation_depth: usize,
+    pub once_only: bool,
+    pub is_invisible_default: bool,
+    pub start_content: Vec<ParsedNode>,
+    pub choice_only_content: Vec<ParsedNode>,
 }
 
 impl ParsedNode {
@@ -94,6 +100,11 @@ impl ParsedNode {
             arguments: Vec::new(),
             expression: None,
             children: Vec::new(),
+            indentation_depth: 0,
+            once_only: true,
+            is_invisible_default: false,
+            start_content: Vec::new(),
+            choice_only_content: Vec::new(),
         }
     }
 
