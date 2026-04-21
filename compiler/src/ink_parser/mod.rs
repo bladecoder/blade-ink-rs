@@ -1891,8 +1891,7 @@ impl InkParser {
     fn parse_braced_inline_content(&mut self, terminators: &str) -> Option<Vec<ParsedNode>> {
         let rule_id = self.parser.begin_rule();
         self.parser.parse_string("{")?;
-        let content = self.parser.parse_until_characters_from_string("}", -1)?;
-        self.parser.parse_string("}")?;
+        let content = self.parse_balanced_brace_body()?;
         self.parser.succeed_rule(rule_id, Some(()));
 
         let trimmed = content.trim();
@@ -2098,8 +2097,7 @@ impl InkParser {
         let rule_id = self.parser.begin_rule();
         self.whitespace();
         self.parser.parse_string("{")?;
-        let content = self.parser.parse_until_characters_from_string("}", -1)?;
-        self.parser.parse_string("}")?;
+        let content = self.parse_balanced_brace_body()?;
         self.end_of_line();
 
         if !content.contains('\n') {
@@ -2108,6 +2106,35 @@ impl InkParser {
 
         let parsed = parse_multiline_conditional_block(&content)?;
         self.parser.succeed_rule(rule_id, Some(parsed))
+    }
+
+    fn parse_balanced_brace_body(&mut self) -> Option<String> {
+        let mut depth = 1usize;
+        let mut string_open = false;
+        let mut content = String::new();
+
+        while let Some(ch) = self.parser.parse_single_character() {
+            match ch {
+                '"' => {
+                    string_open = !string_open;
+                    content.push(ch);
+                }
+                '{' if !string_open => {
+                    depth += 1;
+                    content.push(ch);
+                }
+                '}' if !string_open => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return Some(content);
+                    }
+                    content.push(ch);
+                }
+                _ => content.push(ch),
+            }
+        }
+
+        None
     }
 
     /// Parse a sequence type annotation (word or symbol form) and return the flags.
@@ -2397,19 +2424,22 @@ fn parse_expression_text(input: &str) -> Option<crate::parsed_hierarchy::ParsedE
     }
 
     for (token, operator) in [
+        ("&&", "And"),
+        ("||", "Or"),
         (" and ", "And"),
         (" or ", "Or"),
+        (" mod ", "Modulo"),
         (">=", "GreaterEqual"),
         ("<=", "LessEqual"),
         ("==", "Equal"),
         ("!=", "NotEqual"),
         (">", "Greater"),
         ("<", "Less"),
-        (" + ", "Add"),
-        (" - ", "Subtract"),
-        (" * ", "Multiply"),
-        (" / ", "Divide"),
-        (" % ", "Modulo"),
+        ("+", "Add"),
+        ("-", "Subtract"),
+        ("*", "Multiply"),
+        ("/", "Divide"),
+        ("%", "Modulo"),
     ] {
         if let Some((left, right)) = split_expression_once(input, token) {
             return Some(ParsedExpression::Binary {
@@ -2484,6 +2514,13 @@ fn split_expression_once<'a>(input: &'a str, token: &str) -> Option<(&'a str, &'
         }
 
         if !string_open && depth == 0 && input[byte_index..].starts_with(token) {
+            if (token == "+" || token == "-")
+                && (byte_index == 0
+                    || matches!(input[..byte_index].chars().last(), Some('(' | '[' | '{' | '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' | '!')))
+            {
+                i += 1;
+                continue;
+            }
             return Some((&input[..byte_index], &input[byte_index + token.len()..]));
         }
 

@@ -213,9 +213,9 @@ fn export_nodes_with_paths(
                     content.push(command(CommandType::EvalStart));
                     export_expression(condition, story, &mut content)?;
                     content.push(command(CommandType::EvalEnd));
-                    content.push(export_divert_conditional(target, scope, story, named_paths));
+                    content.push(export_divert_conditional(target, scope, story, named_paths)?);
                 } else {
-                    content.push(export_divert(target, scope, story, named_paths));
+                    content.push(export_divert(target, scope, story, named_paths)?);
                 }
             }
             ParsedNodeKind::TunnelDivert => {
@@ -286,7 +286,7 @@ fn export_nodes_with_paths(
                 content.push(command(CommandType::EvalOutput));
                 content.push(command(CommandType::EvalEnd));
             }
-            ParsedNodeKind::Assignment => export_assignment(node, story, &mut content)?,
+            ParsedNodeKind::Assignment => export_assignment(node, scope, story, &mut content)?,
             ParsedNodeKind::Tag => {
                 return Err(CompilerError::unsupported_feature(
                     "runtime export does not support tags yet",
@@ -505,7 +505,7 @@ fn export_weave(
                 has_seen_choice_in_section = true;
                 choice_count += 1;
             }
-            ParsedNodeKind::GatherPoint => {
+            ParsedNodeKind::GatherPoint | ParsedNodeKind::GatherLabel => {
                 let auto_enter = !has_seen_choice_in_section;
                 let is_named_gather = node.name().is_some();
                 let gather_name = node
@@ -884,7 +884,7 @@ fn collect_current_level_named_paths(
                 has_seen_choice_in_section = true;
                 choice_count += 1;
             }
-            ParsedNodeKind::GatherPoint => {
+            ParsedNodeKind::GatherPoint | ParsedNodeKind::GatherLabel => {
                 let is_named_gather = node.name().is_some();
                 let gather_name = node
                     .name()
@@ -972,7 +972,9 @@ fn has_weave_content(nodes: &[ParsedNode]) -> bool {
 
 fn weave_depth(node: &ParsedNode) -> Option<usize> {
     match node.kind() {
-        ParsedNodeKind::Choice | ParsedNodeKind::GatherPoint => Some(node.indentation_depth),
+        ParsedNodeKind::Choice | ParsedNodeKind::GatherPoint | ParsedNodeKind::GatherLabel => {
+            Some(node.indentation_depth)
+        }
         _ => None,
     }
 }
@@ -982,14 +984,23 @@ fn export_divert(
     scope: Scope<'_>,
     story: &Story,
     named_paths: Option<&HashMap<String, String>>,
-) -> Rc<dyn RTObject> {
+) -> Result<Rc<dyn RTObject>, CompilerError> {
     match target {
-        "END" => command(CommandType::End),
-        "DONE" => command(CommandType::Done),
+        "END" => Ok(command(CommandType::End)),
+        "DONE" => Ok(command(CommandType::Done)),
         _ => {
             let resolved = resolve_target(target, scope, story, named_paths);
+            if story
+                .parsed_flows()
+                .iter()
+                .any(|flow| flow.flow().identifier() == Some(resolved.as_str()) && flow.flow().is_function())
+            {
+                return Err(CompilerError::unsupported_feature(format!(
+                    "cannot divert to function '{resolved}'"
+                )));
+            }
             if is_global_variable_divert(&resolved, story) {
-                Rc::new(Divert::new(
+                Ok(Rc::new(Divert::new(
                     false,
                     PushPopType::Tunnel,
                     false,
@@ -997,9 +1008,9 @@ fn export_divert(
                     false,
                     Some(resolved),
                     None,
-                ))
+                )))
             } else {
-                divert_object(&resolved)
+                Ok(divert_object(&resolved))
             }
         }
     }
@@ -1010,9 +1021,9 @@ fn export_divert_conditional(
     scope: Scope<'_>,
     story: &Story,
     named_paths: Option<&HashMap<String, String>>,
-) -> Rc<dyn RTObject> {
+) -> Result<Rc<dyn RTObject>, CompilerError> {
     match target {
-        "END" => Rc::new(Divert::new(
+        "END" => Ok(Rc::new(Divert::new(
             false,
             PushPopType::Tunnel,
             false,
@@ -1020,8 +1031,8 @@ fn export_divert_conditional(
             true,
             None,
             Some("END"),
-        )),
-        "DONE" => Rc::new(Divert::new(
+        ))),
+        "DONE" => Ok(Rc::new(Divert::new(
             false,
             PushPopType::Tunnel,
             false,
@@ -1029,8 +1040,8 @@ fn export_divert_conditional(
             true,
             None,
             Some("DONE"),
-        )),
-        _ => Rc::new(Divert::new(
+        ))),
+        _ => Ok(Rc::new(Divert::new(
             false,
             PushPopType::Tunnel,
             false,
@@ -1038,7 +1049,7 @@ fn export_divert_conditional(
             true,
             None,
             Some(&resolve_target(target, scope, story, named_paths)),
-        )),
+        ))),
     }
 }
 
@@ -1298,6 +1309,7 @@ fn export_conditional(
 
 fn export_assignment(
     node: &ParsedNode,
+    scope: Scope<'_>,
     story: &Story,
     content: &mut Vec<Rc<dyn RTObject>>,
 ) -> Result<(), CompilerError> {
@@ -1312,19 +1324,20 @@ fn export_assignment(
     let expression = node.expression().ok_or_else(|| {
         CompilerError::unsupported_feature("runtime export assignment missing expression")
     })?;
+    let is_temporary = variable_is_temporary_in_scope(name, scope);
 
     match mode {
         "Set" => {
             content.push(command(CommandType::EvalStart));
             export_expression(expression, story, content)?;
             content.push(command(CommandType::EvalEnd));
-            content.push(variable_assignment(name, true, false));
+            content.push(variable_assignment(name, !is_temporary, false));
         }
         "GlobalDecl" => {
             content.push(command(CommandType::EvalStart));
             export_expression(expression, story, content)?;
             content.push(command(CommandType::EvalEnd));
-            content.push(variable_assignment(name, true, true));
+            content.push(variable_assignment(name, !is_temporary, true));
         }
         "TempSet" => {
             content.push(command(CommandType::EvalStart));
@@ -1337,7 +1350,7 @@ fn export_assignment(
             content.push(Rc::new(VariableReference::new(name)));
             export_expression(expression, story, content)?;
             content.push(native(NativeOp::Add));
-            content.push(variable_assignment(name, true, false));
+            content.push(variable_assignment(name, !is_temporary, false));
             content.push(command(CommandType::EvalEnd));
         }
         "SubtractAssign" => {
@@ -1345,7 +1358,7 @@ fn export_assignment(
             content.push(Rc::new(VariableReference::new(name)));
             export_expression(expression, story, content)?;
             content.push(native(NativeOp::Subtract));
-            content.push(variable_assignment(name, true, false));
+            content.push(variable_assignment(name, !is_temporary, false));
             content.push(command(CommandType::EvalEnd));
         }
         other => {
@@ -1356,6 +1369,14 @@ fn export_assignment(
     }
 
     Ok(())
+}
+
+fn variable_is_temporary_in_scope(name: &str, scope: Scope<'_>) -> bool {
+    let Scope::Flow(flow) = scope else {
+        return false;
+    };
+
+    flow.flow().arguments().iter().any(|arg| arg.identifier == name)
 }
 
 fn export_expression_node(
