@@ -82,14 +82,18 @@ impl Choice {
     }
 
     fn set_content_parents(&mut self) {
-        let parent_id = self.object.id();
         if let Some(start) = self.start_content.as_mut() {
-            start.object_mut().set_parent_id(parent_id);
+            start.object_mut().set_parent(&self.object);
+            self.object.add_content_ref(start.object().reference());
         }
         if let Some(choice_only) = self.choice_only_content.as_mut() {
-            choice_only.object_mut().set_parent_id(parent_id);
+            choice_only.object_mut().set_parent(&self.object);
+            self.object
+                .add_content_ref(choice_only.object().reference());
         }
-        self.inner_content.object_mut().set_parent_id(parent_id);
+        self.inner_content.object_mut().set_parent(&self.object);
+        self.object
+            .add_content_ref(self.inner_content.object().reference());
     }
 }
 
@@ -107,9 +111,10 @@ impl Gather {
         identifier: Option<String>,
         mut content: Option<ContentList>,
     ) -> Self {
-        let object = ParsedObject::new(ObjectKind::Gather);
+        let mut object = ParsedObject::new(ObjectKind::Gather);
         if let Some(content) = content.as_mut() {
-            content.object_mut().set_parent_id(object.id());
+            content.object_mut().set_parent(&object);
+            object.add_content_ref(content.object().reference());
         }
         Self {
             object,
@@ -181,13 +186,26 @@ impl Weave {
     }
 
     pub fn push(&mut self, mut element: WeaveElement) {
-        let parent_id = self.object.id();
-        match &mut element {
-            WeaveElement::Content(content) => content.object_mut().set_parent_id(parent_id),
-            WeaveElement::Choice(choice) => choice.object_mut().set_parent_id(parent_id),
-            WeaveElement::Gather(gather) => gather.object_mut().set_parent_id(parent_id),
-            WeaveElement::NestedWeave(weave) => weave.object_mut().set_parent_id(parent_id),
-        }
+        let parent = self.object.reference();
+        let child_ref = match &mut element {
+            WeaveElement::Content(content) => {
+                content.object_mut().set_parent_ref(parent);
+                content.object().reference()
+            }
+            WeaveElement::Choice(choice) => {
+                choice.object_mut().set_parent_ref(parent);
+                choice.object().reference()
+            }
+            WeaveElement::Gather(gather) => {
+                gather.object_mut().set_parent_ref(parent);
+                gather.object().reference()
+            }
+            WeaveElement::NestedWeave(weave) => {
+                weave.object_mut().set_parent_ref(parent);
+                weave.object().reference()
+            }
+        };
+        self.object.add_content_ref(child_ref);
         self.elements.push(element);
     }
 }

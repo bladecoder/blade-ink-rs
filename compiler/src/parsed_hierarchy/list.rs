@@ -20,6 +20,10 @@ impl List {
         &self.expression
     }
 
+    pub fn expression_mut(&mut self) -> &mut Expression {
+        &mut self.expression
+    }
+
     pub fn item_identifier_list(&self) -> Option<&[String]> {
         self.item_identifier_list.as_deref()
     }
@@ -40,7 +44,7 @@ pub struct ListDefinition {
 
 impl ListDefinition {
     pub fn new(mut item_definitions: Vec<ListElementDefinition>) -> Self {
-        let object = ParsedObject::new(ObjectKind::ListDefinition);
+        let mut object = ParsedObject::new(ObjectKind::ListDefinition);
 
         let mut current_value = 1;
         for item in &mut item_definitions {
@@ -48,7 +52,8 @@ impl ListDefinition {
                 current_value = explicit_value;
             }
             item.series_value = current_value;
-            item.object.set_parent_id(object.id());
+            item.object.set_parent(&object);
+            object.add_content_ref(item.object.reference());
             current_value += 1;
         }
 

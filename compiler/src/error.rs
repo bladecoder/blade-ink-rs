@@ -104,6 +104,30 @@ impl CompilerError {
             }
         }
     }
+
+    pub fn with_message_prefix(self, prefix: impl AsRef<str>) -> Self {
+        let prefix = prefix.as_ref();
+        match self {
+            Self::InvalidSource {
+                message,
+                file,
+                line,
+            } => Self::InvalidSource {
+                message: format!("{prefix}{message}"),
+                file,
+                line,
+            },
+            Self::UnsupportedFeature {
+                message,
+                file,
+                line,
+            } => Self::UnsupportedFeature {
+                message: format!("{prefix}{message}"),
+                file,
+                line,
+            },
+        }
+    }
 }
 
 impl fmt::Display for CompilerError {

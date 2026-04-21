@@ -1,4 +1,6 @@
-use super::{ContentList, FlowArgument, FlowBase, FlowLevel, ParsedObject};
+use super::{
+    Content, ContentList, FlowArgument, FlowBase, FlowLevel, ParsedObject, ParsedObjectIndex,
+};
 
 #[derive(Debug, Clone)]
 pub struct Story {
@@ -11,9 +13,11 @@ pub struct Story {
 
 impl Story {
     pub fn new(source: &str, source_filename: Option<String>, count_all_visits: bool) -> Self {
-        let flow = FlowBase::new(FlowLevel::Story, None, Vec::<FlowArgument>::new(), false);
+        let mut flow = FlowBase::new(FlowLevel::Story, None, Vec::<FlowArgument>::new(), false);
         let mut root_content = ContentList::new();
-        root_content.object_mut().set_parent_id(flow.object().id());
+        root_content.object_mut().set_parent(flow.object());
+        flow.object_mut()
+            .add_content_ref(root_content.object().reference());
         Self {
             flow,
             source: source.to_owned(),
@@ -49,6 +53,22 @@ impl Story {
 
     pub fn root_content_mut(&mut self) -> &mut ContentList {
         &mut self.root_content
+    }
+
+    pub fn object_index(&self) -> ParsedObjectIndex {
+        let mut index = ParsedObjectIndex::new();
+        index.register(self.object());
+        self.register_content_list(&mut index, &self.root_content);
+        index
+    }
+
+    fn register_content_list(&self, index: &mut ParsedObjectIndex, content_list: &ContentList) {
+        index.register(content_list.object());
+        for content in content_list.content() {
+            match content {
+                Content::Text(text) => index.register(text.object()),
+            }
+        }
     }
 }
 
@@ -88,5 +108,20 @@ mod tests {
             file_name: Some("main.ink".to_owned()),
         });
         assert!(story.object().has_own_debug_metadata());
+    }
+
+    #[test]
+    fn story_object_index_resolves_root_content_tree() {
+        let mut story = Story::new("hello", None, true);
+        story.root_content_mut().push_text("hello");
+        let index = story.object_index();
+        let text = story
+            .object()
+            .find(&index, crate::parsed_hierarchy::ObjectKind::Text);
+        assert!(text.is_some());
+        assert_eq!(
+            Some(story.object().reference()),
+            index.story_for(text.unwrap())
+        );
     }
 }

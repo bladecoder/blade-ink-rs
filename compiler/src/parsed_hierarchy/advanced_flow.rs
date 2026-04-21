@@ -32,9 +32,16 @@ pub struct FunctionCall {
 }
 
 impl FunctionCall {
-    pub fn new(name: impl Into<String>, arguments: Vec<ExpressionNode>) -> Self {
+    pub fn new(name: impl Into<String>, mut arguments: Vec<ExpressionNode>) -> Self {
+        let mut expression = Expression::new(ObjectKind::FunctionCall);
+        for argument in &mut arguments {
+            argument.object_mut().set_parent(expression.object());
+            expression
+                .object_mut()
+                .add_content_ref(argument.object().reference());
+        }
         Self {
-            expression: Expression::new(ObjectKind::FunctionCall),
+            expression,
             name: name.into(),
             arguments,
             should_pop_returned_value: false,
@@ -69,9 +76,14 @@ pub struct Return {
 }
 
 impl Return {
-    pub fn new(returned_expression: Option<ExpressionNode>) -> Self {
+    pub fn new(mut returned_expression: Option<ExpressionNode>) -> Self {
+        let mut object = ParsedObject::new(ObjectKind::Return);
+        if let Some(returned_expression) = returned_expression.as_mut() {
+            returned_expression.object_mut().set_parent(&object);
+            object.add_content_ref(returned_expression.object().reference());
+        }
         Self {
-            object: ParsedObject::new(ObjectKind::Return),
+            object,
             returned_expression,
         }
     }
@@ -94,9 +106,15 @@ pub struct IncludedFile {
 
 impl IncludedFile {
     pub fn new(included_story: Option<Story>, filename: Option<String>) -> Self {
+        let mut object = ParsedObject::new(ObjectKind::IncludedFile);
+        let mut included_story = included_story.map(Box::new);
+        if let Some(included_story) = included_story.as_mut() {
+            included_story.object_mut().set_parent(&object);
+            object.add_content_ref(included_story.object().reference());
+        }
         Self {
-            object: ParsedObject::new(ObjectKind::IncludedFile),
-            included_story: included_story.map(Box::new),
+            object,
+            included_story,
             filename,
         }
     }

@@ -137,6 +137,7 @@ impl Compiler {
     }
 
     pub fn compile_to_stats(&self, source: &str) -> Result<stats::Stats, CompilerError> {
+        self.ensure_bootstrap_allowed("stats generation")?;
         self.bootstrap().compile_to_stats(source)
     }
 
@@ -148,6 +149,7 @@ impl Compiler {
     where
         F: Fn(&str) -> Result<String, CompilerError>,
     {
+        self.ensure_bootstrap_allowed("stats generation with file handler")?;
         self.bootstrap()
             .compile_to_stats_with_file_handler(source, file_handler)
     }
@@ -171,12 +173,14 @@ impl Compiler {
     where
         F: Fn(&str) -> Result<String, CompilerError>,
     {
+        self.ensure_bootstrap_allowed("compilation with file handler")?;
         self.bootstrap()
             .compile_with_file_handler(source, file_handler)
     }
 
     fn compile_internal(&self, source: &str) -> Result<String, CompilerError> {
         if let Some(file_handler) = &self.options.file_handler {
+            self.ensure_bootstrap_allowed("compilation with file handler")?;
             return self.compile_json_with_file_handler(source, |filename| {
                 file_handler.load_ink_file_contents(filename)
             });
@@ -188,6 +192,7 @@ impl Compiler {
                 .map_err(|err| CompilerError::invalid_source(err.to_string()));
         }
 
+        self.ensure_bootstrap_allowed("compilation fallback")?;
         self.bootstrap().compile(source)
     }
 
@@ -201,8 +206,50 @@ impl Compiler {
     fn try_compile_wave1_story(&self, source: &str) -> Result<Option<RuntimeStory>, CompilerError> {
         match wave1::compile(source, self.options.count_all_visits) {
             Ok(compiled) => Ok(Some(compiled.story)),
-            Err(CompilerError::UnsupportedFeature { .. }) => Ok(None),
+            Err(error @ CompilerError::UnsupportedFeature { .. }) => {
+                if Self::bootstrap_disabled() {
+                    Err(error.with_message_prefix(
+                        "bootstrap fallback disabled by BLADEINK_DISABLE_BOOTSTRAP=1; ",
+                    ))
+                } else {
+                    Ok(None)
+                }
+            }
             Err(error) => Err(error),
         }
+    }
+
+    fn ensure_bootstrap_allowed(&self, operation: &str) -> Result<(), CompilerError> {
+        if Self::bootstrap_disabled() {
+            return Err(CompilerError::unsupported_feature(format!(
+                "bootstrap fallback disabled by BLADEINK_DISABLE_BOOTSTRAP=1; {operation} still requires the legacy compiler"
+            )));
+        }
+
+        Ok(())
+    }
+
+    fn bootstrap_disabled() -> bool {
+        std::env::var("BLADEINK_DISABLE_BOOTSTRAP")
+            .map(|value| Self::bootstrap_disabled_value(&value))
+            .unwrap_or(false)
+    }
+
+    fn bootstrap_disabled_value(value: &str) -> bool {
+        value == "1" || value.eq_ignore_ascii_case("true")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Compiler;
+
+    #[test]
+    fn bootstrap_disabled_value_accepts_numeric_and_boolean_true() {
+        assert!(Compiler::bootstrap_disabled_value("1"));
+        assert!(Compiler::bootstrap_disabled_value("true"));
+        assert!(Compiler::bootstrap_disabled_value("TRUE"));
+        assert!(!Compiler::bootstrap_disabled_value("0"));
+        assert!(!Compiler::bootstrap_disabled_value("false"));
     }
 }

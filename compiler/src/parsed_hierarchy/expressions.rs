@@ -56,6 +56,10 @@ impl Number {
         &self.expression
     }
 
+    pub fn expression_mut(&mut self) -> &mut Expression {
+        &mut self.expression
+    }
+
     pub fn value(&self) -> &NumberValue {
         &self.value
     }
@@ -69,8 +73,11 @@ pub struct StringExpression {
 
 impl StringExpression {
     pub fn new(mut content: ContentList) -> Self {
-        let expression = Expression::new(ObjectKind::StringExpression);
-        content.object_mut().set_parent_id(expression.object().id());
+        let mut expression = Expression::new(ObjectKind::StringExpression);
+        content.object_mut().set_parent(expression.object());
+        expression
+            .object_mut()
+            .add_content_ref(content.object().reference());
         Self {
             expression,
             content,
@@ -79,6 +86,10 @@ impl StringExpression {
 
     pub fn expression(&self) -> &Expression {
         &self.expression
+    }
+
+    pub fn expression_mut(&mut self) -> &mut Expression {
+        &mut self.expression
     }
 
     pub fn content(&self) -> &ContentList {
@@ -111,6 +122,10 @@ impl VariableReference {
         &self.expression
     }
 
+    pub fn expression_mut(&mut self) -> &mut Expression {
+        &mut self.expression
+    }
+
     pub fn path(&self) -> &[String] {
         &self.path
     }
@@ -130,8 +145,12 @@ pub struct VariableAssignment {
 }
 
 impl VariableAssignment {
-    pub fn new(variable_name: impl Into<String>, expression: Option<ExpressionNode>) -> Self {
-        let object = ParsedObject::new(ObjectKind::VariableAssignment);
+    pub fn new(variable_name: impl Into<String>, mut expression: Option<ExpressionNode>) -> Self {
+        let mut object = ParsedObject::new(ObjectKind::VariableAssignment);
+        if let Some(expression) = expression.as_mut() {
+            expression.object_mut().set_parent(&object);
+            object.add_content_ref(expression.object().reference());
+        }
         Self {
             object,
             variable_name: variable_name.into(),
@@ -181,9 +200,14 @@ pub struct ConditionalSingleBranch {
 }
 
 impl ConditionalSingleBranch {
-    pub fn new(own_expression: Option<ExpressionNode>, mut content: ContentList) -> Self {
-        let object = ParsedObject::new(ObjectKind::ConditionalBranch);
-        content.object_mut().set_parent_id(object.id());
+    pub fn new(mut own_expression: Option<ExpressionNode>, mut content: ContentList) -> Self {
+        let mut object = ParsedObject::new(ObjectKind::ConditionalBranch);
+        if let Some(own_expression) = own_expression.as_mut() {
+            own_expression.object_mut().set_parent(&object);
+            object.add_content_ref(own_expression.object().reference());
+        }
+        content.object_mut().set_parent(&object);
+        object.add_content_ref(content.object().reference());
         Self {
             object,
             own_expression,
@@ -196,6 +220,10 @@ impl ConditionalSingleBranch {
 
     pub fn object(&self) -> &ParsedObject {
         &self.object
+    }
+
+    pub fn object_mut(&mut self) -> &mut ParsedObject {
+        &mut self.object
     }
 
     pub fn own_expression(&self) -> Option<&ExpressionNode> {
@@ -240,11 +268,20 @@ pub struct Conditional {
 
 impl Conditional {
     pub fn new(
-        initial_condition: Option<ExpressionNode>,
-        branches: Vec<ConditionalSingleBranch>,
+        mut initial_condition: Option<ExpressionNode>,
+        mut branches: Vec<ConditionalSingleBranch>,
     ) -> Self {
+        let mut object = ParsedObject::new(ObjectKind::Conditional);
+        if let Some(initial_condition) = initial_condition.as_mut() {
+            initial_condition.object_mut().set_parent(&object);
+            object.add_content_ref(initial_condition.object().reference());
+        }
+        for branch in &mut branches {
+            branch.object_mut().set_parent(&object);
+            object.add_content_ref(branch.object().reference());
+        }
         Self {
-            object: ParsedObject::new(ObjectKind::Conditional),
+            object,
             initial_condition,
             branches,
         }
@@ -252,6 +289,10 @@ impl Conditional {
 
     pub fn object(&self) -> &ParsedObject {
         &self.object
+    }
+
+    pub fn object_mut(&mut self) -> &mut ParsedObject {
+        &mut self.object
     }
 
     pub fn initial_condition(&self) -> Option<&ExpressionNode> {
@@ -279,9 +320,14 @@ pub struct Sequence {
 }
 
 impl Sequence {
-    pub fn new(sequence_type: u8, elements: Vec<ContentList>) -> Self {
+    pub fn new(sequence_type: u8, mut elements: Vec<ContentList>) -> Self {
+        let mut object = ParsedObject::new(ObjectKind::Sequence);
+        for element in &mut elements {
+            element.object_mut().set_parent(&object);
+            object.add_content_ref(element.object().reference());
+        }
         Self {
-            object: ParsedObject::new(ObjectKind::Sequence),
+            object,
             sequence_type,
             elements,
         }
@@ -360,9 +406,12 @@ pub struct ConstDeclaration {
 }
 
 impl ConstDeclaration {
-    pub fn new(name: impl Into<String>, expression: ExpressionNode) -> Self {
+    pub fn new(name: impl Into<String>, mut expression: ExpressionNode) -> Self {
+        let mut object = ParsedObject::new(ObjectKind::ConstDeclaration);
+        expression.object_mut().set_parent(&object);
+        object.add_content_ref(expression.object().reference());
         Self {
-            object: ParsedObject::new(ObjectKind::ConstDeclaration),
+            object,
             name: name.into(),
             expression,
         }
@@ -425,6 +474,15 @@ impl ExpressionNode {
             Self::StringExpression(string) => string.expression().object(),
             Self::VariableReference(var_ref) => var_ref.expression().object(),
             Self::List(list) => list.expression().object(),
+        }
+    }
+
+    pub fn object_mut(&mut self) -> &mut ParsedObject {
+        match self {
+            Self::Number(number) => number.expression_mut().object_mut(),
+            Self::StringExpression(string) => string.expression_mut().object_mut(),
+            Self::VariableReference(var_ref) => var_ref.expression_mut().object_mut(),
+            Self::List(list) => list.expression_mut().object_mut(),
         }
     }
 }

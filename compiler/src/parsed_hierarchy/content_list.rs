@@ -49,7 +49,8 @@ impl ContentList {
 
     pub fn push_text(&mut self, text: impl Into<String>) {
         let mut text = Text::new(text);
-        text.object_mut().set_parent_id(self.object.id());
+        text.object_mut().set_parent(&self.object);
+        self.object.add_content_ref(text.object().reference());
         self.content.push(Content::Text(text));
     }
 

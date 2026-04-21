@@ -21,7 +21,7 @@ pub use expressions::{
 };
 pub use flow::{FlowArgument, FlowBase, FlowLevel, Knot, Stitch};
 pub use list::{List, ListDefinition, ListElementDefinition};
-pub use object::{ObjectKind, ParsedObject};
+pub use object::{ObjectKind, ParsedObject, ParsedObjectIndex, ParsedObjectRef};
 pub use story::Story;
 pub use text::Text;
 pub use weave::{Choice, Gather, Weave, WeaveElement};
