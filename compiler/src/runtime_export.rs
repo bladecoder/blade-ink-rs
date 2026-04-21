@@ -28,14 +28,12 @@ pub(crate) fn export_story(story: &Story) -> Result<RuntimeStory, CompilerError>
     }
 
     let mut root_content = export_nodes(story.root_nodes(), Scope::Root, story)?;
-    if !has_terminal(story.root_nodes()) {
-        root_content.push(named_container(
-            "g-0",
-            vec![command(CommandType::Done)],
-            HashMap::new(),
-            0,
-        ));
-    }
+    root_content.push(named_container(
+        "g-0",
+        vec![command(CommandType::Done)],
+        HashMap::new(),
+        0,
+    ));
 
     let inner_root = container(None, root_content, HashMap::new(), 0);
     let root = Container::new(
@@ -547,8 +545,13 @@ fn builtin_command(name: &str) -> Option<CommandType> {
 }
 
 fn has_terminal(nodes: &[ParsedNode]) -> bool {
+    let last = nodes
+        .iter()
+        .rev()
+        .find(|node| node.kind() != ParsedNodeKind::Newline);
+
     matches!(
-        nodes.last().map(|node| node.kind()),
+        last.map(|node| node.kind()),
         Some(ParsedNodeKind::Divert | ParsedNodeKind::TunnelReturn)
     )
 }

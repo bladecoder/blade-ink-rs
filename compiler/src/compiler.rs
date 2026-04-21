@@ -321,7 +321,12 @@ impl Compiler {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
+    use std::{
+        fs,
+        process::Command,
+        rc::Rc,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     use super::Compiler;
     use crate::{
@@ -330,6 +335,7 @@ mod tests {
         parsed_hierarchy::{ObjectKind, ParsedNodeKind},
     };
     use bladeink::story::Story as RuntimeStory;
+    use serde_json::Value as JsonValue;
 
     #[test]
     fn bootstrap_disabled_value_accepts_numeric_and_boolean_true() {
@@ -440,5 +446,70 @@ Stitch text
         let mut story = RuntimeStory::new(&json).expect("runtime reads its own JSON");
 
         assert_eq!("Score: 1\nsad\n", story.continue_maximally().unwrap());
+    }
+
+    #[test]
+    fn runtime_export_matches_inklecate_for_wave8_subset() {
+        assert_matches_inklecate_json("Line.\nOther line.\n");
+        assert_matches_inklecate_json(
+            "We arrived into London at 9.45pm exactly.\n-> hurry_home\n\n=== hurry_home ===\nWe hurried home to Savile Row as fast as we could. -> END\n",
+        );
+        assert_matches_inklecate_json(
+            "LIST list = a, (b), c, (d), e\n{list}\n{(a, c) + (b, e)}\n{(a, b, c) ^ (c, b, e)}\n{list ? (b, d, e)}\n{list ? (d, b)}\n{list !? (c)}\n",
+        );
+    }
+
+    fn assert_matches_inklecate_json(ink: &str) {
+        let temp_dir = unique_temp_dir();
+        fs::create_dir_all(&temp_dir).expect("create temp dir");
+        let ink_path = temp_dir.join("story.ink");
+        let inklecate_json_path = temp_dir.join("inklecate.json");
+        fs::write(&ink_path, ink).expect("write temp ink");
+
+        let output = Command::new("inklecate")
+            .arg("-o")
+            .arg(&inklecate_json_path)
+            .arg(&ink_path)
+            .output()
+            .expect("run inklecate from PATH");
+        assert!(
+            output.status.success(),
+            "inklecate failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let options = CompilerOptions {
+            count_all_visits: false,
+            source_filename: Some("story.ink".to_owned()),
+            ..Default::default()
+        };
+        let compiler = Compiler::with_options(options);
+        let runtime_story = compiler
+            .try_compile_runtime_story(ink)
+            .expect("runtime export")
+            .expect("supported by runtime export");
+        let rust_json = runtime_story
+            .to_compiled_json()
+            .expect("runtime serialization");
+
+        let expected: JsonValue =
+            serde_json::from_str(&fs::read_to_string(&inklecate_json_path).expect("read oracle"))
+                .expect("parse inklecate json");
+        let actual: JsonValue = serde_json::from_str(&rust_json).expect("parse rust json");
+        assert_eq!(expected, actual);
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    fn unique_temp_dir() -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "bladeink-compiler-oracle-{}-{nanos}",
+            std::process::id()
+        ))
     }
 }
