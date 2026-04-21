@@ -1,5 +1,8 @@
 use crate::{
-    parsed_hierarchy::{ContentList, DebugMetadata, Number, NumberValue, SequenceType, Tag},
+    parsed_hierarchy::{
+        ContentList, DebugMetadata, ExternalDeclaration, FlowArgument, FlowDecl, Number,
+        NumberValue, Return as ParsedReturn, SequenceType, Tag,
+    },
     string_parser::{
         CharacterRange, CharacterSet, CommentEliminator, ParseSuccess, StringParser,
         StringParserStateElement,
@@ -28,6 +31,13 @@ pub struct GatherMarker {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SequenceTypeAnnotation {
     pub flags: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DivertPrototype {
+    pub target: Vec<String>,
+    pub arguments: Vec<String>,
+    pub is_thread: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -347,6 +357,265 @@ impl InkParser {
         Some(Tag::new(false, self.parsing_choice))
     }
 
+    pub fn parse_divert_arrow(&mut self) -> Option<String> {
+        self.parser.parse_string("->")
+    }
+
+    pub fn parse_thread_arrow(&mut self) -> Option<String> {
+        self.parser.parse_string("<-")
+    }
+
+    pub fn parse_divert_arrow_or_tunnel_onwards(&mut self) -> Option<String> {
+        let mut count = 0;
+        while self.parser.parse_string("->").is_some() {
+            count += 1;
+        }
+
+        match count {
+            0 => None,
+            1 => Some("->".to_owned()),
+            2 => Some("->->".to_owned()),
+            _ => Some("->->".to_owned()),
+        }
+    }
+
+    pub fn dot_separated_divert_path_components(&mut self) -> Option<Vec<String>> {
+        let _ = self.whitespace();
+        let first = self.parse_identifier()?;
+        let _ = self.whitespace();
+        let mut components = vec![first];
+
+        while self
+            .parser
+            .parse_object(|parser| {
+                let _ = parser.parse_characters_from_string(" \t", true, -1);
+                parser.parse_string(".")?;
+                let _ = parser.parse_characters_from_string(" \t", true, -1);
+                Some(ParseSuccess)
+            })
+            .is_some()
+        {
+            components.push(self.parse_identifier()?);
+        }
+
+        Some(components)
+    }
+
+    pub fn expression_function_call_arguments(&mut self) -> Option<Vec<String>> {
+        let rule_id = self.parser.begin_rule();
+        if self.parser.parse_string("(").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        let mut arguments = Vec::new();
+        loop {
+            let _ = self.whitespace();
+            if self.parser.parse_string(")").is_some() {
+                break;
+            }
+
+            let argument = self
+                .parser
+                .parse_until_characters_from_string(",)", -1)?
+                .trim()
+                .to_owned();
+            arguments.push(argument);
+            let _ = self.whitespace();
+
+            if self.parser.parse_string(")").is_some() {
+                break;
+            }
+            self.parser.parse_string(",")?;
+        }
+
+        self.parser.succeed_rule(rule_id, Some(arguments))
+    }
+
+    pub fn divert_identifier_with_arguments(&mut self) -> Option<DivertPrototype> {
+        let _ = self.whitespace();
+        let target = self.dot_separated_divert_path_components()?;
+        let _ = self.whitespace();
+        let arguments = self.expression_function_call_arguments().unwrap_or_default();
+        let _ = self.whitespace();
+
+        Some(DivertPrototype {
+            target,
+            arguments,
+            is_thread: false,
+        })
+    }
+
+    pub fn start_thread(&mut self) -> Option<DivertPrototype> {
+        let _ = self.whitespace();
+        self.parse_thread_arrow()?;
+        let _ = self.whitespace();
+        let mut divert = self.divert_identifier_with_arguments()?;
+        divert.is_thread = true;
+        Some(divert)
+    }
+
+    pub fn flow_decl_argument(&mut self) -> Option<FlowArgument> {
+        let first = self.parse_identifier();
+        let _ = self.whitespace();
+        let divert_arrow = self.parse_divert_arrow();
+        let _ = self.whitespace();
+        let second = self.parse_identifier();
+
+        if first.is_none() && second.is_none() {
+            return None;
+        }
+
+        let is_divert_target = divert_arrow.is_some();
+        if matches!(first.as_deref(), Some("ref")) {
+            return Some(FlowArgument {
+                identifier: second.unwrap_or_default(),
+                is_by_reference: true,
+                is_divert_target,
+            });
+        }
+
+        Some(FlowArgument {
+            identifier: if is_divert_target {
+                second.unwrap_or_default()
+            } else {
+                first.unwrap_or_default()
+            },
+            is_by_reference: false,
+            is_divert_target,
+        })
+    }
+
+    pub fn bracketed_knot_decl_arguments(&mut self) -> Option<Vec<FlowArgument>> {
+        let rule_id = self.parser.begin_rule();
+        if self.parser.parse_string("(").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        let mut arguments = Vec::new();
+        loop {
+            let _ = self.whitespace();
+            if self.parser.parse_string(")").is_some() {
+                break;
+            }
+
+            let argument = self.flow_decl_argument()?;
+            arguments.push(argument);
+            let _ = self.whitespace();
+            if self.parser.parse_string(")").is_some() {
+                break;
+            }
+            self.parser.parse_string(",")?;
+        }
+
+        self.parser.succeed_rule(rule_id, Some(arguments))
+    }
+
+    pub fn knot_declaration(&mut self) -> Option<FlowDecl> {
+        let rule_id = self.parser.begin_rule();
+        let equals = self.parser.parse_characters_from_string("=", true, -1)?;
+        if equals.len() <= 1 {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        let _ = self.whitespace();
+        let identifier = self.parse_identifier()?;
+        let (is_function, name) = if identifier == "function" {
+            let _ = self.whitespace();
+            (true, self.parse_identifier()?)
+        } else {
+            (false, identifier)
+        };
+
+        let _ = self.whitespace();
+        let arguments = self.bracketed_knot_decl_arguments().unwrap_or_default();
+        let _ = self.whitespace();
+        let _ = self.parser.parse_characters_from_string("=", true, -1);
+
+        self.parser.succeed_rule(
+            rule_id,
+            Some(FlowDecl {
+                name,
+                arguments,
+                is_function,
+            }),
+        )
+    }
+
+    pub fn stitch_declaration(&mut self) -> Option<FlowDecl> {
+        let rule_id = self.parser.begin_rule();
+        let _ = self.whitespace();
+        self.parser.parse_string("=")?;
+        if self.parser.parse_string("=").is_some() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        let _ = self.whitespace();
+        let is_function = self.parser.parse_string("function").is_some();
+        if is_function {
+            let _ = self.whitespace();
+        }
+        let name = self.parse_identifier()?;
+        let _ = self.whitespace();
+        let arguments = self.bracketed_knot_decl_arguments().unwrap_or_default();
+
+        self.parser.succeed_rule(
+            rule_id,
+            Some(FlowDecl {
+                name,
+                arguments,
+                is_function,
+            }),
+        )
+    }
+
+    pub fn external_declaration(&mut self) -> Option<ExternalDeclaration> {
+        let rule_id = self.parser.begin_rule();
+        let _ = self.whitespace();
+        let keyword = self.parse_identifier()?;
+        if keyword != "EXTERNAL" {
+            return self.parser.fail_rule(rule_id);
+        }
+        let _ = self.whitespace();
+        let name = self.parse_identifier()?;
+        let _ = self.whitespace();
+        let arguments = self
+            .bracketed_knot_decl_arguments()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|arg| arg.identifier)
+            .collect();
+
+        self.parser
+            .succeed_rule(rule_id, Some(ExternalDeclaration::new(name, arguments)))
+    }
+
+    pub fn include_statement_filename(&mut self) -> Option<String> {
+        let rule_id = self.parser.begin_rule();
+        let _ = self.whitespace();
+        let keyword = self.parse_identifier()?;
+        if keyword != "INCLUDE" {
+            return self.parser.fail_rule(rule_id);
+        }
+        let _ = self.whitespace();
+        let filename = self
+            .parser
+            .parse_until_characters_from_string("\n\r", -1)?
+            .trim_end_matches([' ', '\t'])
+            .to_owned();
+        self.parser.succeed_rule(rule_id, Some(filename))
+    }
+
+    pub fn return_statement(&mut self) -> Option<ParsedReturn> {
+        let rule_id = self.parser.begin_rule();
+        let _ = self.whitespace();
+        let keyword = self.parse_identifier()?;
+        if keyword != "return" {
+            return self.parser.fail_rule(rule_id);
+        }
+        let _ = self.whitespace();
+        self.parser.succeed_rule(rule_id, Some(ParsedReturn::new(None)))
+    }
+
     pub fn content_text(&mut self) -> Option<String> {
         self.content_text_allowing_escape_char()
     }
@@ -605,5 +874,56 @@ mod tests {
         let end = parser.end_tag_if_necessary().expect("end tag");
         assert!(!end.is_start());
         assert!(parser.end_tag_if_necessary().is_none());
+    }
+
+    #[test]
+    fn parses_divert_shapes_and_thread_starts() {
+        let mut parser = InkParser::new("knot.stitch(arg, 2)", None);
+        let divert = parser
+            .divert_identifier_with_arguments()
+            .expect("divert with args");
+        assert_eq!(vec!["knot".to_owned(), "stitch".to_owned()], divert.target);
+        assert_eq!(vec!["arg".to_owned(), "2".to_owned()], divert.arguments);
+
+        let mut thread = InkParser::new("<- worker()", None);
+        let divert = thread.start_thread().expect("thread");
+        assert!(divert.is_thread);
+    }
+
+    #[test]
+    fn parses_flow_decl_arguments_and_headers() {
+        let mut arg = InkParser::new("ref -> target", None);
+        let parsed = arg.flow_decl_argument().expect("arg");
+        assert!(parsed.is_by_reference);
+        assert!(parsed.is_divert_target);
+        assert_eq!("target", parsed.identifier);
+
+        let mut knot = InkParser::new("=== function my_knot(ref x, -> target) ===", None);
+        let parsed = knot.knot_declaration().expect("knot");
+        assert!(parsed.is_function);
+        assert_eq!("my_knot", parsed.name);
+        assert_eq!(2, parsed.arguments.len());
+
+        let mut stitch = InkParser::new("= place(ref x)", None);
+        let parsed = stitch.stitch_declaration().expect("stitch");
+        assert_eq!("place", parsed.name);
+        assert_eq!(1, parsed.arguments.len());
+    }
+
+    #[test]
+    fn parses_external_include_and_return_headers() {
+        let mut external = InkParser::new("EXTERNAL my_func(x, y)", None);
+        let declaration = external.external_declaration().expect("external");
+        assert_eq!("my_func", declaration.name());
+        assert_eq!(&["x".to_owned(), "y".to_owned()], declaration.argument_names());
+
+        let mut include = InkParser::new("INCLUDE path/to/file.ink\n", None);
+        assert_eq!(
+            Some("path/to/file.ink".to_owned()),
+            include.include_statement_filename()
+        );
+
+        let mut ret = InkParser::new("return\n", None);
+        assert!(ret.return_statement().is_some());
     }
 }

@@ -1,3 +1,4 @@
+mod advanced_flow;
 mod content_list;
 mod debug_metadata;
 mod expressions;
@@ -7,6 +8,7 @@ mod story;
 mod text;
 mod weave;
 
+pub use advanced_flow::{DivertTarget, FlowDecl, FunctionCall, IncludedFile, Return, TunnelOnwards};
 pub use content_list::{Content, ContentList};
 pub use debug_metadata::DebugMetadata;
 pub use expressions::{
