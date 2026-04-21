@@ -1876,6 +1876,11 @@ impl InkParser {
                 continue;
             }
 
+            if self.parser.parse_string("<>").is_some() {
+                nodes.push(ParsedNode::new(ParsedNodeKind::Glue));
+                continue;
+            }
+
             let Some(text) = self.content_text_allowing_escape_char() else {
                 break;
             };
@@ -1940,7 +1945,7 @@ impl InkParser {
                         Some(parse_inline_content_string(branch_text, terminators))
                     }
                     crate::parsed_hierarchy::ParsedExpression::Bool(false) => Some(Vec::new()),
-                    _ => Some(Vec::new()),
+                    _ => Some(vec![build_inline_conditional_node(condition, branch_text, terminators)]),
                 };
             }
         }
@@ -2428,7 +2433,6 @@ fn parse_expression_text(input: &str) -> Option<crate::parsed_hierarchy::ParsedE
         ("||", "Or"),
         (" and ", "And"),
         (" or ", "Or"),
-        (" mod ", "Modulo"),
         (">=", "GreaterEqual"),
         ("<=", "LessEqual"),
         ("==", "Equal"),
@@ -2437,6 +2441,7 @@ fn parse_expression_text(input: &str) -> Option<crate::parsed_hierarchy::ParsedE
         ("<", "Less"),
         ("+", "Add"),
         ("-", "Subtract"),
+        (" mod ", "Modulo"),
         ("*", "Multiply"),
         ("/", "Divide"),
         ("%", "Modulo"),
@@ -2610,9 +2615,9 @@ fn parse_multiline_conditional_block(content: &str) -> Option<ParsedNode> {
         }
         body_lines.extend(lines[(first_idx + 1)..].iter().map(|line| (*line).to_owned()));
 
-        let has_branch_markers = body_lines
-            .iter()
-            .any(|line| line.trim_start().starts_with('-'));
+        let has_branch_markers = has_top_level_conditional_branches(
+            &body_lines.iter().map(|line| line.as_str()).collect::<Vec<_>>(),
+        );
         if has_branch_markers {
             parse_conditional_branches(
                 &body_lines.iter().map(|line| line.as_str()).collect::<Vec<_>>(),
@@ -2679,10 +2684,12 @@ fn parse_conditional_branches(lines: &[&str], allow_bare_else: bool) -> Option<V
     let mut branches = Vec::new();
     let mut current_header: Option<(Option<crate::parsed_hierarchy::ParsedExpression>, bool)> = None;
     let mut current_content = String::new();
+    let mut brace_depth = 0isize;
 
     for line in lines {
         let trimmed = line.trim_start();
-        if trimmed.starts_with('-') {
+        let is_top_level_branch = brace_depth == 0 && trimmed.starts_with('-');
+        if is_top_level_branch {
             if let Some((condition, is_else)) = current_header.take() {
                 branches.push(ConditionalBranchSpec {
                     condition,
@@ -2718,6 +2725,8 @@ fn parse_conditional_branches(lines: &[&str], allow_bare_else: bool) -> Option<V
             current_content.push_str(line);
             current_content.push('\n');
         }
+
+        brace_depth += net_brace_delta(line);
     }
 
     if let Some((condition, is_else)) = current_header.take() {
@@ -2731,10 +2740,50 @@ fn parse_conditional_branches(lines: &[&str], allow_bare_else: bool) -> Option<V
     (!branches.is_empty()).then_some(branches)
 }
 
+fn has_top_level_conditional_branches(lines: &[&str]) -> bool {
+    let mut brace_depth = 0isize;
+    for line in lines {
+        if brace_depth == 0 && line.trim_start().starts_with('-') {
+            return true;
+        }
+        brace_depth += net_brace_delta(line);
+    }
+    false
+}
+
+fn net_brace_delta(line: &str) -> isize {
+    let mut delta = 0isize;
+    let mut string_open = false;
+    for ch in line.chars() {
+        match ch {
+            '"' => string_open = !string_open,
+            '{' if !string_open => delta += 1,
+            '}' if !string_open => delta -= 1,
+            _ => {}
+        }
+    }
+    delta
+}
+
 fn parse_nested_statement_block(content: &str) -> Vec<ParsedNode> {
     let mut parser = InkParser::new(content, None);
     let parsed = parser.parse_at_level(InkParseLevel::Stitch);
     parsed.nodes
+}
+
+fn build_inline_conditional_node(
+    condition: crate::parsed_hierarchy::ParsedExpression,
+    branch_text: &str,
+    terminators: &str,
+) -> ParsedNode {
+    let mut branch = ParsedNode::new(ParsedNodeKind::Conditional)
+        .with_children(parse_inline_content_string(branch_text, terminators));
+    branch.is_true_branch = true;
+    branch.is_inline = true;
+
+    let mut conditional = ParsedNode::new(ParsedNodeKind::Conditional).with_condition(condition);
+    conditional.set_children(vec![branch]);
+    conditional
 }
 
 fn merge_story(into: &mut Story, mut other: Story) {

@@ -269,8 +269,9 @@ fn export_nodes_with_paths(
                 })?;
                 content.push(command(CommandType::EvalStart));
                 export_expression(expression, story, &mut content)?;
-                content.push(command(CommandType::EvalEnd));
                 content.push(command(CommandType::PopEvaluatedValue));
+                content.push(command(CommandType::EvalEnd));
+                content.push(rt_value("\n"));
             }
             ParsedNodeKind::Conditional | ParsedNodeKind::SwitchConditional => {
                 content.push(export_conditional(node, scope, story, named_paths)?);
@@ -1332,18 +1333,21 @@ fn export_assignment(
             export_expression(expression, story, content)?;
             content.push(command(CommandType::EvalEnd));
             content.push(variable_assignment(name, !is_temporary, false));
+            content.push(rt_value("\n"));
         }
         "GlobalDecl" => {
             content.push(command(CommandType::EvalStart));
             export_expression(expression, story, content)?;
             content.push(command(CommandType::EvalEnd));
             content.push(variable_assignment(name, !is_temporary, true));
+            content.push(rt_value("\n"));
         }
         "TempSet" => {
             content.push(command(CommandType::EvalStart));
             export_expression(expression, story, content)?;
             content.push(command(CommandType::EvalEnd));
             content.push(variable_assignment(name, false, true));
+            content.push(rt_value("\n"));
         }
         "AddAssign" => {
             content.push(command(CommandType::EvalStart));
@@ -1352,6 +1356,7 @@ fn export_assignment(
             content.push(native(NativeOp::Add));
             content.push(variable_assignment(name, !is_temporary, false));
             content.push(command(CommandType::EvalEnd));
+            content.push(rt_value("\n"));
         }
         "SubtractAssign" => {
             content.push(command(CommandType::EvalStart));
@@ -1360,6 +1365,7 @@ fn export_assignment(
             content.push(native(NativeOp::Subtract));
             content.push(variable_assignment(name, !is_temporary, false));
             content.push(command(CommandType::EvalEnd));
+            content.push(rt_value("\n"));
         }
         other => {
             return Err(CompilerError::unsupported_feature(format!(
