@@ -3,7 +3,6 @@ mod content_list;
 mod debug_metadata;
 mod expressions;
 mod flow;
-mod from_bootstrap;
 mod list;
 mod object;
 mod parsed_node;
