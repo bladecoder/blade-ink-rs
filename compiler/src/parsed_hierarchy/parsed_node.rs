@@ -90,6 +90,11 @@ pub struct ParsedNode {
     pub choice_only_content: Vec<ParsedNode>,
     // Sequence specific
     pub sequence_type: u8,
+    // Conditional branch specific
+    pub is_else: bool,
+    pub is_inline: bool,
+    pub is_true_branch: bool,
+    pub matching_equality: bool,
 }
 
 impl ParsedNode {
@@ -110,6 +115,10 @@ impl ParsedNode {
             start_content: Vec::new(),
             choice_only_content: Vec::new(),
             sequence_type: 0,
+            is_else: false,
+            is_inline: false,
+            is_true_branch: false,
+            matching_equality: false,
         }
     }
 

@@ -111,13 +111,6 @@ fn export_flow(
     story: &Story,
     full_path: &str,
 ) -> Result<Rc<Container>, CompilerError> {
-    if flow.flow().has_parameters() {
-        return Err(CompilerError::unsupported_feature(format!(
-            "runtime export does not support parameterised/function flow '{}'",
-            flow.flow().identifier().unwrap_or_default()
-        )));
-    }
-
     let mut flow_named_paths = HashMap::new();
     if let Some(name) = flow.flow().identifier() {
         flow_named_paths.insert(name.to_owned(), full_path.to_owned());
@@ -147,10 +140,17 @@ fn export_flow(
         export_nodes_with_paths(flow.content(), Scope::Flow(flow), story, Some(&flow_named_paths))?
     };
 
+    if flow.flow().has_parameters() {
+        let mut assignments = Vec::new();
+        for argument in flow.flow().arguments().iter().rev() {
+            assignments.push(variable_assignment(&argument.identifier, false, true));
+        }
+        assignments.extend(content);
+        content = assignments;
+    }
+
     if !flow.content().is_empty() && !has_terminal(flow.content()) {
-        if flow.flow().is_function() {
-            content.push(command(CommandType::PopFunction));
-        } else {
+        if !flow.flow().is_function() {
             content.push(command(CommandType::Done));
         }
     }
@@ -244,6 +244,37 @@ fn export_nodes_with_paths(
                 content.push(command(CommandType::EvalEnd));
                 content.push(command(CommandType::PopTunnel));
             }
+            ParsedNodeKind::ReturnExpression => {
+                let expression = node.expression().ok_or_else(|| {
+                    CompilerError::unsupported_feature(
+                        "runtime export return expression missing expression",
+                    )
+                })?;
+                content.push(command(CommandType::EvalStart));
+                export_expression(expression, story, &mut content)?;
+                content.push(command(CommandType::EvalEnd));
+                content.push(command(CommandType::PopFunction));
+            }
+            ParsedNodeKind::ReturnVoid => {
+                content.push(command(CommandType::EvalStart));
+                content.push(Rc::new(Void::new()));
+                content.push(command(CommandType::EvalEnd));
+                content.push(command(CommandType::PopFunction));
+            }
+            ParsedNodeKind::VoidCall => {
+                let expression = node.expression().ok_or_else(|| {
+                    CompilerError::unsupported_feature(
+                        "runtime export void call missing expression",
+                    )
+                })?;
+                content.push(command(CommandType::EvalStart));
+                export_expression(expression, story, &mut content)?;
+                content.push(command(CommandType::EvalEnd));
+                content.push(command(CommandType::PopEvaluatedValue));
+            }
+            ParsedNodeKind::Conditional | ParsedNodeKind::SwitchConditional => {
+                content.push(export_conditional(node, scope, story, named_paths)?);
+            }
             ParsedNodeKind::OutputExpression => {
                 let expression = node.expression().ok_or_else(|| {
                     CompilerError::unsupported_feature(
@@ -267,13 +298,8 @@ fn export_nodes_with_paths(
             ParsedNodeKind::Choice
             | ParsedNodeKind::GatherPoint
             | ParsedNodeKind::GatherLabel
-            | ParsedNodeKind::Conditional
-            | ParsedNodeKind::SwitchConditional
             | ParsedNodeKind::ThreadDivert
-            | ParsedNodeKind::ReturnBool
-            | ParsedNodeKind::ReturnExpression
-            | ParsedNodeKind::ReturnVoid
-            | ParsedNodeKind::VoidCall => {
+            | ParsedNodeKind::ReturnBool => {
                 return Err(CompilerError::unsupported_feature(format!(
                     "runtime export does not support {:?} yet",
                     node.kind()
@@ -1188,6 +1214,88 @@ fn export_sequence(
     ))
 }
 
+fn export_conditional(
+    node: &ParsedNode,
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: Option<&HashMap<String, String>>,
+) -> Result<Rc<dyn RTObject>, CompilerError> {
+    let mut content: Vec<Rc<dyn RTObject>> = Vec::new();
+    let is_switch = node.kind() == ParsedNodeKind::SwitchConditional;
+
+    if let Some(initial) = node.condition() {
+        content.push(command(CommandType::EvalStart));
+        export_expression(initial, story, &mut content)?;
+        content.push(command(CommandType::EvalEnd));
+    }
+
+    for (idx, branch) in node.children().iter().enumerate() {
+        let duplicates_stack_value = branch.matching_equality && !branch.is_else;
+        if duplicates_stack_value {
+            content.push(command(CommandType::Duplicate));
+        }
+
+        if !branch.is_true_branch && !branch.is_else {
+            if branch.condition().is_some() {
+                content.push(command(CommandType::EvalStart));
+            }
+            if let Some(condition) = branch.condition() {
+                export_expression(condition, story, &mut content)?;
+            }
+            if branch.matching_equality {
+                content.push(native(NativeOp::Equal));
+            }
+            if branch.condition().is_some() {
+                content.push(command(CommandType::EvalEnd));
+            }
+        }
+
+        let branch_name = format!("b{idx}");
+        content.push(Rc::new(Divert::new(
+            false,
+            PushPopType::Tunnel,
+            false,
+            0,
+            !branch.is_else,
+            None,
+            Some(&format!(".^.{branch_name}")),
+        )));
+    }
+
+    if is_switch
+        && node.children().first().is_some_and(|branch| branch.condition().is_some())
+        && !node.children().last().is_some_and(|branch| branch.is_else)
+    {
+        content.push(command(CommandType::PopEvaluatedValue));
+    }
+
+    let nop_index = content.len();
+    content.push(command(CommandType::NoOp));
+
+    let mut named: HashMap<String, Rc<Container>> = HashMap::new();
+    let nop_path = format!(".^.^.{nop_index}");
+    for (idx, branch) in node.children().iter().enumerate() {
+        let duplicates_stack_value = branch.matching_equality && !branch.is_else;
+        let mut branch_content = export_nodes_with_paths(branch.children(), scope, story, named_paths)?;
+        if duplicates_stack_value || (branch.is_else && branch.matching_equality) {
+            branch_content.insert(0, command(CommandType::PopEvaluatedValue));
+        }
+        branch_content.push(Rc::new(Divert::new(
+            false,
+            PushPopType::Tunnel,
+            false,
+            0,
+            false,
+            None,
+            Some(&nop_path),
+        )));
+        let branch_name = format!("b{idx}");
+        named.insert(branch_name.clone(), Container::new(Some(branch_name), 0, branch_content, HashMap::new()));
+    }
+
+    Ok(Container::new(None, 0, content, named))
+}
+
 fn export_assignment(
     node: &ParsedNode,
     story: &Story,
@@ -1394,11 +1502,28 @@ fn export_expression(
                 {
                     content.push(rt_value(text.as_str()));
                 } else {
-                    if !arguments.is_empty() {
+                    let params = function_flow.flow().arguments();
+                    if params.len() != arguments.len() {
                         return Err(CompilerError::unsupported_feature(format!(
-                            "runtime export does not support function call '{name}' with arguments"
+                            "runtime export function call '{name}' has {} arguments but expected {}",
+                            arguments.len(),
+                            params.len()
                         )));
                     }
+
+                    for (argument, parameter) in arguments.iter().zip(params.iter()) {
+                        if parameter.is_by_reference {
+                            let ParsedExpression::Variable(var_name) = argument else {
+                                return Err(CompilerError::unsupported_feature(format!(
+                                    "runtime export by-reference function call '{name}' requires variable arguments"
+                                )));
+                            };
+                            content.push(Rc::new(Value::new_variable_pointer(var_name, -1)));
+                        } else {
+                            export_expression(argument, story, content)?;
+                        }
+                    }
+
                     content.push(Rc::new(Divert::new(
                         true,
                         PushPopType::Function,
@@ -1475,6 +1600,13 @@ fn operator_token(operator: &str) -> Result<NativeOp, CompilerError> {
 
 fn native_function(name: &str) -> Option<NativeOp> {
     match name {
+        "MIN" => Some(NativeOp::Min),
+        "MAX" => Some(NativeOp::Max),
+        "POW" => Some(NativeOp::Pow),
+        "FLOOR" => Some(NativeOp::Floor),
+        "CEILING" => Some(NativeOp::Ceiling),
+        "INT" => Some(NativeOp::Int),
+        "FLOAT" => Some(NativeOp::Float),
         "LIST_VALUE" => Some(NativeOp::ValueOfList),
         "LIST_COUNT" => Some(NativeOp::Count),
         "LIST_MIN" => Some(NativeOp::ListMin),
@@ -1487,6 +1619,8 @@ fn native_function(name: &str) -> Option<NativeOp> {
 
 fn builtin_command(name: &str) -> Option<CommandType> {
     match name {
+        "RANDOM" => Some(CommandType::Random),
+        "SEED_RANDOM" => Some(CommandType::SeedRandom),
         "LIST_RANGE" => Some(CommandType::ListRange),
         "LIST_RANDOM" => Some(CommandType::ListRandom),
         _ => None,

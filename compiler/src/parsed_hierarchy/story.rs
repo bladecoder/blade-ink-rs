@@ -167,6 +167,12 @@ impl Story {
 
     fn register_parsed_node(&self, index: &mut ParsedObjectIndex, node: &ParsedNode) {
         index.register(node.object());
+        for child in &node.start_content {
+            self.register_parsed_node(index, child);
+        }
+        for child in &node.choice_only_content {
+            self.register_parsed_node(index, child);
+        }
         for child in node.children() {
             self.register_parsed_node(index, child);
         }

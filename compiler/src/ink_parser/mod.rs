@@ -68,6 +68,16 @@ pub struct InkParser {
     tag_active: bool,
 }
 
+#[derive(Default)]
+struct ParseSection {
+    nodes: Vec<ParsedNode>,
+    flows: Vec<ParsedFlow>,
+    global_declarations: Vec<VariableAssignment>,
+    global_initializers: Vec<(String, crate::parsed_hierarchy::ParsedExpression)>,
+    list_definitions: Vec<ListDefinition>,
+    external_declarations: Vec<ExternalDeclaration>,
+}
+
 impl InkParser {
     pub fn new(input: impl Into<String>, source_name: Option<String>) -> Self {
         let processed = CommentEliminator::process(input.into());
@@ -87,44 +97,80 @@ impl InkParser {
     pub fn parse_story(mut self, count_all_visits: bool) -> Result<Story, CompilerError> {
         let source = self.parser.input_string().to_owned();
         let source_name = self.source_name.clone();
-        let (root_nodes, flows) = self.parse_at_level(InkParseLevel::Top);
+        let parsed = self.parse_at_level(InkParseLevel::Top);
         let mut story = Story::new(&source, source_name, count_all_visits);
-        let mut filtered_root_nodes = Vec::new();
-        for node in root_nodes {
-            if node.kind() == ParsedNodeKind::Assignment
-                && let Some(encoded) = node.name()
-                && let Some((mode, name)) = encoded.split_once(':')
-                && mode == "GlobalDecl"
-                && let Some(expression) = node.expression()
-            {
-                let mut declaration = VariableAssignment::new(name, None);
-                declaration.set_global_declaration(true);
-                story.global_declarations.push(declaration);
-                story
-                    .global_initializers
-                    .push((name.to_owned(), expression.clone()));
-                continue;
-            }
-
-            filtered_root_nodes.push(node);
-        }
-
-        story.root_nodes = filtered_root_nodes;
-        story.flows = flows;
+        story.root_nodes = parsed.nodes;
+        story.flows = parsed.flows;
+        story.global_declarations = parsed.global_declarations;
+        story.global_initializers = parsed.global_initializers;
+        story.list_definitions = parsed.list_definitions;
+        story.external_declarations = parsed.external_declarations;
+        story.rebuild_parse_tree_refs();
         Ok(story)
     }
 
     pub fn parse_story_with_file_handler<F>(
-        mut self,
+        self,
         count_all_visits: bool,
         file_handler: F,
     ) -> Result<Story, CompilerError>
     where
         F: Fn(&str) -> Result<String, CompilerError>,
     {
-        let resolved = resolve_includes(self.parser.input_string(), &file_handler)?;
-        InkParser::new(resolved, self.source_name.clone()).parse_story(count_all_visits)
+        parse_story_with_file_handler_inner(
+            self.parser.input_string(),
+            self.source_name.clone(),
+            count_all_visits,
+            &file_handler,
+        )
     }
+}
+
+fn parse_story_with_file_handler_inner(
+    source: &str,
+    source_name: Option<String>,
+    count_all_visits: bool,
+    file_handler: &dyn Fn(&str) -> Result<String, CompilerError>,
+) -> Result<Story, CompilerError> {
+    let mut merged = Story::new(source, source_name.clone(), count_all_visits);
+        let mut chunk = String::new();
+
+        for line in source.lines() {
+            let mut include_parser = InkParser::new(line, source_name.clone());
+            if let Some(filename) = include_parser.include_statement_filename()
+                && line.trim_start().starts_with("INCLUDE")
+            {
+                if !chunk.trim().is_empty() {
+                    let chunk_story = InkParser::new(chunk.clone(), source_name.clone())
+                        .parse_story(count_all_visits)?;
+                    merge_story(&mut merged, chunk_story);
+                    chunk.clear();
+                }
+
+                let included = file_handler(&filename)?;
+                let included_story = parse_story_with_file_handler_inner(
+                    &included,
+                    Some(filename.clone()),
+                    count_all_visits,
+                    file_handler,
+                )?;
+                merge_story(&mut merged, included_story);
+                continue;
+            }
+
+            chunk.push_str(line);
+            chunk.push('\n');
+        }
+
+        if !chunk.trim().is_empty() {
+            let chunk_story = InkParser::new(chunk, source_name).parse_story(count_all_visits)?;
+            merge_story(&mut merged, chunk_story);
+        }
+
+        Ok(merged)
+}
+
+impl InkParser {
 
     pub fn parser(&self) -> &StringParser {
         &self.parser
@@ -897,6 +943,53 @@ impl InkParser {
         self.parser.succeed_rule(rule_id, Some(filename))
     }
 
+    fn try_parse_external_declaration_line(&mut self) -> Option<ExternalDeclaration> {
+        let rule_id = self.parser.begin_rule();
+        let declaration = self.external_declaration()?;
+        let _ = self.end_of_line();
+        self.parser.succeed_rule(rule_id, Some(declaration))
+    }
+
+    fn try_parse_list_statement(&mut self) -> Option<ListDefinition> {
+        let rule_id = self.parser.begin_rule();
+        let _ = self.whitespace();
+        let keyword = self.parse_identifier()?;
+        if keyword != "LIST" {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        let _ = self.whitespace();
+        let var_name = self.parse_identifier()?;
+        let _ = self.whitespace();
+        if self.parser.parse_string("=").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+        let _ = self.whitespace();
+
+        let mut definition = self.list_definition()?;
+        definition.set_identifier(var_name.clone());
+        let _ = self.end_of_line();
+
+        self.parser.succeed_rule(rule_id, Some(definition))
+    }
+
+    fn try_parse_global_declaration_statement(
+        &mut self,
+    ) -> Option<(VariableAssignment, (String, crate::parsed_hierarchy::ParsedExpression))> {
+        let rule_id = self.parser.begin_rule();
+        let node = self.try_parse_assignment_line()?;
+        let encoded = node.name()?;
+        let (mode, name) = encoded.split_once(':')?;
+        if mode != "GlobalDecl" {
+            return self.parser.fail_rule(rule_id);
+        }
+        let expression = node.expression()?.clone();
+        let mut declaration = VariableAssignment::new(name, None);
+        declaration.set_global_declaration(true);
+        self.parser
+            .succeed_rule(rule_id, Some((declaration, (name.to_owned(), expression))))
+    }
+
     pub fn return_statement(&mut self) -> Option<ParsedReturn> {
         let rule_id = self.parser.begin_rule();
         let _ = self.whitespace();
@@ -1030,12 +1123,8 @@ impl InkParser {
 
     /// The nesting level inside which statements are being parsed.
     /// Mirrors the `StatementLevel` enum in the C# reference parser.
-    fn parse_at_level(
-        &mut self,
-        level: InkParseLevel,
-    ) -> (Vec<ParsedNode>, Vec<ParsedFlow>) {
-        let mut nodes: Vec<ParsedNode> = Vec::new();
-        let mut flows: Vec<ParsedFlow> = Vec::new();
+    fn parse_at_level(&mut self, level: InkParseLevel) -> ParseSection {
+        let mut parsed = ParseSection::default();
 
         loop {
             self.multiline_whitespace();
@@ -1055,17 +1144,30 @@ impl InkParser {
                         break;
                     }
                     if let Some(stitch) = self.try_parse_stitch() {
-                        flows.push(stitch);
+                        parsed.flows.push(stitch);
                         continue;
                     }
                 }
                 InkParseLevel::Top => {
+                    if let Some(external) = self.try_parse_external_declaration_line() {
+                        parsed.external_declarations.push(external);
+                        continue;
+                    }
+                    if let Some(definition) = self.try_parse_list_statement() {
+                        parsed.list_definitions.push(definition);
+                        continue;
+                    }
+                    if let Some((declaration, initializer)) = self.try_parse_global_declaration_statement() {
+                        parsed.global_declarations.push(declaration);
+                        parsed.global_initializers.push(initializer);
+                        continue;
+                    }
                     if let Some(knot) = self.try_parse_knot() {
-                        flows.push(knot);
+                        parsed.flows.push(knot);
                         continue;
                     }
                     if let Some(stitch) = self.try_parse_stitch() {
-                        flows.push(stitch);
+                        parsed.flows.push(stitch);
                         continue;
                     }
                 }
@@ -1073,37 +1175,47 @@ impl InkParser {
 
             // ── Statement rules (shared at all levels) ─────────────────────
             if let Some(choice) = self.try_parse_choice() {
-                nodes.push(choice);
+                parsed.nodes.push(choice);
                 continue;
             }
 
             if let Some(gather) = self.try_parse_gather() {
-                nodes.push(gather);
+                parsed.nodes.push(gather);
                 continue;
             }
 
             if let Some(assignment) = self.try_parse_assignment_line() {
-                nodes.push(assignment);
+                parsed.nodes.push(assignment);
+                continue;
+            }
+
+            if let Some(logic) = self.try_parse_logic_line() {
+                parsed.nodes.push(logic);
                 continue;
             }
 
             if let Some(divert) = self.try_parse_conditional_divert_line() {
-                nodes.push(divert);
+                parsed.nodes.push(divert);
                 continue;
             }
 
             if let Some(mut line) = self.try_parse_divert_line() {
-                nodes.append(&mut line);
+                parsed.nodes.append(&mut line);
+                continue;
+            }
+
+            if let Some(conditional) = self.try_parse_multiline_conditional() {
+                parsed.nodes.push(conditional);
                 continue;
             }
 
             if let Some(seq_node) = self.try_parse_multiline_sequence() {
-                nodes.push(seq_node);
+                parsed.nodes.push(seq_node);
                 continue;
             }
 
             if let Some(mut line) = self.try_parse_mixed_line() {
-                nodes.append(&mut line);
+                parsed.nodes.append(&mut line);
                 continue;
             }
 
@@ -1111,7 +1223,7 @@ impl InkParser {
             self.skip_line();
         }
 
-        (nodes, flows)
+        parsed
     }
 
     // ── Peek helpers ──────────────────────────────────────────────────────────
@@ -1183,15 +1295,15 @@ impl InkParser {
         self.parser.succeed_rule(rule_id, Some(()));
 
         // Parse the knot body
-        let (content, stitches) = self.parse_at_level(InkParseLevel::Knot);
+        let parsed = self.parse_at_level(InkParseLevel::Knot);
 
         Some(ParsedFlow::new(
             name,
             FlowLevel::Knot,
             arguments,
             is_function,
-            content,
-            stitches,
+            parsed.nodes,
+            parsed.flows,
         ))
     }
 
@@ -1243,14 +1355,14 @@ impl InkParser {
 
         self.parser.succeed_rule(rule_id, Some(()));
 
-        let (content, _sub_flows) = self.parse_at_level(InkParseLevel::Stitch);
+        let parsed = self.parse_at_level(InkParseLevel::Stitch);
 
         Some(ParsedFlow::new(
             name,
             FlowLevel::Stitch,
             arguments,
             is_function,
-            content,
+            parsed.nodes,
             Vec::new(), // stitches have no children
         ))
     }
@@ -1399,6 +1511,56 @@ impl InkParser {
                 )
             }
             None => self.parser.fail_rule(rule_id),
+        }
+    }
+
+    fn try_parse_logic_line(&mut self) -> Option<ParsedNode> {
+        let rule_id = self.parser.begin_rule();
+        self.whitespace();
+        if self.parser.parse_string("~").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+        self.whitespace();
+
+        if let Some(keyword) = self.parse_identifier()
+            && keyword == "return"
+        {
+            self.whitespace();
+            let expression_text = self
+                .parser
+                .parse_until_characters_from_string("\n\r", -1)
+                .unwrap_or_default();
+            let _ = self.end_of_line();
+            self.parser.succeed_rule(rule_id, Some(()));
+
+            let trimmed = expression_text.trim();
+            return if trimmed.is_empty() {
+                Some(ParsedNode::new(ParsedNodeKind::ReturnVoid))
+            } else {
+                Some(
+                    ParsedNode::new(ParsedNodeKind::ReturnExpression)
+                        .with_expression(parse_expression_text(trimmed)?),
+                )
+            };
+        }
+
+        self.parser.fail_rule::<()>(rule_id);
+        let rule_id = self.parser.begin_rule();
+        self.whitespace();
+        if self.parser.parse_string("~").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+        self.whitespace();
+        let expression_text = self
+            .parser
+            .parse_until_characters_from_string("\n\r", -1)?;
+        let _ = self.end_of_line();
+        let expression = parse_expression_text(expression_text.trim())?;
+        match expression {
+            crate::parsed_hierarchy::ParsedExpression::FunctionCall { .. } => self
+                .parser
+                .succeed_rule(rule_id, Some(ParsedNode::new(ParsedNodeKind::VoidCall).with_expression(expression))),
+            _ => self.parser.fail_rule(rule_id),
         }
     }
 
@@ -1932,6 +2094,22 @@ impl InkParser {
         Some(seq_node)
     }
 
+    fn try_parse_multiline_conditional(&mut self) -> Option<ParsedNode> {
+        let rule_id = self.parser.begin_rule();
+        self.whitespace();
+        self.parser.parse_string("{")?;
+        let content = self.parser.parse_until_characters_from_string("}", -1)?;
+        self.parser.parse_string("}")?;
+        self.end_of_line();
+
+        if !content.contains('\n') {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        let parsed = parse_multiline_conditional_block(&content)?;
+        self.parser.succeed_rule(rule_id, Some(parsed))
+    }
+
     /// Parse a sequence type annotation (word or symbol form) and return the flags.
     /// Leaves the parser position after the annotation (but before `:` if word form).
     fn sequence_type_annotation_flags(&mut self) -> u8 {
@@ -2043,7 +2221,11 @@ impl InkParser {
 
         self.parser.succeed_rule(rule_id, Some(()));
 
-        let mut node = ParsedNode::new(ParsedNodeKind::GatherPoint);
+        let mut node = ParsedNode::new(if label.is_some() {
+            ParsedNodeKind::GatherLabel
+        } else {
+            ParsedNodeKind::GatherPoint
+        });
         node.indentation_depth = depth;
         if let Some(label_name) = label {
             node = node.with_name(label_name);
@@ -2206,6 +2388,10 @@ fn parse_expression_text(input: &str) -> Option<crate::parsed_hierarchy::ParsedE
         return None;
     }
 
+    if let Some(inner) = strip_wrapping_parentheses(input) {
+        return parse_expression_text(inner);
+    }
+
     if let Some(target) = input.strip_prefix("->") {
         return Some(ParsedExpression::DivertTarget(target.trim().to_owned()));
     }
@@ -2221,6 +2407,9 @@ fn parse_expression_text(input: &str) -> Option<crate::parsed_hierarchy::ParsedE
         ("<", "Less"),
         (" + ", "Add"),
         (" - ", "Subtract"),
+        (" * ", "Multiply"),
+        (" / ", "Divide"),
+        (" % ", "Modulo"),
     ] {
         if let Some((left, right)) = split_expression_once(input, token) {
             return Some(ParsedExpression::Binary {
@@ -2304,6 +2493,30 @@ fn split_expression_once<'a>(input: &'a str, token: &str) -> Option<(&'a str, &'
     None
 }
 
+fn strip_wrapping_parentheses(input: &str) -> Option<&str> {
+    if !input.starts_with('(') || !input.ends_with(')') {
+        return None;
+    }
+
+    let mut depth = 0usize;
+    let mut string_open = false;
+    for (idx, ch) in input.char_indices() {
+        match ch {
+            '"' => string_open = !string_open,
+            '(' if !string_open => depth += 1,
+            ')' if !string_open => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 && idx != input.len() - 1 {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Some(&input[1..input.len() - 1])
+}
+
 fn split_arguments(input: &str) -> Vec<String> {
     let mut args = Vec::new();
     let mut current = String::new();
@@ -2343,33 +2556,158 @@ fn split_arguments(input: &str) -> Vec<String> {
     args
 }
 
-fn resolve_includes<F>(source: &str, file_handler: &F) -> Result<String, CompilerError>
-where
-    F: Fn(&str) -> Result<String, CompilerError>,
-{
-    let mut resolved = String::new();
+fn parse_multiline_conditional_block(content: &str) -> Option<ParsedNode> {
+    let lines: Vec<&str> = content.lines().collect();
+    let first_idx = lines.iter().position(|line| !line.trim().is_empty())?;
+    let first = lines[first_idx].trim();
 
-    for line in source.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("INCLUDE") {
-            let filename = rest.trim();
-            if filename.is_empty() {
-                return Err(CompilerError::invalid_source("INCLUDE missing filename"));
+    let mut initial_condition = None;
+    let branch_specs = if first.starts_with('-') {
+        parse_conditional_branches(&lines[first_idx..], false)?
+    } else {
+        let (header, inline_after) = first.split_once(':')?;
+        initial_condition = parse_expression_text(header.trim());
+        let mut body_lines: Vec<String> = Vec::new();
+        if !inline_after.trim().is_empty() {
+            body_lines.push(inline_after.trim_start().to_owned());
+        }
+        body_lines.extend(lines[(first_idx + 1)..].iter().map(|line| (*line).to_owned()));
+
+        let has_branch_markers = body_lines
+            .iter()
+            .any(|line| line.trim_start().starts_with('-'));
+        if has_branch_markers {
+            parse_conditional_branches(
+                &body_lines.iter().map(|line| line.as_str()).collect::<Vec<_>>(),
+                true,
+            )?
+        } else {
+            vec![ConditionalBranchSpec {
+                condition: None,
+                content: body_lines.join("\n"),
+                is_else: false,
+            }]
+        }
+    };
+
+    let mut saw_branch_condition = false;
+    let mut children = Vec::new();
+    for (idx, branch) in branch_specs.into_iter().enumerate() {
+        let mut branch_node = ParsedNode::new(ParsedNodeKind::Conditional);
+        branch_node.is_inline = false;
+        branch_node.is_else = branch.is_else;
+        if let Some(condition) = branch.condition.clone() {
+            branch_node = branch_node.with_condition(condition);
+        }
+        branch_node.set_children(parse_nested_statement_block(&branch.content));
+
+        if initial_condition.is_some() {
+            if branch.condition.is_some() {
+                branch_node.matching_equality = true;
+                saw_branch_condition = true;
+            } else if saw_branch_condition && branch.is_else {
+                branch_node.matching_equality = true;
+            } else if idx == 0 {
+                branch_node.is_true_branch = true;
+            } else {
+                branch_node.is_else = true;
             }
-            let included = file_handler(filename)?;
-            let nested = resolve_includes(&included, file_handler)?;
-            resolved.push_str(&nested);
-            if !nested.ends_with('\n') {
-                resolved.push('\n');
-            }
-            continue;
+        } else if branch.is_else {
+            branch_node.is_else = true;
         }
 
-        resolved.push_str(line);
-        resolved.push('\n');
+        children.push(branch_node);
     }
 
-    Ok(resolved)
+    let mut node = ParsedNode::new(if initial_condition.is_some() {
+        ParsedNodeKind::SwitchConditional
+    } else {
+        ParsedNodeKind::Conditional
+    });
+    if let Some(condition) = initial_condition {
+        node = node.with_condition(condition);
+    }
+    node.set_children(children);
+    Some(node)
+}
+
+#[derive(Clone)]
+struct ConditionalBranchSpec {
+    condition: Option<crate::parsed_hierarchy::ParsedExpression>,
+    content: String,
+    is_else: bool,
+}
+
+fn parse_conditional_branches(lines: &[&str], allow_bare_else: bool) -> Option<Vec<ConditionalBranchSpec>> {
+    let mut branches = Vec::new();
+    let mut current_header: Option<(Option<crate::parsed_hierarchy::ParsedExpression>, bool)> = None;
+    let mut current_content = String::new();
+
+    for line in lines {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('-') {
+            if let Some((condition, is_else)) = current_header.take() {
+                branches.push(ConditionalBranchSpec {
+                    condition,
+                    content: current_content.clone(),
+                    is_else,
+                });
+                current_content.clear();
+            }
+
+            let header = trimmed[1..].trim_start();
+            if let Some(rest) = header.strip_prefix("else:") {
+                current_header = Some((None, true));
+                if !rest.trim().is_empty() {
+                    current_content.push_str(rest.trim_start());
+                    current_content.push('\n');
+                }
+                continue;
+            }
+
+            let (condition_text, rest) = header.split_once(':')?;
+            current_header = Some((parse_expression_text(condition_text.trim()), false));
+            if !rest.trim().is_empty() {
+                current_content.push_str(rest.trim_start());
+                current_content.push('\n');
+            }
+        } else {
+            if current_header.is_none() {
+                if !allow_bare_else {
+                    return None;
+                }
+                current_header = Some((None, false));
+            }
+            current_content.push_str(line);
+            current_content.push('\n');
+        }
+    }
+
+    if let Some((condition, is_else)) = current_header.take() {
+        branches.push(ConditionalBranchSpec {
+            condition,
+            content: current_content,
+            is_else,
+        });
+    }
+
+    (!branches.is_empty()).then_some(branches)
+}
+
+fn parse_nested_statement_block(content: &str) -> Vec<ParsedNode> {
+    let mut parser = InkParser::new(content, None);
+    let parsed = parser.parse_at_level(InkParseLevel::Stitch);
+    parsed.nodes
+}
+
+fn merge_story(into: &mut Story, mut other: Story) {
+    into.global_declarations.append(&mut other.global_declarations);
+    into.global_initializers.append(&mut other.global_initializers);
+    into.list_definitions.append(&mut other.list_definitions);
+    into.external_declarations.append(&mut other.external_declarations);
+    into.const_declarations.append(&mut other.const_declarations);
+    into.root_nodes.append(&mut other.root_nodes);
+    into.flows.append(&mut other.flows);
 }
 
 #[cfg(test)]
