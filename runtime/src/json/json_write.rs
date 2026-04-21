@@ -265,6 +265,10 @@ pub fn write_ink_list(list: &InkList) -> serde_json::Value {
     }
 
     jobj.insert("list".to_owned(), serde_json::Value::Object(jlist));
+    let origins = list.get_origin_names();
+    if !origins.is_empty() {
+        jobj.insert("origins".to_owned(), json!(origins));
+    }
 
     serde_json::Value::Object(jobj)
 }

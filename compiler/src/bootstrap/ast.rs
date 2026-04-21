@@ -237,4 +237,12 @@ impl ParsedStory {
     pub fn flows(&self) -> &[Flow] {
         &self.flows
     }
+
+    pub fn external_functions(&self) -> &[String] {
+        &self.external_functions
+    }
+
+    pub fn consts(&self) -> &std::collections::HashMap<String, Expression> {
+        &self.consts
+    }
 }

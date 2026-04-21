@@ -115,7 +115,7 @@ impl Compiler {
 /// file and all includes — are concatenated in include order to form the story's
 /// root sequence.  Knots and other declarations from all files are merged into
 /// shared collections.
-fn parse_story_with_includes<F>(
+pub(crate) fn parse_story_with_includes<F>(
     source: &str,
     file_handler: &F,
     current_dir: &Path,

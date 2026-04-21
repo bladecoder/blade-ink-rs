@@ -1,5 +1,7 @@
 use super::{
-    Content, ContentList, FlowArgument, FlowBase, FlowLevel, ParsedObject, ParsedObjectIndex,
+    Content, ContentList, ExternalDeclaration, FlowArgument, FlowBase, FlowLevel, ListDefinition,
+    ParsedExpression, ParsedFlow, ParsedNode, ParsedObject, ParsedObjectIndex, VariableAssignment,
+    ConstDeclaration,
 };
 
 #[derive(Debug, Clone)]
@@ -9,6 +11,13 @@ pub struct Story {
     source_filename: Option<String>,
     pub count_all_visits: bool,
     root_content: ContentList,
+    pub(crate) global_declarations: Vec<VariableAssignment>,
+    pub(crate) global_initializers: Vec<(String, ParsedExpression)>,
+    pub(crate) list_definitions: Vec<ListDefinition>,
+    pub(crate) external_declarations: Vec<ExternalDeclaration>,
+    pub(crate) const_declarations: Vec<ConstDeclaration>,
+    pub(crate) root_nodes: Vec<ParsedNode>,
+    pub(crate) flows: Vec<ParsedFlow>,
 }
 
 impl Story {
@@ -24,6 +33,13 @@ impl Story {
             source_filename,
             count_all_visits,
             root_content,
+            global_declarations: Vec::new(),
+            global_initializers: Vec::new(),
+            list_definitions: Vec::new(),
+            external_declarations: Vec::new(),
+            const_declarations: Vec::new(),
+            root_nodes: Vec::new(),
+            flows: Vec::new(),
         }
     }
 
@@ -55,10 +71,72 @@ impl Story {
         &mut self.root_content
     }
 
+    pub fn global_declarations(&self) -> &[VariableAssignment] {
+        &self.global_declarations
+    }
+
+    pub fn global_initializers(&self) -> &[(String, ParsedExpression)] {
+        &self.global_initializers
+    }
+
+    pub fn list_definitions(&self) -> &[ListDefinition] {
+        &self.list_definitions
+    }
+
+    pub fn external_declarations(&self) -> &[ExternalDeclaration] {
+        &self.external_declarations
+    }
+
+    pub fn const_declarations(&self) -> &[ConstDeclaration] {
+        &self.const_declarations
+    }
+
+    pub fn const_declaration(&self, name: &str) -> Option<&ConstDeclaration> {
+        self.const_declarations
+            .iter()
+            .find(|declaration| declaration.name() == name)
+    }
+
+    pub fn resolve_list_item(&self, item_name: &str) -> Option<(String, i32)> {
+        if let Some((list_name, item_name)) = item_name.split_once('.') {
+            let definition = self
+                .list_definitions
+                .iter()
+                .find(|definition| definition.identifier() == Some(list_name))?;
+            let item = definition.item_named(item_name)?;
+            return Some((item.full_name(list_name), item.series_value()));
+        }
+
+        for definition in &self.list_definitions {
+            let Some(list_name) = definition.identifier() else {
+                continue;
+            };
+            if let Some(item) = definition.item_named(item_name) {
+                return Some((item.full_name(list_name), item.series_value()));
+            }
+        }
+
+        None
+    }
+
+    pub fn root_nodes(&self) -> &[ParsedNode] {
+        &self.root_nodes
+    }
+
+    pub fn parsed_flows(&self) -> &[ParsedFlow] {
+        &self.flows
+    }
+
     pub fn object_index(&self) -> ParsedObjectIndex {
         let mut index = ParsedObjectIndex::new();
         index.register(self.object());
         self.register_content_list(&mut index, &self.root_content);
+        for node in &self.root_nodes {
+            self.register_parsed_node(&mut index, node);
+        }
+        for flow in &self.flows {
+            self.register_parsed_flow(&mut index, flow);
+        }
         index
     }
 
@@ -68,6 +146,39 @@ impl Story {
             match content {
                 Content::Text(text) => index.register(text.object()),
             }
+        }
+    }
+
+    pub(crate) fn rebuild_parse_tree_refs(&mut self) {
+        let story_ref = self.object().reference();
+        for node in &mut self.root_nodes {
+            node.object_mut().set_parent_ref(story_ref);
+            self.flow
+                .object_mut()
+                .add_content_ref(node.object().reference());
+        }
+        for flow in &mut self.flows {
+            flow.object_mut().set_parent_ref(story_ref);
+            self.flow
+                .object_mut()
+                .add_content_ref(flow.object().reference());
+        }
+    }
+
+    fn register_parsed_node(&self, index: &mut ParsedObjectIndex, node: &ParsedNode) {
+        index.register(node.object());
+        for child in node.children() {
+            self.register_parsed_node(index, child);
+        }
+    }
+
+    fn register_parsed_flow(&self, index: &mut ParsedObjectIndex, flow: &ParsedFlow) {
+        index.register(flow.object());
+        for node in flow.content() {
+            self.register_parsed_node(index, node);
+        }
+        for child in flow.children() {
+            self.register_parsed_flow(index, child);
         }
     }
 }

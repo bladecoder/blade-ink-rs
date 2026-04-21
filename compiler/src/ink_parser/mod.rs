@@ -1,8 +1,12 @@
+use std::path::Path;
+
 use crate::{
+    bootstrap::{legacy_root::parse_story_with_includes, parser::Parser as LegacyParser},
+    error::CompilerError,
     parsed_hierarchy::{
         ContentList, DebugMetadata, ExternalDeclaration, FlowArgument, FlowDecl, List,
         ListDefinition, ListElementDefinition, Number, NumberValue, Return as ParsedReturn,
-        SequenceType, Tag, VariableAssignment,
+        SequenceType, Story, Tag, VariableAssignment,
     },
     string_parser::{
         CharacterRange, CharacterSet, CommentEliminator, ParseSuccess, StringParser,
@@ -74,6 +78,42 @@ impl InkParser {
 
     pub fn source_name(&self) -> Option<&str> {
         self.source_name.as_deref()
+    }
+
+    pub fn parse_story(&self, count_all_visits: bool) -> Result<Story, CompilerError> {
+        let legacy_story = LegacyParser::new(self.parser.input_string()).parse()?;
+        let mut story = Story::new(
+            self.parser.input_string(),
+            self.source_name.clone(),
+            count_all_visits,
+        );
+        story.populate_from_legacy(&legacy_story);
+        Ok(story)
+    }
+
+    pub fn parse_story_with_file_handler<F>(
+        &self,
+        count_all_visits: bool,
+        file_handler: F,
+    ) -> Result<Story, CompilerError>
+    where
+        F: Fn(&str) -> Result<String, CompilerError>,
+    {
+        let source_name = self.source_name.as_deref().unwrap_or("<source>");
+        let legacy_story = parse_story_with_includes(
+            self.parser.input_string(),
+            &file_handler,
+            Path::new(""),
+            source_name,
+            0,
+        )?;
+        let mut story = Story::new(
+            self.parser.input_string(),
+            self.source_name.clone(),
+            count_all_visits,
+        );
+        story.populate_from_legacy(&legacy_story);
+        Ok(story)
     }
 
     pub fn parser(&self) -> &StringParser {

@@ -3,8 +3,10 @@ mod content_list;
 mod debug_metadata;
 mod expressions;
 mod flow;
+mod from_bootstrap;
 mod list;
 mod object;
+mod parsed_node;
 mod story;
 mod text;
 mod weave;
@@ -22,6 +24,7 @@ pub use expressions::{
 pub use flow::{FlowArgument, FlowBase, FlowLevel, Knot, Stitch};
 pub use list::{List, ListDefinition, ListElementDefinition};
 pub use object::{ObjectKind, ParsedObject, ParsedObjectIndex, ParsedObjectRef};
+pub use parsed_node::{ParsedExpression, ParsedFlow, ParsedNode, ParsedNodeKind};
 pub use story::Story;
 pub use text::Text;
 pub use weave::{Choice, Gather, Weave, WeaveElement};
