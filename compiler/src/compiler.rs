@@ -316,4 +316,22 @@ Stitch text
         assert_eq!("Score: 1\nsad\n", story.continue_maximally().unwrap());
     }
 
+    #[test]
+    fn tmp_dump_conditional_choice_in_weave_json() {
+        let ink = r#"
+- start
+ {
+    - true: * [go to a stitch] -> a_stitch
+ }
+- gather should be seen
+-> DONE
+
+= a_stitch
+    result
+    -> END
+"#;
+        let json = Compiler::new().compile(ink).expect("compile to json");
+        println!("{json}");
+    }
+
 }

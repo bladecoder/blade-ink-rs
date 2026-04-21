@@ -616,7 +616,11 @@ fn export_choice(
     named_paths: &HashMap<String, String>,
 ) -> Result<(), CompilerError> {
     let choice_key = format!("c-{choice_index}");
-    let choice_path = format!("{path_prefix}.{choice_key}");
+    let choice_path = if !node.start_content.is_empty() && path_prefix.starts_with('.') {
+        format!(".^.^.{choice_key}")
+    } else {
+        format!("{path_prefix}.{choice_key}")
+    };
     let has_start = !node.start_content.is_empty();
     let has_choice_only = !node.choice_only_content.is_empty();
     let has_condition = node.condition().is_some();
@@ -1142,6 +1146,8 @@ fn export_sequence(
 
     let elements = node.children(); // each child is a wrapper with children = element nodes
     let num_elements = elements.len();
+    let empty_named_paths = HashMap::new();
+    let named_paths = named_paths.unwrap_or(&empty_named_paths);
 
     // Number of branches (once gets an extra empty branch)
     let seq_branch_count = if once { num_elements + 1 } else { num_elements };
@@ -1160,7 +1166,36 @@ fn export_sequence(
         seq_items.push(rt_int(num_elements as i32));
         seq_items.push(Rc::new(NativeFunctionCall::new(NativeOp::Mod)));
     }
-    // For shuffle: treat as stopping for now (TODO: full shuffle)
+
+    if shuffle {
+        if once || stopping {
+            let last_idx = if stopping {
+                num_elements as i32 - 1
+            } else {
+                num_elements as i32
+            };
+            seq_items.push(command(CommandType::Duplicate));
+            seq_items.push(rt_int(last_idx));
+            seq_items.push(native(NativeOp::Equal));
+            seq_items.push(Rc::new(Divert::new(
+                false,
+                PushPopType::Tunnel,
+                false,
+                0,
+                true,
+                None,
+                Some(".^.postshuffle"),
+            )));
+        }
+
+        let element_count_to_shuffle = if stopping {
+            num_elements.saturating_sub(1)
+        } else {
+            num_elements
+        };
+        seq_items.push(rt_int(element_count_to_shuffle as i32));
+        seq_items.push(command(CommandType::SequenceShuffleIndex));
+    }
 
     seq_items.push(command(CommandType::EvalEnd));
 
@@ -1192,13 +1227,34 @@ fn export_sequence(
 
     // Build named branch containers with correct back-divert path
     let mut named_branches: HashMap<String, Rc<Container>> = HashMap::new();
+    if shuffle && (once || stopping) {
+        named_branches.insert(
+            "postshuffle".to_owned(),
+            Container::new(Some("postshuffle".to_owned()), 0, Vec::new(), HashMap::new()),
+        );
+    }
     for el_index in 0..seq_branch_count {
-        let branch_content: Vec<Rc<dyn RTObject>> = if el_index < num_elements {
+        let (branch_content, branch_named, branch_flags): (Vec<Rc<dyn RTObject>>, HashMap<String, Rc<Container>>, i32) = if el_index < num_elements {
             let element_nodes = elements[el_index].children();
-            export_nodes_with_paths(element_nodes, scope, story, named_paths)?
+            if has_weave_content(element_nodes) {
+                let weave = unwrap_weave_root_container(&export_weave(
+                    ".^",
+                    element_nodes,
+                    scope,
+                    story,
+                    false,
+                    named_paths,
+                )?);
+                (weave.content.clone(), weave.named_content.clone(), weave.get_count_flags())
+            } else {
+                (
+                    export_nodes_with_paths(element_nodes, scope, story, Some(named_paths))?,
+                    HashMap::new(),
+                    0,
+                )
+            }
         } else {
-            // Extra empty branch for "once"
-            Vec::new()
+            (Vec::new(), HashMap::new(), 0)
         };
 
         let back_divert = Rc::new(Divert::new(
@@ -1214,7 +1270,7 @@ fn export_sequence(
         let branch_name = format!("s{}", el_index);
         named_branches.insert(
             branch_name.clone(),
-            Container::new(Some(branch_name), 0, branch_items, HashMap::new()),
+            Container::new(Some(branch_name), branch_flags, branch_items, branch_named),
         );
     }
 
@@ -1226,6 +1282,19 @@ fn export_sequence(
     ))
 }
 
+fn unwrap_weave_root_container(container: &Rc<Container>) -> Rc<Container> {
+    if !container.has_valid_name()
+        && container.named_content.is_empty()
+        && container.content.len() == 1
+        && let Ok(child) = container.content[0].clone().into_any().downcast::<Container>()
+        && !child.has_valid_name()
+    {
+        return child;
+    }
+
+    container.clone()
+}
+
 fn export_conditional(
     node: &ParsedNode,
     scope: Scope<'_>,
@@ -1234,64 +1303,103 @@ fn export_conditional(
 ) -> Result<Rc<dyn RTObject>, CompilerError> {
     let mut content: Vec<Rc<dyn RTObject>> = Vec::new();
     let is_switch = node.kind() == ParsedNodeKind::SwitchConditional;
+    let empty_named_paths = HashMap::new();
+    let named_paths = named_paths.unwrap_or(&empty_named_paths);
 
     if let Some(initial) = node.condition() {
         content.push(command(CommandType::EvalStart));
-        export_expression(initial, story, &mut content)?;
+        export_condition_expression_runtime(initial, scope, story, named_paths, &mut content)?;
         content.push(command(CommandType::EvalEnd));
     }
 
-    for (idx, branch) in node.children().iter().enumerate() {
+    let mut branch_specs: Vec<(bool, bool, Vec<Rc<dyn RTObject>>, HashMap<String, Rc<Container>>, i32)> = Vec::new();
+
+    for branch in node.children() {
         let duplicates_stack_value = branch.matching_equality && !branch.is_else;
+
+        let (mut branch_content, branch_named, branch_flags) = if has_weave_content(branch.children()) {
+            let branch_path_prefix = if branch
+                .children()
+                .iter()
+                .any(|node| node.kind() == ParsedNodeKind::Choice && !node.start_content.is_empty())
+            {
+                ".^.^"
+            } else {
+                ".^"
+            };
+            let weave = unwrap_weave_root_container(&export_weave(
+                branch_path_prefix,
+                branch.children(),
+                scope,
+                story,
+                false,
+                named_paths,
+            )?);
+            (weave.content.clone(), weave.named_content.clone(), weave.get_count_flags())
+        } else {
+            (
+                export_nodes_with_paths(branch.children(), scope, story, Some(named_paths))?,
+                HashMap::new(),
+                0,
+            )
+        };
+
+        if !branch.is_inline {
+            branch_content.insert(0, rt_value("\n"));
+        }
+        if duplicates_stack_value || (branch.is_else && branch.matching_equality) {
+            branch_content.insert(0, command(CommandType::PopEvaluatedValue));
+        }
+
+        branch_specs.push((
+            !branch.is_else,
+            branch.matching_equality && !branch.is_else,
+            branch_content,
+            branch_named,
+            branch_flags,
+        ));
+    }
+
+    let branch_container_count = branch_specs.len();
+    let needs_final_pop = is_switch
+        && node.children().first().is_some_and(|branch| branch.condition().is_some())
+        && !node.children().last().is_some_and(|branch| branch.is_else);
+    let rejoin_index = content.len() + branch_container_count + usize::from(needs_final_pop);
+    let rejoin_path = format!(".^.^.{rejoin_index}");
+
+    for (idx, branch) in node.children().iter().enumerate() {
+        let (is_conditional, duplicates_stack_value, mut branch_content, branch_named, branch_flags) = branch_specs[idx].clone();
+
+        let mut branch_control: Vec<Rc<dyn RTObject>> = Vec::new();
         if duplicates_stack_value {
-            content.push(command(CommandType::Duplicate));
+            branch_control.push(command(CommandType::Duplicate));
         }
 
         if !branch.is_true_branch && !branch.is_else {
             if branch.condition().is_some() {
-                content.push(command(CommandType::EvalStart));
+                branch_control.push(command(CommandType::EvalStart));
             }
             if let Some(condition) = branch.condition() {
-                export_expression(condition, story, &mut content)?;
+                export_condition_expression_runtime(condition, scope, story, named_paths, &mut branch_control)?;
             }
             if branch.matching_equality {
-                content.push(native(NativeOp::Equal));
+                branch_control.push(native(NativeOp::Equal));
             }
             if branch.condition().is_some() {
-                content.push(command(CommandType::EvalEnd));
+                branch_control.push(command(CommandType::EvalEnd));
             }
         }
 
-        let branch_name = format!("b{idx}");
-        content.push(Rc::new(Divert::new(
+        branch_control.push(Rc::new(Divert::new(
             false,
             PushPopType::Tunnel,
             false,
             0,
-            !branch.is_else,
+            is_conditional,
             None,
-            Some(&format!(".^.{branch_name}")),
+            Some(".^.b"),
         )));
-    }
 
-    if is_switch
-        && node.children().first().is_some_and(|branch| branch.condition().is_some())
-        && !node.children().last().is_some_and(|branch| branch.is_else)
-    {
-        content.push(command(CommandType::PopEvaluatedValue));
-    }
-
-    let nop_index = content.len();
-    content.push(command(CommandType::NoOp));
-
-    let mut named: HashMap<String, Rc<Container>> = HashMap::new();
-    let nop_path = format!(".^.^.{nop_index}");
-    for (idx, branch) in node.children().iter().enumerate() {
-        let duplicates_stack_value = branch.matching_equality && !branch.is_else;
-        let mut branch_content = export_nodes_with_paths(branch.children(), scope, story, named_paths)?;
-        if duplicates_stack_value || (branch.is_else && branch.matching_equality) {
-            branch_content.insert(0, command(CommandType::PopEvaluatedValue));
-        }
         branch_content.push(Rc::new(Divert::new(
             false,
             PushPopType::Tunnel,
@@ -1299,13 +1407,94 @@ fn export_conditional(
             0,
             false,
             None,
-            Some(&nop_path),
+            Some(&rejoin_path),
         )));
-        let branch_name = format!("b{idx}");
-        named.insert(branch_name.clone(), Container::new(Some(branch_name), 0, branch_content, HashMap::new()));
+
+        let branch_b = Container::new(Some("b".to_owned()), branch_flags, branch_content, branch_named);
+        let mut branch_named_content = HashMap::new();
+        branch_named_content.insert("b".to_owned(), branch_b);
+        let branch_container = Container::new(None, 0, branch_control, branch_named_content);
+        content.push(branch_container as Rc<dyn RTObject>);
     }
 
-    Ok(Container::new(None, 0, content, named))
+    if needs_final_pop {
+        content.push(command(CommandType::PopEvaluatedValue));
+    }
+
+    content.push(command(CommandType::NoOp));
+    Ok(Container::new(None, 0, content, HashMap::new()))
+}
+
+fn export_condition_expression_runtime(
+    expression: &ParsedExpression,
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: &HashMap<String, String>,
+    content: &mut Vec<Rc<dyn RTObject>>,
+) -> Result<(), CompilerError> {
+    match expression {
+        ParsedExpression::Variable(name) => {
+            if let Some(path) = resolve_condition_count_path(name, scope, story, named_paths) {
+                content.push(Rc::new(VariableReference::from_path_for_count(&path)));
+            } else {
+                export_expression(expression, story, content)?;
+            }
+        }
+        ParsedExpression::Unary { operator, expression } => {
+            export_condition_expression_runtime(expression, scope, story, named_paths, content)?;
+            let op = match operator.as_str() {
+                "!" => NativeOp::Not,
+                "-" => NativeOp::Negate,
+                other => {
+                    return Err(CompilerError::unsupported_feature(format!(
+                        "runtime export does not support unary operator '{other}'"
+                    )))
+                }
+            };
+            content.push(native(op));
+        }
+        ParsedExpression::Binary { left, operator, right } => {
+            export_condition_expression_runtime(left, scope, story, named_paths, content)?;
+            export_condition_expression_runtime(right, scope, story, named_paths, content)?;
+            content.push(native(operator_token(operator)?));
+        }
+        _ => export_expression(expression, story, content)?,
+    }
+
+    Ok(())
+}
+
+fn resolve_condition_count_path(
+    name: &str,
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: &HashMap<String, String>,
+) -> Option<String> {
+    if let Some(path) = resolve_count_path(name, named_paths) {
+        return Some(path);
+    }
+
+    if story
+        .parsed_flows()
+        .iter()
+        .any(|flow| flow.flow().identifier() == Some(name))
+    {
+        return Some(name.to_owned());
+    }
+
+    let Scope::Flow(flow) = scope else {
+        return None;
+    };
+
+    if flow
+        .children()
+        .iter()
+        .any(|child| child.flow().identifier() == Some(name))
+    {
+        return Some(format!("{}.{}", flow.flow().identifier().unwrap_or_default(), name));
+    }
+
+    None
 }
 
 fn export_assignment(
