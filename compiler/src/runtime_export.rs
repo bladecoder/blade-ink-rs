@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use bladeink::{
     ChoicePoint, CommandType, Container, ControlCommand, Divert, Glue, InkList, InkListItem,
-    ListDefinition, NativeFunctionCall, NativeOp, Path, PushPopType, RTObject, Value,
+    ListDefinition, NativeFunctionCall, NativeOp, Path, PushPopType, RTObject, Value, Void,
     VariableAssignment, VariableReference, story::Story as RuntimeStory,
 };
 
@@ -118,6 +118,16 @@ fn export_flow(
         )));
     }
 
+    let mut flow_named_paths = HashMap::new();
+    if let Some(name) = flow.flow().identifier() {
+        flow_named_paths.insert(name.to_owned(), full_path.to_owned());
+    }
+    for child in flow.children() {
+        if let Some(child_name) = child.flow().identifier() {
+            flow_named_paths.insert(child_name.to_owned(), format!("{full_path}.{child_name}"));
+        }
+    }
+
     let mut content = if flow.content().is_empty() && !flow.children().is_empty() {
         vec![divert_object(&format!(
             "{}.{}",
@@ -131,10 +141,10 @@ fn export_flow(
             Scope::Flow(flow),
             story,
             false,
-            &HashMap::new(),
+            &flow_named_paths,
         )? as Rc<dyn RTObject>]
     } else {
-        export_nodes(flow.content(), Scope::Flow(flow), story)?
+        export_nodes_with_paths(flow.content(), Scope::Flow(flow), story, Some(&flow_named_paths))?
     };
 
     if !flow.content().is_empty() && !has_terminal(flow.content()) {
@@ -208,6 +218,32 @@ fn export_nodes_with_paths(
                     content.push(export_divert(target, scope, story, named_paths));
                 }
             }
+            ParsedNodeKind::TunnelDivert => {
+                let target = node.target().ok_or_else(|| {
+                    CompilerError::unsupported_feature(
+                        "runtime export tunnel divert missing target",
+                    )
+                })?;
+                content.push(export_tunnel_divert(target, scope, story, named_paths));
+            }
+            ParsedNodeKind::TunnelReturn => {
+                content.push(command(CommandType::EvalStart));
+                content.push(Rc::new(Void::new()));
+                content.push(command(CommandType::EvalEnd));
+                content.push(command(CommandType::PopTunnel));
+            }
+            ParsedNodeKind::TunnelOnwardsWithTarget => {
+                let target = node.target().ok_or_else(|| {
+                    CompilerError::unsupported_feature(
+                        "runtime export tunnel onwards missing target",
+                    )
+                })?;
+                let resolved = resolve_target(target, scope, story, named_paths);
+                content.push(command(CommandType::EvalStart));
+                content.push(rt_value(Path::new_with_components_string(Some(&resolved))));
+                content.push(command(CommandType::EvalEnd));
+                content.push(command(CommandType::PopTunnel));
+            }
             ParsedNodeKind::OutputExpression => {
                 let expression = node.expression().ok_or_else(|| {
                     CompilerError::unsupported_feature(
@@ -215,7 +251,7 @@ fn export_nodes_with_paths(
                     )
                 })?;
                 content.push(command(CommandType::EvalStart));
-                export_expression(expression, story, &mut content)?;
+                export_output_expression(expression, scope, story, named_paths, &mut content)?;
                 content.push(command(CommandType::EvalOutput));
                 content.push(command(CommandType::EvalEnd));
             }
@@ -231,9 +267,6 @@ fn export_nodes_with_paths(
             ParsedNodeKind::Choice
             | ParsedNodeKind::GatherPoint
             | ParsedNodeKind::GatherLabel
-            | ParsedNodeKind::TunnelDivert
-            | ParsedNodeKind::TunnelReturn
-            | ParsedNodeKind::TunnelOnwardsWithTarget
             | ParsedNodeKind::Conditional
             | ParsedNodeKind::SwitchConditional
             | ParsedNodeKind::ThreadDivert
@@ -711,6 +744,27 @@ fn export_condition_expression(
     Ok(())
 }
 
+fn export_output_expression(
+    expression: &ParsedExpression,
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: Option<&HashMap<String, String>>,
+    content: &mut Vec<Rc<dyn RTObject>>,
+) -> Result<(), CompilerError> {
+    match expression {
+        ParsedExpression::Variable(name) => {
+            if let Some(path) = resolve_output_count_path(name, scope, named_paths) {
+                content.push(Rc::new(VariableReference::from_path_for_count(&path)));
+            } else {
+                export_expression(expression, story, content)?;
+            }
+        }
+        _ => export_expression(expression, story, content)?,
+    }
+
+    Ok(())
+}
+
 fn register_named_path(
     named_paths: &mut HashMap<String, String>,
     scope: Scope<'_>,
@@ -745,6 +799,28 @@ fn resolve_count_path(name: &str, named_paths: &HashMap<String, String>) -> Opti
         let last = parts.pop()?;
         Some(format!("{}.0.{last}", parts.join(".")))
     })
+}
+
+fn resolve_output_count_path(
+    name: &str,
+    scope: Scope<'_>,
+    named_paths: Option<&HashMap<String, String>>,
+) -> Option<String> {
+    if let Some(named_paths) = named_paths
+        && let Some(path) = resolve_count_path(name, named_paths)
+    {
+        return Some(path);
+    }
+
+    let Scope::Flow(flow) = scope else {
+        return None;
+    };
+
+    if flow.flow().identifier() == Some(name) {
+        return Some(".^".to_owned());
+    }
+
+    None
 }
 
 fn collect_current_level_named_paths(
@@ -938,6 +1014,23 @@ fn export_divert_conditional(
             Some(&resolve_target(target, scope, story, named_paths)),
         )),
     }
+}
+
+fn export_tunnel_divert(
+    target: &str,
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: Option<&HashMap<String, String>>,
+) -> Rc<dyn RTObject> {
+    Rc::new(Divert::new(
+        true,
+        PushPopType::Tunnel,
+        false,
+        0,
+        false,
+        None,
+        Some(&resolve_target(target, scope, story, named_paths)),
+    ))
 }
 
 fn is_global_variable_divert(target: &str, story: &Story) -> bool {
