@@ -20,14 +20,21 @@ pub(crate) fn export_story(story: &Story) -> Result<RuntimeStory, CompilerError>
 
     for flow in story.parsed_flows() {
         let name = flow.flow().identifier().unwrap_or_default().to_owned();
-        named_content.insert(name, export_flow(flow, story)?);
+        named_content.insert(name.clone(), export_flow(flow, story, &name)?);
     }
 
     if let Some(global_decl) = export_global_decl(story)? {
         named_content.insert("global decl".to_owned(), global_decl);
     }
 
-    let inner_root = export_weave("0", story.root_nodes(), Scope::Root, story, true)?;
+    let inner_root = export_weave(
+        "0",
+        story.root_nodes(),
+        Scope::Root,
+        story,
+        true,
+        &HashMap::new(),
+    )?;
     let root = Container::new(
         None,
         visit_count_flags(story.count_all_visits),
@@ -99,8 +106,12 @@ fn list_value_from_definition(definition: &ParsedListDefinition) -> Rc<dyn RTObj
     rt_value(list)
 }
 
-fn export_flow(flow: &ParsedFlow, story: &Story) -> Result<Rc<Container>, CompilerError> {
-    if flow.flow().has_parameters() || flow.flow().is_function() {
+fn export_flow(
+    flow: &ParsedFlow,
+    story: &Story,
+    full_path: &str,
+) -> Result<Rc<Container>, CompilerError> {
+    if flow.flow().has_parameters() {
         return Err(CompilerError::unsupported_feature(format!(
             "runtime export does not support parameterised/function flow '{}'",
             flow.flow().identifier().unwrap_or_default()
@@ -110,30 +121,36 @@ fn export_flow(flow: &ParsedFlow, story: &Story) -> Result<Rc<Container>, Compil
     let mut content = if flow.content().is_empty() && !flow.children().is_empty() {
         vec![divert_object(&format!(
             "{}.{}",
-            flow.flow().identifier().unwrap_or_default(),
+            full_path,
             flow.children()[0].flow().identifier().unwrap_or_default()
         ))]
     } else if has_weave_content(flow.content()) {
         vec![export_weave(
-            &format!("{}.0", flow.flow().identifier().unwrap_or_default()),
+            &format!("{full_path}.0"),
             flow.content(),
             Scope::Flow(flow),
             story,
             false,
+            &HashMap::new(),
         )? as Rc<dyn RTObject>]
     } else {
         export_nodes(flow.content(), Scope::Flow(flow), story)?
     };
 
     if !flow.content().is_empty() && !has_terminal(flow.content()) {
-        content.push(command(CommandType::Done));
+        if flow.flow().is_function() {
+            content.push(command(CommandType::PopFunction));
+        } else {
+            content.push(command(CommandType::Done));
+        }
     }
 
     let mut named = HashMap::new();
     for child in flow.children() {
+        let child_name = child.flow().identifier().unwrap_or_default().to_owned();
         named.insert(
-            child.flow().identifier().unwrap_or_default().to_owned(),
-            export_flow(child, story)?,
+            child_name.clone(),
+            export_flow(child, story, &format!("{full_path}.{child_name}"))?,
         );
     }
 
@@ -156,6 +173,15 @@ fn export_nodes(
     scope: Scope<'_>,
     story: &Story,
 ) -> Result<Vec<Rc<dyn RTObject>>, CompilerError> {
+    export_nodes_with_paths(nodes, scope, story, None)
+}
+
+fn export_nodes_with_paths(
+    nodes: &[ParsedNode],
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: Option<&HashMap<String, String>>,
+) -> Result<Vec<Rc<dyn RTObject>>, CompilerError> {
     let mut content = Vec::new();
 
     for node in nodes {
@@ -173,7 +199,14 @@ fn export_nodes(
                 let target = node.target().ok_or_else(|| {
                     CompilerError::unsupported_feature("runtime export divert missing target")
                 })?;
-                content.push(export_divert(target, scope, story));
+                if let Some(condition) = node.condition() {
+                    content.push(command(CommandType::EvalStart));
+                    export_expression(condition, story, &mut content)?;
+                    content.push(command(CommandType::EvalEnd));
+                    content.push(export_divert_conditional(target, scope, story, named_paths));
+                } else {
+                    content.push(export_divert(target, scope, story, named_paths));
+                }
             }
             ParsedNodeKind::OutputExpression => {
                 let expression = node.expression().ok_or_else(|| {
@@ -192,10 +225,12 @@ fn export_nodes(
                     "runtime export does not support tags yet",
                 ));
             }
+            ParsedNodeKind::Sequence => {
+                content.push(export_sequence(node, scope, story, named_paths)?);
+            }
             ParsedNodeKind::Choice
             | ParsedNodeKind::GatherPoint
             | ParsedNodeKind::GatherLabel
-            | ParsedNodeKind::Sequence
             | ParsedNodeKind::TunnelDivert
             | ParsedNodeKind::TunnelReturn
             | ParsedNodeKind::TunnelOnwardsWithTarget
@@ -282,6 +317,7 @@ fn export_weave(
     scope: Scope<'_>,
     story: &Story,
     is_root: bool,
+    inherited_named_paths: &HashMap<String, String>,
 ) -> Result<Rc<Container>, CompilerError> {
     let base_depth = nodes
         .iter()
@@ -297,6 +333,8 @@ fn export_weave(
     let mut has_seen_choice_in_section = false;
     let mut choice_count = 0usize;
     let mut gather_count = 0usize;
+    let mut named_paths = inherited_named_paths.clone();
+    named_paths.extend(collect_current_level_named_paths(path_prefix, nodes));
 
     let mut index = 0usize;
     while index < nodes.len() {
@@ -322,14 +360,31 @@ fn export_weave(
                 current.clone()
             };
             let nested_path = format!("{}.{}", target.path, target.next_content_index());
-            let nested = export_weave(&nested_path, &nodes[nested_start..index], scope, story, false)?;
+            let nested = export_weave(
+                &nested_path,
+                &nodes[nested_start..index],
+                scope,
+                story,
+                false,
+                &named_paths,
+            )?;
             let nested_pending = PendingContainer::new(nested_path, None, 0);
-            for item in &nested.content {
-                nested_pending.push_object(item.clone());
+            for (content_index, item) in nested.content.iter().enumerate() {
+                if let Ok(container) = item.clone().into_any().downcast::<Container>() {
+                    let child_path = if container.has_valid_name() {
+                        format!("{}.{}", nested_pending.path, container.name.as_deref().unwrap_or_default())
+                    } else {
+                        format!("{}.{}", nested_pending.path, content_index)
+                    };
+                    nested_pending.push_container(pending_from_container(&container, &child_path));
+                } else {
+                    nested_pending.push_object(item.clone());
+                }
             }
             for (key, value) in &nested.named_content {
                 nested_pending.add_named(key.clone(), pending_from_container(value, &format!("{}.{}", nested_pending.path, key)));
             }
+            let bubbled_loose_ends = collect_loose_choice_ends(&nested_pending);
             target.push_container(nested_pending);
 
             if let Some(previous_choice_container) = previous_choice.clone() {
@@ -338,28 +393,40 @@ fn export_weave(
                 previous_choice = None;
             }
 
+            loose_ends.extend(bubbled_loose_ends);
+
             continue;
         }
 
         match node.kind() {
             ParsedNodeKind::Choice => {
                 let choice_key = format!("c-{choice_count}");
-                let choice_path = format!("{path_prefix}.{choice_key}");
+                let choice_path = format!("{}.{}", current.path, choice_key);
                 let choice_container = PendingContainer::new(&choice_path, Some(choice_key.clone()), 5);
                 current.add_named(choice_key.clone(), choice_container.clone());
 
                 export_choice(
                     node,
                     choice_count,
-                    path_prefix,
+                    &current.path,
                     current.clone(),
                     choice_container.clone(),
                     scope,
                     story,
+                    &named_paths,
                 )?;
 
+                if let Some(name) = node.name() {
+                    register_named_path(&mut named_paths, scope, name, &choice_path);
+                }
+
                 if !node.children().is_empty() {
-                    let child_content = export_nodes(node.children(), scope, story)?;
+                    let child_content = export_nodes_with_paths(
+                        node.children(),
+                        scope,
+                        story,
+                        Some(&named_paths),
+                    )?;
                     for item in child_content {
                         choice_container.push_object(item);
                     }
@@ -367,7 +434,7 @@ fn export_weave(
 
                 choice_container.push_object(rt_value("\n"));
 
-                if !has_terminal(node.children()) {
+                if node.is_invisible_default || !has_terminal(node.children()) {
                     loose_ends.push(choice_container.clone());
                     previous_choice = Some(choice_container);
                     add_to_previous_choice = true;
@@ -380,21 +447,26 @@ fn export_weave(
                 choice_count += 1;
             }
             ParsedNodeKind::GatherPoint => {
-                for loose_end in &loose_ends {
-                    loose_end.push_object(divert_object(&format!("{path_prefix}.g-{gather_count}")));
-                }
-                loose_ends.clear();
-
                 let auto_enter = !has_seen_choice_in_section;
-                has_seen_choice_in_section = false;
-                add_to_previous_choice = false;
-                previous_choice = None;
-
+                let is_named_gather = node.name().is_some();
                 let gather_name = node
                     .name()
                     .map(ToOwned::to_owned)
                     .unwrap_or_else(|| format!("g-{gather_count}"));
-                let gather_path = format!("{path_prefix}.{}", gather_name);
+                let gather_path = if auto_enter {
+                    format!("{}.{}", current.path, gather_name)
+                } else {
+                    format!("{path_prefix}.{}", gather_name)
+                };
+
+                for loose_end in &loose_ends {
+                    loose_end.push_object(divert_object(&gather_path));
+                }
+                loose_ends.clear();
+
+                has_seen_choice_in_section = false;
+                add_to_previous_choice = false;
+                previous_choice = None;
                 let gather_container = PendingContainer::new(&gather_path, Some(gather_name.clone()), 5);
 
                 if auto_enter {
@@ -404,14 +476,24 @@ fn export_weave(
                 }
 
                 if !node.children().is_empty() {
-                    let child_content = export_nodes(node.children(), scope, story)?;
+                    let child_content = export_nodes_with_paths(
+                        node.children(),
+                        scope,
+                        story,
+                        Some(&named_paths),
+                    )?;
                     for item in child_content {
                         gather_container.push_object(item);
                     }
                 }
 
                 current = gather_container;
-                gather_count += 1;
+                if let Some(name) = node.name() {
+                    register_named_path(&mut named_paths, scope, name, &gather_path);
+                }
+                if !is_named_gather {
+                    gather_count += 1;
+                }
             }
             _ => {
                 let target = if add_to_previous_choice {
@@ -419,7 +501,12 @@ fn export_weave(
                 } else {
                     current.clone()
                 };
-                let content = export_nodes(std::slice::from_ref(node), scope, story)?;
+                let content = export_nodes_with_paths(
+                    std::slice::from_ref(node),
+                    scope,
+                    story,
+                    Some(&named_paths),
+                )?;
                 for item in content {
                     target.push_object(item);
                 }
@@ -430,21 +517,28 @@ fn export_weave(
     }
 
     if is_root {
+        let final_gather_name = format!("g-{gather_count}");
+        let auto_enter = !has_seen_choice_in_section;
+        let final_gather_path = if auto_enter {
+            format!("{}.{}", current.path, final_gather_name)
+        } else {
+            format!("{path_prefix}.{}", final_gather_name)
+        };
+
         for loose_end in &loose_ends {
-            loose_end.push_object(divert_object(&format!("{path_prefix}.g-{gather_count}")));
+            loose_end.push_object(divert_object(&final_gather_path));
         }
 
-        let auto_enter = !has_seen_choice_in_section;
         let final_gather = PendingContainer::new(
-            format!("{path_prefix}.g-{gather_count}"),
-            Some(format!("g-{gather_count}")),
+            final_gather_path,
+            Some(final_gather_name.clone()),
             5,
         );
         final_gather.push_object(command(CommandType::Done));
         if auto_enter {
             current.push_container(final_gather);
         } else {
-            root.add_named(format!("g-{gather_count}"), final_gather);
+            root.add_named(final_gather_name, final_gather);
         }
     }
 
@@ -459,12 +553,13 @@ fn export_choice(
     choice_container: Rc<PendingContainer>,
     scope: Scope<'_>,
     story: &Story,
+    named_paths: &HashMap<String, String>,
 ) -> Result<(), CompilerError> {
     let choice_key = format!("c-{choice_index}");
     let choice_path = format!("{path_prefix}.{choice_key}");
     let has_start = !node.start_content.is_empty();
     let has_choice_only = !node.choice_only_content.is_empty();
-    let has_condition = false;
+    let has_condition = node.condition().is_some();
     let flags = (has_condition as i32)
         + ((has_start as i32) * 2)
         + ((has_choice_only as i32) * 4)
@@ -493,6 +588,10 @@ fn export_choice(
                 outer.push_object(item);
             }
             outer.push_object(command(CommandType::EndString));
+        }
+
+        if let Some(condition) = node.condition() {
+            export_condition_expression(condition, story, named_paths, &mut outer.content.borrow_mut())?;
         }
 
         outer.push_object(command(CommandType::EvalEnd));
@@ -532,6 +631,9 @@ fn export_choice(
             }
             current.push_object(command(CommandType::EndString));
         }
+        if let Some(condition) = node.condition() {
+            export_condition_expression(condition, story, named_paths, &mut current.content.borrow_mut())?;
+        }
         current.push_object(command(CommandType::EvalEnd));
         current.push_object(Rc::new(ChoicePoint::new(flags, &choice_path)));
     }
@@ -541,13 +643,213 @@ fn export_choice(
 
 fn pending_from_container(container: &Rc<Container>, path: &str) -> Rc<PendingContainer> {
     let pending = PendingContainer::new(path, container.name.clone(), container.get_count_flags());
-    for item in &container.content {
-        pending.push_object(item.clone());
+    for (content_index, item) in container.content.iter().enumerate() {
+        if let Ok(child_container) = item.clone().into_any().downcast::<Container>() {
+            let child_path = if child_container.has_valid_name() {
+                format!("{}.{}", path, child_container.name.as_deref().unwrap_or_default())
+            } else {
+                format!("{}.{}", path, content_index)
+            };
+            pending.push_container(pending_from_container(&child_container, &child_path));
+        } else {
+            pending.push_object(item.clone());
+        }
     }
     for (key, value) in container.get_named_only_content() {
         pending.add_named(key.clone(), pending_from_container(&value, &format!("{path}.{key}")));
     }
     pending
+}
+
+fn export_condition_expression(
+    expression: &ParsedExpression,
+    story: &Story,
+    named_paths: &HashMap<String, String>,
+    content: &mut Vec<PendingItem>,
+) -> Result<(), CompilerError> {
+    match expression {
+        ParsedExpression::Variable(name) => {
+            if let Some(path) = resolve_count_path(name, named_paths) {
+                content.push(PendingItem::Object(Rc::new(VariableReference::from_path_for_count(
+                    &path,
+                ))));
+            } else {
+                let mut tmp = Vec::new();
+                export_expression(expression, story, &mut tmp)?;
+                content.extend(tmp.into_iter().map(PendingItem::Object));
+            }
+        }
+        ParsedExpression::Unary { operator, expression } => {
+            export_condition_expression(expression, story, named_paths, content)?;
+            let op = match operator.as_str() {
+                "!" => NativeOp::Not,
+                "-" => NativeOp::Negate,
+                other => {
+                    return Err(CompilerError::unsupported_feature(format!(
+                        "runtime export does not support unary operator '{other}'"
+                    )))
+                }
+            };
+            content.push(PendingItem::Object(native(op)));
+        }
+        ParsedExpression::Binary {
+            left,
+            operator,
+            right,
+        } => {
+            export_condition_expression(left, story, named_paths, content)?;
+            export_condition_expression(right, story, named_paths, content)?;
+            content.push(PendingItem::Object(native(operator_token(operator)?)));
+        }
+        _ => {
+            let mut tmp = Vec::new();
+            export_expression(expression, story, &mut tmp)?;
+            content.extend(tmp.into_iter().map(PendingItem::Object));
+        }
+    }
+
+    Ok(())
+}
+
+fn register_named_path(
+    named_paths: &mut HashMap<String, String>,
+    scope: Scope<'_>,
+    name: &str,
+    runtime_path: &str,
+) {
+    named_paths.insert(name.to_owned(), runtime_path.to_owned());
+
+    if let Some(alias) = weave_label_alias(runtime_path, name) {
+        named_paths.insert(alias, runtime_path.to_owned());
+    }
+
+    if let Scope::Flow(flow) = scope
+        && let Some(flow_name) = flow.flow().identifier()
+    {
+        named_paths.insert(format!("{flow_name}.{name}"), runtime_path.to_owned());
+    }
+}
+
+fn weave_label_alias(runtime_path: &str, name: &str) -> Option<String> {
+    runtime_path
+        .strip_suffix(&format!(".0.{name}"))
+        .map(|prefix| format!("{prefix}.{name}"))
+}
+
+fn resolve_count_path(name: &str, named_paths: &HashMap<String, String>) -> Option<String> {
+    named_paths.get(name).cloned().or_else(|| {
+        let mut parts: Vec<&str> = name.split('.').collect();
+        if parts.len() < 2 {
+            return None;
+        }
+        let last = parts.pop()?;
+        Some(format!("{}.0.{last}", parts.join(".")))
+    })
+}
+
+fn collect_current_level_named_paths(
+    path_prefix: &str,
+    nodes: &[ParsedNode],
+) -> HashMap<String, String> {
+    let base_depth = nodes
+        .iter()
+        .filter_map(weave_depth)
+        .min()
+        .unwrap_or(1);
+    let mut current_path = path_prefix.to_owned();
+    let mut has_seen_choice_in_section = false;
+    let mut choice_count = 0usize;
+    let mut gather_count = 0usize;
+    let mut result = HashMap::new();
+
+    for node in nodes {
+        let Some(depth) = weave_depth(node) else {
+            continue;
+        };
+        if depth > base_depth {
+            continue;
+        }
+
+        match node.kind() {
+            ParsedNodeKind::Choice => {
+                if let Some(name) = node.name() {
+                    let choice_path = format!("{}.c-{choice_count}", current_path);
+                    result.insert(name.to_owned(), choice_path.clone());
+                    if let Some(alias) = weave_label_alias(&choice_path, name) {
+                        result.insert(alias, choice_path);
+                    }
+                }
+                has_seen_choice_in_section = true;
+                choice_count += 1;
+            }
+            ParsedNodeKind::GatherPoint => {
+                let is_named_gather = node.name().is_some();
+                let gather_name = node
+                    .name()
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| format!("g-{gather_count}"));
+                let gather_path = if !has_seen_choice_in_section {
+                    format!("{}.{}", current_path, gather_name)
+                } else {
+                    format!("{path_prefix}.{}", gather_name)
+                };
+                if node.name().is_some() {
+                    result.insert(gather_name.clone(), gather_path.clone());
+                    if let Some(alias) = weave_label_alias(&gather_path, &gather_name) {
+                        result.insert(alias, gather_path.clone());
+                    }
+                }
+                current_path = gather_path;
+                has_seen_choice_in_section = false;
+                if !is_named_gather {
+                    gather_count += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    result
+}
+
+fn collect_loose_choice_ends(container: &Rc<PendingContainer>) -> Vec<Rc<PendingContainer>> {
+    let mut result = Vec::new();
+
+    if container.count_flags == 5 && !pending_container_has_terminal(container) {
+        result.push(container.clone());
+    }
+
+    for (_, named) in container.named.borrow().iter() {
+        result.extend(collect_loose_choice_ends(named));
+    }
+
+    for item in container.content.borrow().iter() {
+        if let PendingItem::Container(child) = item {
+            result.extend(collect_loose_choice_ends(child));
+        }
+    }
+
+    result
+}
+
+fn pending_container_has_terminal(container: &Rc<PendingContainer>) -> bool {
+    let content = container.content.borrow();
+    let Some(last) = content.last() else {
+        return false;
+    };
+
+    match last {
+        PendingItem::Object(object) => {
+            if object.as_any().is::<Divert>() {
+                return true;
+            }
+            if let Some(command) = object.as_any().downcast_ref::<ControlCommand>() {
+                return matches!(command.command_type, CommandType::End | CommandType::Done);
+            }
+            false
+        }
+        PendingItem::Container(_) => false,
+    }
 }
 
 fn variable_divert(name: &str) -> Rc<dyn RTObject> {
@@ -573,12 +875,17 @@ fn weave_depth(node: &ParsedNode) -> Option<usize> {
     }
 }
 
-fn export_divert(target: &str, scope: Scope<'_>, story: &Story) -> Rc<dyn RTObject> {
+fn export_divert(
+    target: &str,
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: Option<&HashMap<String, String>>,
+) -> Rc<dyn RTObject> {
     match target {
         "END" => command(CommandType::End),
         "DONE" => command(CommandType::Done),
         _ => {
-            let resolved = resolve_target(target, scope, story);
+            let resolved = resolve_target(target, scope, story, named_paths);
             if is_global_variable_divert(&resolved, story) {
                 Rc::new(Divert::new(
                     false,
@@ -596,6 +903,43 @@ fn export_divert(target: &str, scope: Scope<'_>, story: &Story) -> Rc<dyn RTObje
     }
 }
 
+fn export_divert_conditional(
+    target: &str,
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: Option<&HashMap<String, String>>,
+) -> Rc<dyn RTObject> {
+    match target {
+        "END" => Rc::new(Divert::new(
+            false,
+            PushPopType::Tunnel,
+            false,
+            0,
+            true,
+            None,
+            Some("END"),
+        )),
+        "DONE" => Rc::new(Divert::new(
+            false,
+            PushPopType::Tunnel,
+            false,
+            0,
+            true,
+            None,
+            Some("DONE"),
+        )),
+        _ => Rc::new(Divert::new(
+            false,
+            PushPopType::Tunnel,
+            false,
+            0,
+            true,
+            None,
+            Some(&resolve_target(target, scope, story, named_paths)),
+        )),
+    }
+}
+
 fn is_global_variable_divert(target: &str, story: &Story) -> bool {
     story
         .global_initializers()
@@ -607,7 +951,18 @@ fn is_global_variable_divert(target: &str, story: &Story) -> bool {
             .any(|flow| flow.flow().identifier() == Some(target))
 }
 
-fn resolve_target(target: &str, scope: Scope<'_>, story: &Story) -> String {
+fn resolve_target(
+    target: &str,
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: Option<&HashMap<String, String>>,
+) -> String {
+    if let Some(named_paths) = named_paths
+        && let Some(path) = named_paths.get(target)
+    {
+        return path.clone();
+    }
+
     if target.contains('.') {
         return target.to_owned();
     }
@@ -638,6 +993,108 @@ fn resolve_target(target: &str, scope: Scope<'_>, story: &Story) -> String {
     target.to_owned()
 }
 
+fn export_sequence(
+    node: &ParsedNode,
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: Option<&HashMap<String, String>>,
+) -> Result<Rc<dyn RTObject>, CompilerError> {
+    use crate::parsed_hierarchy::SequenceType;
+
+    let seq_type = node.sequence_type;
+    let once     = (seq_type & SequenceType::Once    as u8) != 0;
+    let cycle    = (seq_type & SequenceType::Cycle   as u8) != 0;
+    let stopping = (seq_type & SequenceType::Stopping as u8) != 0;
+    let shuffle  = (seq_type & SequenceType::Shuffle  as u8) != 0;
+    // Default: if no flag set, treat as stopping
+    let stopping = stopping || (!once && !cycle && !shuffle);
+
+    let elements = node.children(); // each child is a wrapper with children = element nodes
+    let num_elements = elements.len();
+
+    // Number of branches (once gets an extra empty branch)
+    let seq_branch_count = if once { num_elements + 1 } else { num_elements };
+
+    // Build seq_items (the list of items before the nop)
+    let mut seq_items: Vec<Rc<dyn RTObject>> = Vec::new();
+
+    // Eval block: compute chosen index
+    seq_items.push(command(CommandType::EvalStart));
+    seq_items.push(command(CommandType::VisitIndex));
+
+    if stopping || once {
+        seq_items.push(rt_int(seq_branch_count as i32 - 1));
+        seq_items.push(Rc::new(NativeFunctionCall::new(NativeOp::Min)));
+    } else if cycle {
+        seq_items.push(rt_int(num_elements as i32));
+        seq_items.push(Rc::new(NativeFunctionCall::new(NativeOp::Mod)));
+    }
+    // For shuffle: treat as stopping for now (TODO: full shuffle)
+
+    seq_items.push(command(CommandType::EvalEnd));
+
+    // For each branch: ev, du, index, ==, /ev, conditional divert to .^.sN
+    for el_index in 0..seq_branch_count {
+        seq_items.push(command(CommandType::EvalStart));
+        seq_items.push(command(CommandType::Duplicate));
+        seq_items.push(rt_int(el_index as i32));
+        seq_items.push(Rc::new(NativeFunctionCall::new(NativeOp::Equal)));
+        seq_items.push(command(CommandType::EvalEnd));
+
+        // Conditional divert to .^.sN (sibling named container)
+        let branch_path = format!(".^.s{}", el_index);
+        seq_items.push(Rc::new(Divert::new(
+            false,
+            PushPopType::Function,
+            false,
+            0,
+            true, // is_conditional
+            None,
+            Some(&branch_path),
+        )));
+    }
+
+    // The nop sits at seq_items.len()
+    let nop_index = seq_items.len();
+    let nop_path = format!(".^.{}", nop_index);
+    seq_items.push(command(CommandType::NoOp));
+
+    // Build named branch containers with correct back-divert path
+    let mut named_branches: HashMap<String, Rc<Container>> = HashMap::new();
+    for el_index in 0..seq_branch_count {
+        let branch_content: Vec<Rc<dyn RTObject>> = if el_index < num_elements {
+            let element_nodes = elements[el_index].children();
+            export_nodes_with_paths(element_nodes, scope, story, named_paths)?
+        } else {
+            // Extra empty branch for "once"
+            Vec::new()
+        };
+
+        let back_divert = Rc::new(Divert::new(
+            false, PushPopType::Function, false, 0, false, None,
+            Some(&nop_path),
+        ));
+
+        let mut branch_items: Vec<Rc<dyn RTObject>> = Vec::new();
+        branch_items.push(command(CommandType::PopEvaluatedValue));
+        branch_items.extend(branch_content);
+        branch_items.push(back_divert);
+
+        let branch_name = format!("s{}", el_index);
+        named_branches.insert(
+            branch_name.clone(),
+            Container::new(Some(branch_name), 0, branch_items, HashMap::new()),
+        );
+    }
+
+    Ok(Container::new(
+        None,
+        5, // visits_should_be_counted | counting_at_start_only
+        seq_items,
+        named_branches,
+    ))
+}
+
 fn export_assignment(
     node: &ParsedNode,
     story: &Story,
@@ -661,6 +1118,12 @@ fn export_assignment(
             export_expression(expression, story, content)?;
             content.push(command(CommandType::EvalEnd));
             content.push(variable_assignment(name, true, false));
+        }
+        "GlobalDecl" => {
+            content.push(command(CommandType::EvalStart));
+            export_expression(expression, story, content)?;
+            content.push(command(CommandType::EvalEnd));
+            content.push(variable_assignment(name, true, true));
         }
         "TempSet" => {
             content.push(command(CommandType::EvalStart));
@@ -830,6 +1293,29 @@ fn export_expression(
                     export_expression(argument, story, content)?;
                 }
                 content.push(native(native_op));
+            } else if let Some(function_flow) = story.parsed_flows().iter().find(|flow| {
+                flow.flow().identifier() == Some(name.as_str()) && flow.flow().is_function()
+            }) {
+                if arguments.is_empty()
+                    && let Some(text) = simple_function_text(function_flow)
+                {
+                    content.push(rt_value(text.as_str()));
+                } else {
+                    if !arguments.is_empty() {
+                        return Err(CompilerError::unsupported_feature(format!(
+                            "runtime export does not support function call '{name}' with arguments"
+                        )));
+                    }
+                    content.push(Rc::new(Divert::new(
+                        true,
+                        PushPopType::Function,
+                        false,
+                        0,
+                        false,
+                        None,
+                        Some(name),
+                    )));
+                }
             } else {
                 return Err(CompilerError::unsupported_feature(format!(
                     "runtime export does not support function call '{name}'"
@@ -854,6 +1340,20 @@ fn insert_resolved_list_item(
             "runtime export cannot resolve list item '{item}'"
         )))
     }
+}
+
+fn simple_function_text(flow: &ParsedFlow) -> Option<String> {
+    let mut text = String::new();
+
+    for node in flow.content() {
+        match node.kind() {
+            ParsedNodeKind::Text => text.push_str(node.text()?),
+            ParsedNodeKind::Newline => {}
+            _ => return None,
+        }
+    }
+
+    Some(text)
 }
 
 fn operator_token(operator: &str) -> Result<NativeOp, CompilerError> {
@@ -936,6 +1436,10 @@ fn command(command_type: CommandType) -> Rc<dyn RTObject> {
 
 fn rt_value<T: Into<Value>>(value: T) -> Rc<dyn RTObject> {
     Rc::new(Value::new(value))
+}
+
+fn rt_int(value: i32) -> Rc<dyn RTObject> {
+    Rc::new(Value::new::<i32>(value))
 }
 
 fn native(op: NativeOp) -> Rc<dyn RTObject> {

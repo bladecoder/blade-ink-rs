@@ -315,4 +315,5 @@ Stitch text
 
         assert_eq!("Score: 1\nsad\n", story.continue_maximally().unwrap());
     }
+
 }

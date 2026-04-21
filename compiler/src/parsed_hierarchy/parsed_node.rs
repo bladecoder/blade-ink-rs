@@ -80,6 +80,7 @@ pub struct ParsedNode {
     target: Option<String>,
     arguments: Vec<ParsedExpression>,
     expression: Option<ParsedExpression>,
+    condition: Option<ParsedExpression>,
     children: Vec<ParsedNode>,
     // Choice / Gather specific
     pub indentation_depth: usize,
@@ -87,6 +88,8 @@ pub struct ParsedNode {
     pub is_invisible_default: bool,
     pub start_content: Vec<ParsedNode>,
     pub choice_only_content: Vec<ParsedNode>,
+    // Sequence specific
+    pub sequence_type: u8,
 }
 
 impl ParsedNode {
@@ -99,12 +102,14 @@ impl ParsedNode {
             target: None,
             arguments: Vec::new(),
             expression: None,
+            condition: None,
             children: Vec::new(),
             indentation_depth: 0,
             once_only: true,
             is_invisible_default: false,
             start_content: Vec::new(),
             choice_only_content: Vec::new(),
+            sequence_type: 0,
         }
     }
 
@@ -144,6 +149,10 @@ impl ParsedNode {
         &self.children
     }
 
+    pub fn condition(&self) -> Option<&ParsedExpression> {
+        self.condition.as_ref()
+    }
+
     pub fn with_text(mut self, text: impl Into<String>) -> Self {
         self.text = Some(text.into());
         self
@@ -166,6 +175,11 @@ impl ParsedNode {
 
     pub fn with_expression(mut self, expression: ParsedExpression) -> Self {
         self.expression = Some(expression);
+        self
+    }
+
+    pub fn with_condition(mut self, condition: ParsedExpression) -> Self {
+        self.condition = Some(condition);
         self
     }
 
