@@ -1,3 +1,7 @@
+use std::rc::Rc;
+
+use bladeink::{RTObject, Value};
+
 use super::{ObjectKind, ParsedObject};
 
 #[derive(Debug, Clone)]
@@ -32,5 +36,15 @@ impl Text {
 
     pub fn is_empty(&self) -> bool {
         self.text.is_empty()
+    }
+
+    pub fn runtime_object(&self) -> Rc<dyn RTObject> {
+        if let Some(runtime_object) = self.object.runtime_object() {
+            return runtime_object;
+        }
+
+        let runtime_object: Rc<dyn RTObject> = Rc::new(Value::new(self.text.as_str()));
+        self.object.set_runtime_object(runtime_object.clone());
+        runtime_object
     }
 }

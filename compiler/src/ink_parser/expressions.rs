@@ -215,7 +215,7 @@ impl<'fh> InkParser<'fh> {
             return self.parser.fail_rule(rule_id);
         };
         self.parser
-            .succeed_rule(rule_id, Some(ParsedExpression::DivertTarget(target.to_owned())))
+            .succeed_rule(rule_id, Some(ParsedExpression::divert_target(target.to_owned())))
     }
 
     fn expression_literal(&mut self) -> Option<ParsedExpression> {
@@ -358,7 +358,7 @@ impl<'fh> InkParser<'fh> {
         };
         self.parser.succeed_rule(
             rule_id,
-            Some(ParsedExpression::FunctionCall { name, arguments }),
+            Some(ParsedExpression::function_call(name, arguments)),
         )
     }
 
@@ -417,7 +417,7 @@ impl<'fh> InkParser<'fh> {
         }
 
         self.parser
-            .succeed_rule(rule_id, Some(ParsedExpression::Variable(path.join("."))))
+            .succeed_rule(rule_id, Some(ParsedExpression::variable(path.join("."))))
     }
 }
 
@@ -472,7 +472,7 @@ fn fast_parse_simple_expression(text: &str) -> Option<ParsedExpression> {
     }
 
     if is_simple_identifier_or_path(text) && !is_reserved_keyword(text) && !is_number_only_identifier(text) {
-        return Some(ParsedExpression::Variable(text.to_owned()));
+        return Some(ParsedExpression::variable(text.to_owned()));
     }
 
     None

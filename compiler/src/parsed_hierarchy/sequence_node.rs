@@ -220,7 +220,10 @@ impl<'a> SequenceNode<'a> {
             named_branches.insert(branch_name, branch_container);
         }
 
-        Ok(Container::new(None, 5, seq_items, named_branches))
+        let container = Container::new(None, 5, seq_items, named_branches);
+        self.node.object().set_runtime_object(container.clone());
+        self.node.object().set_container_for_counting(container.clone());
+        Ok(container)
     }
 }
 

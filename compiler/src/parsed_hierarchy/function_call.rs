@@ -60,7 +60,10 @@ impl FunctionCall {
             for (argument, parameter) in arguments.iter().zip(target_flow.flow().arguments().iter()) {
                 if parameter.is_divert_target {
                     match argument {
-                        ParsedExpression::Variable(variable_name) => {
+                        ParsedExpression::Variable {
+                            name: variable_name,
+                            ..
+                        } => {
                             if !scope.divert_target_vars.contains(variable_name) {
                                 return Err(CompilerError::invalid_source(format!(
                                     "Since '{}' is used as a variable divert target, it should be marked as: -> {}",
@@ -68,7 +71,7 @@ impl FunctionCall {
                                 )));
                             }
                         }
-                        ParsedExpression::DivertTarget(target) => {
+                        ParsedExpression::DivertTarget { target, .. } => {
                             if scope.divert_target_vars.contains(target) {
                                 return Err(CompilerError::invalid_source(format!(
                                     "Can't pass '-> {}' to a parameter that already expects a divert target variable",

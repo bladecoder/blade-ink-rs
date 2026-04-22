@@ -427,7 +427,10 @@ impl<'a> ConditionalNode<'a> {
         }
 
         content.push(rejoin_nop);
-        Ok(Container::new(None, 0, content, HashMap::new()))
+        let container = Container::new(None, 0, content, HashMap::new());
+        self.node.object().set_runtime_object(container.clone());
+        self.node.object().set_container_for_counting(container.clone());
+        Ok(container)
     }
 }
 

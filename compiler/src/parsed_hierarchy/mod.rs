@@ -41,6 +41,7 @@ pub use gather_node::{GatherNode, GatherNodeSpec};
 pub use included_file::IncludedFile;
 pub use list::{List, ListDefinition, ListElementDefinition};
 pub use object::{ObjectKind, ParsedObject, ParsedObjectIndex, ParsedObjectRef};
+pub(crate) use object::ParsedRuntimeCache;
 pub use parsed_node::{ParsedAssignmentMode, ParsedExpression, ParsedFlow, ParsedNode, ParsedNodeKind};
 pub use return_node::Return;
 pub use sequence_node::{SequenceNode, SequenceNodeSpec};

@@ -1,7 +1,11 @@
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, VecDeque},
+    rc::Rc,
     sync::atomic::{AtomicUsize, Ordering},
 };
+
+use bladeink::{Container, Path, RTObject, path_of};
 
 use super::DebugMetadata;
 
@@ -60,7 +64,73 @@ impl ParsedObjectRef {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Default)]
+pub(crate) struct ParsedRuntimeCache {
+    runtime_object: RefCell<Option<Rc<dyn RTObject>>>,
+    runtime_path_target: RefCell<Option<Rc<dyn RTObject>>>,
+    container_for_counting: RefCell<Option<Rc<Container>>>,
+}
+
+impl std::fmt::Debug for ParsedRuntimeCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ParsedRuntimeCache")
+            .field("has_runtime_object", &self.runtime_object.borrow().is_some())
+            .field("has_runtime_path_target", &self.runtime_path_target.borrow().is_some())
+            .field(
+                "has_container_for_counting",
+                &self.container_for_counting.borrow().is_some(),
+            )
+            .finish()
+    }
+}
+
+impl ParsedRuntimeCache {
+    pub(crate) fn set_runtime_object(&self, runtime_object: Rc<dyn RTObject>) {
+        self.runtime_object.replace(Some(runtime_object));
+    }
+
+    pub(crate) fn runtime_object(&self) -> Option<Rc<dyn RTObject>> {
+        self.runtime_object.borrow().clone()
+    }
+
+    pub(crate) fn has_runtime_object(&self) -> bool {
+        self.runtime_object.borrow().is_some()
+    }
+
+    pub(crate) fn set_runtime_path_target(&self, runtime_path_target: Rc<dyn RTObject>) {
+        self.runtime_path_target.replace(Some(runtime_path_target));
+    }
+
+    pub(crate) fn runtime_path_target(&self) -> Option<Rc<dyn RTObject>> {
+        self.runtime_path_target.borrow().clone()
+    }
+
+    pub(crate) fn runtime_path(&self) -> Option<Path> {
+        self.runtime_path_target()
+            .or_else(|| self.runtime_object())
+            .map(|target| path_of(target.as_ref()))
+    }
+
+    pub(crate) fn set_container_for_counting(&self, container: Rc<Container>) {
+        self.container_for_counting.replace(Some(container));
+    }
+
+    pub(crate) fn container_for_counting(&self) -> Option<Rc<Container>> {
+        if let Some(container) = self.container_for_counting.borrow().clone() {
+            return Some(container);
+        }
+
+        self.runtime_object()
+            .and_then(|object| object.into_any().downcast::<Container>().ok())
+    }
+
+    pub(crate) fn clear(&self) {
+        self.runtime_object.replace(None);
+        self.runtime_path_target.replace(None);
+        self.container_for_counting.replace(None);
+    }
+}
+
 pub struct ParsedObject {
     id: usize,
     kind: ObjectKind,
@@ -69,8 +139,37 @@ pub struct ParsedObject {
     debug_metadata: Option<DebugMetadata>,
     error_messages: Vec<String>,
     warning_messages: Vec<String>,
-    runtime_object_cached: bool,
-    runtime_path: Option<String>,
+    runtime_cache: Rc<ParsedRuntimeCache>,
+}
+
+impl std::fmt::Debug for ParsedObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ParsedObject")
+            .field("id", &self.id)
+            .field("kind", &self.kind)
+            .field("parent", &self.parent)
+            .field("content", &self.content)
+            .field("debug_metadata", &self.debug_metadata)
+            .field("error_messages", &self.error_messages)
+            .field("warning_messages", &self.warning_messages)
+            .field("runtime_cache", &self.runtime_cache)
+            .finish()
+    }
+}
+
+impl Clone for ParsedObject {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            kind: self.kind,
+            parent: self.parent,
+            content: self.content.clone(),
+            debug_metadata: self.debug_metadata.clone(),
+            error_messages: self.error_messages.clone(),
+            warning_messages: self.warning_messages.clone(),
+            runtime_cache: self.runtime_cache.clone(),
+        }
+    }
 }
 
 impl ParsedObject {
@@ -83,8 +182,7 @@ impl ParsedObject {
             debug_metadata: None,
             error_messages: Vec::new(),
             warning_messages: Vec::new(),
-            runtime_object_cached: false,
-            runtime_path: None,
+            runtime_cache: Rc::new(ParsedRuntimeCache::default()),
         }
     }
 
@@ -237,25 +335,44 @@ impl ParsedObject {
         self.debug_metadata.is_some()
     }
 
-    pub fn mark_runtime_object_cached(&mut self) {
-        self.runtime_object_cached = true;
+    pub fn set_runtime_object(&self, runtime_object: Rc<dyn RTObject>) {
+        self.runtime_cache.set_runtime_object(runtime_object);
     }
 
-    pub fn clear_runtime_object_cache(&mut self) {
-        self.runtime_object_cached = false;
+    pub fn runtime_object(&self) -> Option<Rc<dyn RTObject>> {
+        self.runtime_cache.runtime_object()
     }
 
-    pub fn has_runtime_object_cached(&self) -> bool {
-        self.runtime_object_cached
+    pub fn has_runtime_object(&self) -> bool {
+        self.runtime_cache.has_runtime_object()
     }
 
-    pub fn runtime_path(&self) -> Option<&str> {
-        self.runtime_path.as_deref()
+    pub fn set_runtime_path_target(&self, runtime_path_target: Rc<dyn RTObject>) {
+        self.runtime_cache.set_runtime_path_target(runtime_path_target);
     }
 
-    pub fn set_runtime_path(&mut self, runtime_path: impl Into<String>) {
-        self.runtime_path = Some(runtime_path.into());
-        self.mark_runtime_object_cached();
+    pub fn runtime_path(&self) -> Option<Path> {
+        self.runtime_cache.runtime_path()
+    }
+
+    pub fn runtime_path_target(&self) -> Option<Rc<dyn RTObject>> {
+        self.runtime_cache.runtime_path_target()
+    }
+
+    pub fn set_container_for_counting(&self, container: Rc<Container>) {
+        self.runtime_cache.set_container_for_counting(container);
+    }
+
+    pub fn container_for_counting(&self) -> Option<Rc<Container>> {
+        self.runtime_cache.container_for_counting()
+    }
+
+    pub fn clear_runtime_object_cache(&self) {
+        self.runtime_cache.clear();
+    }
+
+    pub(crate) fn runtime_cache_handle(&self) -> Rc<ParsedRuntimeCache> {
+        self.runtime_cache.clone()
     }
 
     pub fn error(&mut self, message: impl Into<String>) {
@@ -438,14 +555,29 @@ mod tests {
 
     #[test]
     fn object_tracks_runtime_cache_state() {
-        let mut object = ParsedObject::new(ObjectKind::ContentList);
-        assert!(!object.has_runtime_object_cached());
-        object.mark_runtime_object_cached();
-        assert!(object.has_runtime_object_cached());
-        object.set_runtime_path("0.1");
-        assert_eq!(Some("0.1"), object.runtime_path());
+        let object = ParsedObject::new(ObjectKind::ContentList);
+        let runtime = bladeink::Container::new(None, 0, Vec::new(), std::collections::HashMap::new());
+        object.set_runtime_object(runtime.clone());
+        assert!(object.has_runtime_object());
+        assert_eq!(Some("".to_owned()), object.runtime_path().map(|path| path.to_string()));
+        object.set_container_for_counting(runtime.clone());
+        assert!(object.container_for_counting().is_some());
         object.clear_runtime_object_cache();
-        assert!(!object.has_runtime_object_cached());
+        assert!(!object.has_runtime_object());
+        assert!(object.runtime_path().is_none());
+    }
+
+    #[test]
+    fn object_clone_shares_runtime_cache() {
+        let object = ParsedObject::new(ObjectKind::ContentList);
+        let cloned = object.clone();
+        let runtime = bladeink::Container::new(None, 0, Vec::new(), std::collections::HashMap::new());
+
+        cloned.set_runtime_object(runtime);
+
+        assert!(object.has_runtime_object());
+        object.clear_runtime_object_cache();
+        assert!(!cloned.has_runtime_object());
     }
 
     #[test]

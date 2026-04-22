@@ -13,6 +13,7 @@ use super::{ParsedExpression, ParsedNode, ParsedNodeKind, Story};
 
 #[derive(Debug, Clone)]
 pub struct ChoiceNodeSpec {
+    pub(crate) source_node: Option<ParsedNode>,
     pub indentation_depth: usize,
     pub once_only: bool,
     pub identifier: Option<String>,
@@ -27,6 +28,7 @@ impl ChoiceNodeSpec {
     pub fn from_node(node: &ParsedNode) -> Option<Self> {
         let choice = ChoiceNode::from_node(node)?;
         Some(Self {
+            source_node: Some(node.clone()),
             indentation_depth: choice.indentation_depth(),
             once_only: choice.once_only(),
             identifier: choice.identifier().map(ToOwned::to_owned),
@@ -129,6 +131,26 @@ impl ChoiceNodeSpec {
                 )
             };
             let outer = PendingContainer::new(state, &outer_path, None, 0);
+            if let Some(source_node) = &self.source_node {
+                state.add_parsed_runtime_fixup(
+                    source_node.object().runtime_cache_handle(),
+                    outer.id(),
+                    crate::runtime_export::ParsedRuntimeFixupFlags {
+                        runtime_object: true,
+                        runtime_path_target: false,
+                        container_for_counting: false,
+                    },
+                );
+                state.add_parsed_runtime_fixup(
+                    source_node.object().runtime_cache_handle(),
+                    choice_container.id(),
+                    crate::runtime_export::ParsedRuntimeFixupFlags {
+                        runtime_object: false,
+                        runtime_path_target: true,
+                        container_for_counting: true,
+                    },
+                );
+            }
             outer.push_object(command(CommandType::EvalStart));
             outer.push_object(rt_value(Path::new_with_components_string(Some(&r1_path))));
             outer.push_object(runtime_variable_assignment("$r", false, true));
@@ -205,6 +227,17 @@ impl ChoiceNodeSpec {
                 0,
             ));
         } else {
+            if let Some(source_node) = &self.source_node {
+                state.add_parsed_runtime_fixup(
+                    source_node.object().runtime_cache_handle(),
+                    choice_container.id(),
+                    crate::runtime_export::ParsedRuntimeFixupFlags {
+                        runtime_object: true,
+                        runtime_path_target: true,
+                        container_for_counting: true,
+                    },
+                );
+            }
             current.push_object(command(CommandType::EvalStart));
             if has_choice_only {
                 current.push_object(command(CommandType::BeginString));

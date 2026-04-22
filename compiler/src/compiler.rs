@@ -326,6 +326,30 @@ Stitch text
     }
 
     #[test]
+    fn parsed_weave_points_gain_runtime_path_and_counting_container() {
+        let ink = "* [Choice] selected\n    Chosen\n- (join)\nDone\n";
+        let mut parsed = Compiler::from_source(ink).parse().expect("parse");
+        parsed.resolve_references().expect("resolve");
+        parsed.export_runtime().expect("export runtime");
+
+        let choice = parsed
+            .root_nodes()
+            .iter()
+            .find(|node| node.kind() == ParsedNodeKind::Choice)
+            .expect("choice node");
+        assert!(choice.runtime_path().is_some());
+        assert!(choice.container_for_counting().is_some());
+
+        let gather = parsed
+            .root_nodes()
+            .iter()
+            .find(|node| node.kind() == ParsedNodeKind::GatherLabel)
+            .expect("gather node");
+        assert!(gather.runtime_path().is_some());
+        assert!(gather.container_for_counting().is_some());
+    }
+
+    #[test]
     fn tmp_dump_ifelse_ext_text1_json() {
         let ink = include_str!("../../conformance-tests/inkfiles/conditional/ifelse-ext-text1.ink");
         let json = Compiler::new().compile(ink).expect("compile to json");

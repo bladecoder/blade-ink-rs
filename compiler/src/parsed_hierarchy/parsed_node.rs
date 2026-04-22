@@ -1,5 +1,6 @@
 use crate::error::CompilerError;
 use bladeink::{CommandType, Glue, RTObject, Void};
+use bladeink::{Container, Path};
 use std::collections::HashSet;
 use std::{collections::HashMap, rc::Rc};
 
@@ -64,8 +65,14 @@ pub enum ParsedExpression {
     Float(f32),
     String(String),
     StringExpression(Vec<ParsedNode>),
-    Variable(String),
-    DivertTarget(String),
+    Variable {
+        name: String,
+        resolved_count_target: Option<ParsedObjectRef>,
+    },
+    DivertTarget {
+        target: String,
+        resolved_target: Option<ParsedObjectRef>,
+    },
     ListItems(Vec<String>),
     EmptyList,
     Unary {
@@ -80,6 +87,7 @@ pub enum ParsedExpression {
     FunctionCall {
         name: String,
         arguments: Vec<ParsedExpression>,
+        resolved_target: Option<ParsedObjectRef>,
     },
 }
 
@@ -101,6 +109,7 @@ pub struct ParsedNode {
     assignment_mode: Option<ParsedAssignmentMode>,
     assignment_target: Option<String>,
     target: Option<String>,
+    resolved_target: Option<ParsedObjectRef>,
     arguments: Vec<ParsedExpression>,
     expression: Option<ParsedExpression>,
     condition: Option<ParsedExpression>,
@@ -130,6 +139,7 @@ impl ParsedNode {
             assignment_mode: None,
             assignment_target: None,
             target: None,
+            resolved_target: None,
             arguments: Vec::new(),
             expression: None,
             condition: None,
@@ -183,6 +193,10 @@ impl ParsedNode {
         &self.arguments
     }
 
+    pub fn resolved_target(&self) -> Option<ParsedObjectRef> {
+        self.resolved_target
+    }
+
     pub fn expression(&self) -> Option<&ParsedExpression> {
         self.expression.as_ref()
     }
@@ -201,6 +215,18 @@ impl ParsedNode {
 
     pub fn condition(&self) -> Option<&ParsedExpression> {
         self.condition.as_ref()
+    }
+
+    pub fn runtime_object(&self) -> Option<Rc<dyn RTObject>> {
+        self.object.runtime_object()
+    }
+
+    pub fn runtime_path(&self) -> Option<Path> {
+        self.object.runtime_path()
+    }
+
+    pub fn container_for_counting(&self) -> Option<Rc<Container>> {
+        self.object.container_for_counting()
     }
 
     pub fn sequence_type(&self) -> u8 {
@@ -249,6 +275,10 @@ impl ParsedNode {
         self
     }
 
+    pub fn set_resolved_target(&mut self, resolved_target: ParsedObjectRef) {
+        self.resolved_target = Some(resolved_target);
+    }
+
     pub fn with_expression(mut self, expression: ParsedExpression) -> Self {
         self.expression = Some(expression);
         self
@@ -282,6 +312,39 @@ impl ParsedNode {
         }
         for child in &mut self.children {
             child.resolve_references();
+        }
+    }
+
+    pub(crate) fn resolve_targets(&mut self, story: &Story) {
+        if let Some(expression) = self.expression.as_mut() {
+            expression.resolve_targets(story);
+        }
+        if let Some(condition) = self.condition.as_mut() {
+            condition.resolve_targets(story);
+        }
+
+        if matches!(
+            self.kind(),
+            ParsedNodeKind::Divert
+                | ParsedNodeKind::TunnelDivert
+                | ParsedNodeKind::TunnelOnwardsWithTarget
+                | ParsedNodeKind::ThreadDivert
+        ) && let Some(target) = self.target()
+            && target != "END"
+            && target != "DONE"
+            && let Some(resolved) = story.resolve_target_ref(target)
+        {
+            self.set_resolved_target(resolved);
+        }
+
+        for child in &mut self.start_content {
+            child.resolve_targets(story);
+        }
+        for child in &mut self.choice_only_content {
+            child.resolve_targets(story);
+        }
+        for child in &mut self.children {
+            child.resolve_targets(story);
         }
     }
 
@@ -465,7 +528,7 @@ impl ParsedNode {
             | ParsedNodeKind::ThreadDivert => {
                 self.as_divert()
                     .ok_or_else(|| CompilerError::unsupported_feature("runtime export divert shape"))?
-                    .export_runtime(scope, story, named_paths, content)?;
+                    .export_runtime(state, scope, story, named_paths, content)?;
             }
             ParsedNodeKind::TunnelReturn => {
                 content.push(crate::runtime_export::command(CommandType::EvalStart));
@@ -579,9 +642,124 @@ impl ParsedNode {
     }
 }
 
+impl ParsedExpression {
+    pub fn variable(name: impl Into<String>) -> Self {
+        Self::Variable {
+            name: name.into(),
+            resolved_count_target: None,
+        }
+    }
+
+    pub fn divert_target(target: impl Into<String>) -> Self {
+        Self::DivertTarget {
+            target: target.into(),
+            resolved_target: None,
+        }
+    }
+
+    pub fn function_call(name: impl Into<String>, arguments: Vec<ParsedExpression>) -> Self {
+        Self::FunctionCall {
+            name: name.into(),
+            arguments,
+            resolved_target: None,
+        }
+    }
+
+    pub fn variable_name(&self) -> Option<&str> {
+        match self {
+            ParsedExpression::Variable { name, .. } => Some(name),
+            _ => None,
+        }
+    }
+
+    pub fn divert_target_name(&self) -> Option<&str> {
+        match self {
+            ParsedExpression::DivertTarget { target, .. } => Some(target),
+            _ => None,
+        }
+    }
+
+    pub fn function_call_name(&self) -> Option<&str> {
+        match self {
+            ParsedExpression::FunctionCall { name, .. } => Some(name),
+            _ => None,
+        }
+    }
+
+    pub fn function_call_arguments(&self) -> Option<&[ParsedExpression]> {
+        match self {
+            ParsedExpression::FunctionCall { arguments, .. } => Some(arguments),
+            _ => None,
+        }
+    }
+
+    pub fn resolved_target(&self) -> Option<ParsedObjectRef> {
+        match self {
+            ParsedExpression::DivertTarget { resolved_target, .. } => *resolved_target,
+            ParsedExpression::FunctionCall { resolved_target, .. } => *resolved_target,
+            _ => None,
+        }
+    }
+
+    pub fn resolved_count_target(&self) -> Option<ParsedObjectRef> {
+        match self {
+            ParsedExpression::Variable {
+                resolved_count_target,
+                ..
+            } => *resolved_count_target,
+            _ => None,
+        }
+    }
+
+    pub fn resolve_targets(&mut self, story: &Story) {
+        match self {
+            ParsedExpression::Variable {
+                name,
+                resolved_count_target,
+            } => {
+                *resolved_count_target = story.resolve_target_ref(name);
+            }
+            ParsedExpression::DivertTarget {
+                target,
+                resolved_target,
+            } => {
+                *resolved_target = story.resolve_target_ref(target);
+            }
+            ParsedExpression::Unary { expression, .. } => expression.resolve_targets(story),
+            ParsedExpression::Binary { left, right, .. } => {
+                left.resolve_targets(story);
+                right.resolve_targets(story);
+            }
+            ParsedExpression::FunctionCall {
+                name,
+                arguments,
+                resolved_target,
+            } => {
+                *resolved_target = story.find_flow_by_name(name).map(|flow| flow.reference());
+                for argument in arguments {
+                    argument.resolve_targets(story);
+                }
+            }
+            ParsedExpression::StringExpression(nodes) => {
+                for node in nodes {
+                    node.resolve_targets(story);
+                }
+            }
+            ParsedExpression::Bool(_)
+            | ParsedExpression::Int(_)
+            | ParsedExpression::Float(_)
+            | ParsedExpression::String(_)
+            | ParsedExpression::ListItems(_)
+            | ParsedExpression::EmptyList => {}
+        }
+    }
+}
+
 fn expression_uses_turn_or_read_count(expression: &ParsedExpression) -> bool {
     match expression {
-        ParsedExpression::FunctionCall { name, arguments } => {
+        ParsedExpression::FunctionCall {
+            name, arguments, ..
+        } => {
             matches!(name.as_str(), "TURNS_SINCE" | "READ_COUNT")
                 || arguments.iter().any(expression_uses_turn_or_read_count)
         }
@@ -662,15 +840,24 @@ impl ParsedFlow {
             child.resolve_references();
         }
     }
+
+    pub(crate) fn resolve_targets(&mut self, story: &Story) {
+        for node in &mut self.content {
+            node.resolve_targets(story);
+        }
+        for child in &mut self.children {
+            child.resolve_targets(story);
+        }
+    }
 }
 
 impl ParsedExpression {
     pub(super) fn validate(&self, scope: &ValidationScope, story: &Story) -> Result<(), CompilerError> {
         match self {
-            ParsedExpression::Variable(name) => {
+            ParsedExpression::Variable { name, .. } => {
                 VariableReference::validate_name(name, scope, story)?;
             }
-            ParsedExpression::DivertTarget(target) => {
+            ParsedExpression::DivertTarget { target, .. } => {
                 DivertTarget::validate_explicit_target(target, scope, story)?;
             }
             ParsedExpression::Unary { expression, .. } => {
@@ -680,7 +867,9 @@ impl ParsedExpression {
                 left.validate(scope, story)?;
                 right.validate(scope, story)?;
             }
-            ParsedExpression::FunctionCall { name, arguments } => {
+            ParsedExpression::FunctionCall {
+                name, arguments, ..
+            } => {
                 FunctionCall::validate_call_arguments(name, arguments, scope, story)?;
             }
             ParsedExpression::StringExpression(nodes) => {

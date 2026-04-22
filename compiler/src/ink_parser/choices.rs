@@ -48,6 +48,7 @@ impl<'fh> InkParser<'fh> {
 
         Some(
             ChoiceNodeSpec {
+                source_node: None,
                 indentation_depth: depth,
                 once_only,
                 identifier: label,

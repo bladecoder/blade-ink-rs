@@ -1,3 +1,7 @@
+use std::rc::Rc;
+
+use bladeink::{RTObject, VariableReference as RuntimeVariableReference};
+
 use crate::error::CompilerError;
 
 use super::{Expression, ObjectKind, Story, ValidationScope};
@@ -30,6 +34,16 @@ impl VariableReference {
 
     pub fn name(&self) -> String {
         self.path.join(".")
+    }
+
+    pub fn runtime_object(&self) -> Rc<dyn RTObject> {
+        if let Some(runtime_object) = self.expression.object().runtime_object() {
+            return runtime_object;
+        }
+
+        let runtime_object: Rc<dyn RTObject> = Rc::new(RuntimeVariableReference::new(&self.name()));
+        self.expression.object().set_runtime_object(runtime_object.clone());
+        runtime_object
     }
 
     pub(super) fn validate_name(

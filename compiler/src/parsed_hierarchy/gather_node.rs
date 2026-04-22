@@ -5,6 +5,7 @@ use super::{ParsedNode, ParsedNodeKind};
 
 #[derive(Debug, Clone)]
 pub struct GatherNodeSpec {
+    pub(crate) source_node: Option<ParsedNode>,
     pub indentation_depth: usize,
     pub identifier: Option<String>,
     pub content: Vec<ParsedNode>,
@@ -14,6 +15,7 @@ impl GatherNodeSpec {
     pub fn from_node(node: &ParsedNode) -> Option<Self> {
         let gather = GatherNode::from_node(node)?;
         Some(Self {
+            source_node: Some(node.clone()),
             indentation_depth: gather.indentation_depth(),
             identifier: gather.identifier().map(ToOwned::to_owned),
             content: gather.content().to_vec(),

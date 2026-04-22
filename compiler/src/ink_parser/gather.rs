@@ -29,6 +29,7 @@ impl<'fh> InkParser<'fh> {
 
         Some(
             GatherNodeSpec {
+                source_node: None,
                 indentation_depth: depth,
                 identifier: label,
                 content: content_nodes,

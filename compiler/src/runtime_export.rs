@@ -8,7 +8,11 @@ use bladeink::{
 
 use crate::{
     error::CompilerError,
-    parsed_hierarchy::{ChoiceNode, ConditionalNode, GatherNode, ParsedExpression, ParsedFlow, ParsedNode, ParsedNodeKind, Story, StructuredWeave, StructuredWeaveEntry, StructuredWeaveEntryKind},
+    parsed_hierarchy::{
+        ChoiceNode, ConditionalNode, GatherNode, ParsedExpression, ParsedFlow, ParsedNode,
+        ParsedNodeKind, ParsedRuntimeCache, Story, StructuredWeave, StructuredWeaveEntry,
+        StructuredWeaveEntryKind,
+    },
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -20,10 +24,11 @@ pub(crate) enum PathFixupSource {
     ChoicePoint(Rc<ChoicePoint>),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum PathFixupTarget {
     PendingContainer(PendingContainerId),
     RuntimeObject(*const dyn RTObject),
+    ParsedRuntimeCache(Rc<ParsedRuntimeCache>),
 }
 
 #[derive(Clone)]
@@ -32,11 +37,27 @@ struct PathFixup {
     target: PathFixupTarget,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct ParsedRuntimeFixupFlags {
+    pub runtime_object: bool,
+    pub runtime_path_target: bool,
+    pub container_for_counting: bool,
+}
+
+#[derive(Clone)]
+struct ParsedRuntimeFixup {
+    cache: Rc<ParsedRuntimeCache>,
+    target: PendingContainerId,
+    flags: ParsedRuntimeFixupFlags,
+}
+
 pub(crate) struct ExportState {
     next_pending_container_id: Cell<usize>,
     pending_containers: RefCell<HashMap<PendingContainerId, Rc<Container>>>,
     runtime_objects: RefCell<HashMap<*const dyn RTObject, Rc<dyn RTObject>>>,
     path_fixups: RefCell<Vec<PathFixup>>,
+    parsed_runtime_fixups: RefCell<Vec<ParsedRuntimeFixup>>,
+    parsed_runtime_targets_by_path: RefCell<HashMap<String, Rc<ParsedRuntimeCache>>>,
 }
 
 impl ExportState {
@@ -46,6 +67,8 @@ impl ExportState {
             pending_containers: RefCell::new(HashMap::new()),
             runtime_objects: RefCell::new(HashMap::new()),
             path_fixups: RefCell::new(Vec::new()),
+            parsed_runtime_fixups: RefCell::new(Vec::new()),
+            parsed_runtime_targets_by_path: RefCell::new(HashMap::new()),
         }
     }
 
@@ -80,26 +103,89 @@ impl ExportState {
         });
     }
 
+    pub(crate) fn add_parsed_runtime_target_fixup(
+        &self,
+        source: PathFixupSource,
+        target: Rc<ParsedRuntimeCache>,
+    ) {
+        self.path_fixups.borrow_mut().push(PathFixup {
+            source,
+            target: PathFixupTarget::ParsedRuntimeCache(target),
+        });
+    }
+
+    pub(crate) fn add_parsed_runtime_fixup(
+        &self,
+        cache: Rc<ParsedRuntimeCache>,
+        target: PendingContainerId,
+        flags: ParsedRuntimeFixupFlags,
+    ) {
+        self.parsed_runtime_fixups.borrow_mut().push(ParsedRuntimeFixup {
+            cache,
+            target,
+            flags,
+        });
+    }
+
+    pub(crate) fn register_parsed_runtime_target_path(
+        &self,
+        path: impl Into<String>,
+        cache: Rc<ParsedRuntimeCache>,
+    ) {
+        self.parsed_runtime_targets_by_path
+            .borrow_mut()
+            .insert(path.into(), cache);
+    }
+
+    pub(crate) fn parsed_runtime_target_cache_for_path(
+        &self,
+        path: &str,
+    ) -> Option<Rc<ParsedRuntimeCache>> {
+        self.parsed_runtime_targets_by_path.borrow().get(path).cloned()
+    }
+
     pub(crate) fn apply_path_fixups(&self) {
         for fixup in self.path_fixups.borrow().iter() {
-            let target: Rc<dyn RTObject> = match fixup.target {
+            let target: Rc<dyn RTObject> = match &fixup.target {
                 PathFixupTarget::PendingContainer(id) => self
                     .pending_containers
                     .borrow()
-                    .get(&id)
+                    .get(id)
                     .cloned()
                     .expect("registered pending container") as Rc<dyn RTObject>,
                 PathFixupTarget::RuntimeObject(key) => self
                     .runtime_objects
                     .borrow()
-                    .get(&key)
+                    .get(key)
                     .cloned()
                     .expect("registered runtime object"),
+                PathFixupTarget::ParsedRuntimeCache(cache) => cache
+                    .runtime_path_target()
+                    .or_else(|| cache.runtime_object())
+                    .expect("parsed runtime cache target"),
             };
             let path = path_of(target.as_ref());
             match &fixup.source {
                 PathFixupSource::Divert(divert) => divert.set_target_path(path),
                 PathFixupSource::ChoicePoint(choice_point) => choice_point.set_path_on_choice(path),
+            }
+        }
+
+        for fixup in self.parsed_runtime_fixups.borrow().iter() {
+            let target = self
+                .pending_containers
+                .borrow()
+                .get(&fixup.target)
+                .cloned()
+                .expect("registered pending container");
+            if fixup.flags.runtime_object {
+                fixup.cache.set_runtime_object(target.clone());
+            }
+            if fixup.flags.runtime_path_target {
+                fixup.cache.set_runtime_path_target(target.clone());
+            }
+            if fixup.flags.container_for_counting {
+                fixup.cache.set_container_for_counting(target);
             }
         }
     }
@@ -240,7 +326,7 @@ pub(crate) fn export_condition_expression(
     content: &mut Vec<PendingItem>,
 ) -> Result<(), CompilerError> {
     match expression {
-        ParsedExpression::Variable(name) => {
+        ParsedExpression::Variable { name, .. } => {
             if let Some(path) = resolve_count_path(name, named_paths) {
                 content.push(PendingItem::Object(Rc::new(VariableReference::from_path_for_count(
                     &path,
@@ -291,7 +377,7 @@ pub(crate) fn export_output_expression(
     content: &mut Vec<Rc<dyn RTObject>>,
 ) -> Result<(), CompilerError> {
     match expression {
-        ParsedExpression::Variable(name) => {
+        ParsedExpression::Variable { name, .. } => {
             if let Some(path) = resolve_output_count_path(name, scope, named_paths) {
                 content.push(Rc::new(VariableReference::from_path_for_count(&path)));
             } else {
@@ -325,15 +411,22 @@ fn export_expression_scoped(
             export_string_expression(nodes, story, content)?;
             content.push(command(CommandType::EndString));
         }
-        ParsedExpression::Variable(name) => {
+        ParsedExpression::Variable { name, .. } => {
             if let Some(constant) = story.const_declaration(name) {
                 export_expression_node(constant.expression(), story, content)?;
             } else {
                 content.push(Rc::new(VariableReference::new(name)));
             }
         }
-        ParsedExpression::DivertTarget(target) => {
-            let resolved = resolve_target(target, scope, story, named_paths);
+        ParsedExpression::DivertTarget {
+            target,
+            resolved_target,
+        } => {
+            let resolved = resolved_target
+                .and_then(|target_ref| story.runtime_target_cache_for_ref(target_ref))
+                .and_then(|cache| cache.runtime_path())
+                .map(|path| path.to_string())
+                .unwrap_or_else(|| resolve_target(target, scope, story, named_paths));
             content.push(rt_value(Path::new_with_components_string(Some(&resolved))));
         }
         ParsedExpression::ListItems(items) => {
@@ -372,7 +465,9 @@ fn export_expression_scoped(
             export_expression_scoped(right, scope, story, named_paths, content)?;
             content.push(native(operator_token(operator)?));
         }
-        ParsedExpression::FunctionCall { name, arguments } => {
+        ParsedExpression::FunctionCall {
+            name, arguments, ..
+        } => {
             if story
                 .list_definitions()
                 .iter()
@@ -398,7 +493,11 @@ fn export_expression_scoped(
                 }
             } else if let Some(command_type) = builtin_command(name) {
                 for argument in arguments {
-                    export_expression_scoped(argument, scope, story, named_paths, content)?;
+                    if matches!(name.as_str(), "TURNS_SINCE" | "READ_COUNT") {
+                        export_count_argument_expression(argument, story, content)?;
+                    } else {
+                        export_expression_scoped(argument, scope, story, named_paths, content)?;
+                    }
                 }
                 content.push(command(command_type));
             } else if let Some(native_op) = native_function(name) {
@@ -598,7 +697,9 @@ pub(crate) enum DivertKind {
 }
 
 pub(crate) fn export_divert_by_kind(
+    state: &ExportState,
     target: &str,
+    resolved_target_ref: Option<crate::parsed_hierarchy::ParsedObjectRef>,
     arguments: &[ParsedExpression],
     scope: Scope<'_>,
     story: &Story,
@@ -624,6 +725,9 @@ pub(crate) fn export_divert_by_kind(
     let resolved = variable_target
         .clone()
         .unwrap_or_else(|| resolve_target(target, scope, story, named_paths));
+    let resolved_target_cache = resolved_target_ref
+        .and_then(|target_ref| story.runtime_target_cache_for_ref(target_ref))
+        .or_else(|| resolved_runtime_target_cache(state, &resolved, story));
 
     if variable_target.is_none()
         && story
@@ -652,30 +756,63 @@ pub(crate) fn export_divert_by_kind(
         content.push(command(CommandType::StartThread));
     }
 
-    let divert = if let Some(variable_name) = variable_target {
+    let divert = if let Some(ref variable_name) = variable_target {
         Rc::new(Divert::new(
             matches!(kind, DivertKind::Tunnel),
             PushPopType::Tunnel,
             false,
             0,
             false,
-            Some(variable_name),
-            None,
-        )) as Rc<dyn RTObject>
+                Some(variable_name.clone()),
+                None,
+            )) as Rc<dyn RTObject>
     } else {
         match kind {
-            DivertKind::Normal => divert_object(&resolved),
-            DivertKind::Tunnel => export_tunnel_divert(&resolved),
-            DivertKind::Thread => divert_object(&resolved),
+            DivertKind::Normal => Rc::new(Divert::new(
+                false,
+                PushPopType::Tunnel,
+                false,
+                0,
+                false,
+                None,
+                resolved_target_cache.is_none().then_some(resolved.as_str()),
+            )) as Rc<dyn RTObject>,
+            DivertKind::Tunnel => Rc::new(Divert::new(
+                true,
+                PushPopType::Tunnel,
+                false,
+                0,
+                false,
+                None,
+                resolved_target_cache.is_none().then_some(resolved.as_str()),
+            )) as Rc<dyn RTObject>,
+            DivertKind::Thread => Rc::new(Divert::new(
+                false,
+                PushPopType::Tunnel,
+                false,
+                0,
+                false,
+                None,
+                resolved_target_cache.is_none().then_some(resolved.as_str()),
+            )) as Rc<dyn RTObject>,
         }
     };
+
+    if variable_target.is_none()
+        && let Some(cache) = resolved_target_cache
+        && let Ok(divert_runtime) = divert.clone().into_any().downcast::<Divert>()
+    {
+        state.add_parsed_runtime_target_fixup(PathFixupSource::Divert(divert_runtime), cache);
+    }
 
     content.push(divert);
     Ok(())
 }
 
 pub(crate) fn export_divert_conditional(
+    state: &ExportState,
     target: &str,
+    resolved_target_ref: Option<crate::parsed_hierarchy::ParsedObjectRef>,
     scope: Scope<'_>,
     story: &Story,
     named_paths: Option<&HashMap<String, String>>,
@@ -699,28 +836,26 @@ pub(crate) fn export_divert_conditional(
             None,
             Some("DONE"),
         ))),
-        _ => Ok(Rc::new(Divert::new(
-            false,
-            PushPopType::Tunnel,
-            false,
-            0,
-            true,
-            None,
-            Some(&resolve_target(target, scope, story, named_paths)),
-        ))),
+        _ => {
+            let resolved = resolve_target(target, scope, story, named_paths);
+            let resolved_target_cache = resolved_target_ref
+                .and_then(|target_ref| story.runtime_target_cache_for_ref(target_ref))
+                .or_else(|| resolved_runtime_target_cache(state, &resolved, story));
+            let divert = Rc::new(Divert::new(
+                false,
+                PushPopType::Tunnel,
+                false,
+                0,
+                true,
+                None,
+                resolved_target_cache.is_none().then_some(resolved.as_str()),
+            ));
+            if let Some(cache) = resolved_target_cache {
+                state.add_parsed_runtime_target_fixup(PathFixupSource::Divert(divert.clone()), cache);
+            }
+            Ok(divert)
+        }
     }
-}
-
-fn export_tunnel_divert(target: &str) -> Rc<dyn RTObject> {
-    Rc::new(Divert::new(
-        true,
-        PushPopType::Tunnel,
-        false,
-        0,
-        false,
-        None,
-        Some(target),
-    ))
 }
 
 pub(crate) fn export_divert_arguments(
@@ -736,7 +871,7 @@ pub(crate) fn export_divert_arguments(
     for (index, argument) in arguments.iter().enumerate() {
         let expected_argument = expected_arguments.and_then(|args| args.get(index));
         if expected_argument.is_some_and(|arg| arg.is_by_reference) {
-            let ParsedExpression::Variable(var_name) = argument else {
+            let ParsedExpression::Variable { name: var_name, .. } = argument else {
                 return Err(CompilerError::unsupported_feature(format!(
                     "runtime export divert to '{target}' requires variable arguments for by-reference parameters"
                 )));
@@ -758,8 +893,15 @@ fn export_divert_argument_expression(
     content: &mut Vec<Rc<dyn RTObject>>,
 ) -> Result<(), CompilerError> {
     match argument {
-        ParsedExpression::DivertTarget(target) => {
-            let resolved = resolve_target(target, scope, story, named_paths);
+        ParsedExpression::DivertTarget {
+            target,
+            resolved_target,
+        } => {
+            let resolved = resolved_target
+                .and_then(|target_ref| story.runtime_target_cache_for_ref(target_ref))
+                .and_then(|cache| cache.runtime_path())
+                .map(|path| path.to_string())
+                .unwrap_or_else(|| resolve_target(target, scope, story, named_paths));
             content.push(rt_value(Path::new_with_components_string(Some(&resolved))));
             Ok(())
         }
@@ -873,6 +1015,26 @@ pub(crate) fn resolve_target(
     }
 
     target.to_owned()
+}
+
+fn resolved_runtime_target_cache(
+    state: &ExportState,
+    target: &str,
+    story: &Story,
+) -> Option<Rc<ParsedRuntimeCache>> {
+    state
+        .parsed_runtime_target_cache_for_path(target)
+        .or_else(|| story.runtime_target_cache_for_path(target))
+}
+
+fn resolved_count_target_path(
+    story: &Story,
+    target: crate::parsed_hierarchy::ParsedObjectRef,
+) -> Option<String> {
+    story
+        .runtime_target_cache_for_ref(target)
+        .and_then(|cache| cache.container_for_counting())
+        .map(|container| path_of(container.as_ref()).to_string())
 }
 
 fn resolve_unique_nested_flow_target(target: &str, story: &Story) -> Option<String> {
@@ -1096,8 +1258,14 @@ pub(crate) fn export_condition_expression_runtime(
     content: &mut Vec<Rc<dyn RTObject>>,
 ) -> Result<(), CompilerError> {
     match expression {
-        ParsedExpression::Variable(name) => {
-            if let Some(path) = resolve_condition_count_path(name, scope, story, named_paths) {
+        ParsedExpression::Variable {
+            name,
+            resolved_count_target,
+        } => {
+            if let Some(path) = resolved_count_target
+                .and_then(|target_ref| resolved_count_target_path(story, target_ref))
+                .or_else(|| resolve_condition_count_path(name, scope, story, named_paths))
+            {
                 content.push(Rc::new(VariableReference::from_path_for_count(&path)));
             } else {
                 export_expression(expression, story, content)?;
@@ -1184,19 +1352,15 @@ fn export_expression_node(
     story: &Story,
     content: &mut Vec<Rc<dyn RTObject>>,
 ) -> Result<(), CompilerError> {
-    use crate::parsed_hierarchy::{ExpressionNode, NumberValue};
+    use crate::parsed_hierarchy::ExpressionNode;
 
     match expression {
-        ExpressionNode::Number(number) => match number.value() {
-            NumberValue::Int(value) => content.push(rt_value(*value)),
-            NumberValue::Float(value) => content.push(rt_value(*value)),
-            NumberValue::Bool(value) => content.push(rt_value(*value)),
-        },
+        ExpressionNode::Number(number) => content.push(number.runtime_object()),
         ExpressionNode::StringExpression(string) => {
             content.push(command(CommandType::BeginString));
             for item in string.content().content() {
                 let crate::parsed_hierarchy::Content::Text(text) = item;
-                content.push(rt_value(text.text()));
+                content.push(text.runtime_object());
             }
             content.push(command(CommandType::EndString));
         }
@@ -1205,7 +1369,7 @@ fn export_expression_node(
             if let Some(constant) = story.const_declaration(&name) {
                 export_expression_node(constant.expression(), story, content)?;
             } else {
-                content.push(Rc::new(VariableReference::new(&name)));
+                content.push(reference.runtime_object());
             }
         }
         ExpressionNode::List(list) => {
@@ -1240,15 +1404,24 @@ pub(crate) fn export_expression(
             export_string_expression(nodes, story, content)?;
             content.push(command(CommandType::EndString));
         }
-        ParsedExpression::Variable(name) => {
+        ParsedExpression::Variable { name, .. } => {
             if let Some(constant) = story.const_declaration(name) {
                 export_expression_node(constant.expression(), story, content)?;
             } else {
                 content.push(Rc::new(VariableReference::new(name)));
             }
         }
-        ParsedExpression::DivertTarget(target) => {
-            content.push(rt_value(Path::new_with_components_string(Some(target))));
+        ParsedExpression::DivertTarget {
+            target,
+            resolved_target,
+        } => {
+            let resolved_path = resolved_target
+                .and_then(|target_ref| story.runtime_target_cache_for_ref(target_ref))
+                .or_else(|| story.runtime_target_cache_for_path(target))
+                .and_then(|cache| cache.runtime_path())
+                .map(|path| path.to_string())
+                .unwrap_or_else(|| target.to_owned());
+            content.push(rt_value(Path::new_with_components_string(Some(&resolved_path))));
         }
         ParsedExpression::ListItems(items) => {
             let mut list = InkList::new();
@@ -1286,7 +1459,11 @@ pub(crate) fn export_expression(
             export_expression(right, story, content)?;
             content.push(native(operator_token(operator)?));
         }
-        ParsedExpression::FunctionCall { name, arguments } => {
+        ParsedExpression::FunctionCall {
+            name,
+            arguments,
+            resolved_target,
+        } => {
             if story
                 .list_definitions()
                 .iter()
@@ -1312,7 +1489,11 @@ pub(crate) fn export_expression(
                 }
             } else if let Some(command_type) = builtin_command(name) {
                 for argument in arguments {
-                    export_expression(argument, story, content)?;
+                    if matches!(name.as_str(), "TURNS_SINCE" | "READ_COUNT") {
+                        export_count_argument_expression(argument, story, content)?;
+                    } else {
+                        export_expression(argument, story, content)?;
+                    }
                 }
                 content.push(command(command_type));
             } else if let Some(native_op) = native_function(name) {
@@ -1339,7 +1520,7 @@ pub(crate) fn export_expression(
 
                     for (argument, parameter) in arguments.iter().zip(params.iter()) {
                         if parameter.is_by_reference {
-                            let ParsedExpression::Variable(var_name) = argument else {
+                            let ParsedExpression::Variable { name: var_name, .. } = argument else {
                                 return Err(CompilerError::unsupported_feature(format!(
                                     "runtime export by-reference function call '{name}' requires variable arguments"
                                 )));
@@ -1350,6 +1531,13 @@ pub(crate) fn export_expression(
                         }
                     }
 
+                    let target_path = resolved_target
+                        .and_then(|target_ref| story.runtime_target_cache_for_ref(target_ref))
+                        .and_then(|cache| cache.runtime_path())
+                        .or_else(|| function_flow.runtime_path())
+                        .map(|path| path.to_string())
+                        .unwrap_or_else(|| name.to_owned());
+
                     content.push(Rc::new(Divert::new(
                         true,
                         PushPopType::Function,
@@ -1357,7 +1545,7 @@ pub(crate) fn export_expression(
                         0,
                         false,
                         None,
-                        Some(name),
+                        Some(&target_path),
                     )));
                 }
             } else {
@@ -1420,6 +1608,39 @@ fn insert_resolved_list_item(
         Err(CompilerError::unsupported_feature(format!(
             "runtime export cannot resolve list item '{item}'"
         )))
+    }
+}
+
+fn export_count_argument_expression(
+    argument: &ParsedExpression,
+    story: &Story,
+    content: &mut Vec<Rc<dyn RTObject>>,
+) -> Result<(), CompilerError> {
+    match argument {
+        ParsedExpression::Variable {
+            name: _,
+            resolved_count_target,
+        } => {
+            if let Some(path) = resolved_count_target
+                .and_then(|target_ref| resolved_count_target_path(story, target_ref))
+            {
+                content.push(Rc::new(VariableReference::from_path_for_count(&path)));
+                Ok(())
+            } else {
+                export_expression(argument, story, content)
+            }
+        }
+        ParsedExpression::DivertTarget {
+            target,
+            resolved_target,
+        } => {
+            let resolved_path = resolved_target
+                .and_then(|target_ref| resolved_count_target_path(story, target_ref))
+                .unwrap_or_else(|| target.to_owned());
+            content.push(Rc::new(VariableReference::from_path_for_count(&resolved_path)));
+            Ok(())
+        }
+        _ => export_expression(argument, story, content),
     }
 }
 

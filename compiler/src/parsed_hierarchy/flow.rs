@@ -1,6 +1,6 @@
 use std::{collections::HashMap, collections::HashSet, rc::Rc};
 
-use bladeink::{CommandType, Container, RTObject};
+use bladeink::{CommandType, Container, Path, RTObject};
 
 use crate::error::CompilerError;
 use crate::runtime_export::{
@@ -86,6 +86,18 @@ impl FlowBase {
 }
 
 impl super::ParsedFlow {
+    pub fn runtime_object(&self) -> Option<Rc<dyn RTObject>> {
+        self.object().runtime_object()
+    }
+
+    pub fn runtime_path(&self) -> Option<Path> {
+        self.object().runtime_path()
+    }
+
+    pub fn container_for_counting(&self) -> Option<Rc<Container>> {
+        self.object().container_for_counting()
+    }
+
     pub(crate) fn child_flow_names(&self) -> HashSet<String> {
         self.children()
             .iter()
@@ -107,6 +119,18 @@ impl super::ParsedFlow {
             node.collect_named_labels(&mut names)?;
         }
         Ok(names)
+    }
+
+    pub(crate) fn find_child_flow_by_path<'a>(&'a self, parts: &[&str]) -> Option<&'a super::ParsedFlow> {
+        let Some((first, rest)) = parts.split_first() else {
+            return Some(self);
+        };
+
+        let child = self
+            .children()
+            .iter()
+            .find(|flow| flow.flow().identifier() == Some(*first))?;
+        child.find_child_flow_by_path(rest)
     }
 
     pub(crate) fn uses_turn_or_read_count(&self) -> bool {
@@ -221,6 +245,8 @@ impl super::ParsedFlow {
         story: &Story,
         full_path: &str,
     ) -> Result<Rc<Container>, CompilerError> {
+        state.register_parsed_runtime_target_path(full_path, self.object().runtime_cache_handle());
+
         let mut flow_named_paths = HashMap::new();
         if let Some(name) = self.flow().identifier() {
             flow_named_paths.insert(name.to_owned(), full_path.to_owned());
@@ -289,12 +315,16 @@ impl super::ParsedFlow {
             );
         }
 
-        Ok(Container::new(
+        let container = Container::new(
             Some(self.flow().identifier().unwrap_or_default().to_owned()),
             story.flow_count_flags(),
             content,
             named,
-        ))
+        );
+        self.object().set_runtime_object(container.clone());
+        self.object().set_container_for_counting(container.clone());
+
+        Ok(container)
     }
 }
 

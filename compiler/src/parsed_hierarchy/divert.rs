@@ -79,6 +79,7 @@ impl<'a> DivertNode<'a> {
 
     pub(crate) fn export_runtime(
         self,
+        state: &crate::runtime_export::ExportState,
         scope: Scope<'_>,
         story: &Story,
         named_paths: Option<&HashMap<String, String>>,
@@ -94,10 +95,19 @@ impl<'a> DivertNode<'a> {
                     content.push(command(CommandType::EvalStart));
                     crate::runtime_export::export_expression(condition, story, content)?;
                     content.push(command(CommandType::EvalEnd));
-                    content.push(export_divert_conditional(target, scope, story, named_paths)?);
+                    content.push(export_divert_conditional(
+                        state,
+                        target,
+                        self.node.resolved_target(),
+                        scope,
+                        story,
+                        named_paths,
+                    )?);
                 } else {
                     export_divert_by_kind(
+                        state,
                         target,
+                        self.node.resolved_target(),
                         self.arguments(),
                         scope,
                         story,
@@ -109,7 +119,9 @@ impl<'a> DivertNode<'a> {
             }
             DivertNodeKind::Tunnel => {
                 export_divert_by_kind(
+                    state,
                     target,
+                    self.node.resolved_target(),
                     self.arguments(),
                     scope,
                     story,
@@ -120,7 +132,9 @@ impl<'a> DivertNode<'a> {
             }
             DivertNodeKind::Thread => {
                 export_divert_by_kind(
+                    state,
                     target,
+                    self.node.resolved_target(),
                     self.arguments(),
                     scope,
                     story,

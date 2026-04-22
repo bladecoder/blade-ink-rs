@@ -323,6 +323,7 @@ impl StructuredWeave {
         let mut gather_count = 0usize;
         let mut named_paths = inherited_named_paths.clone();
         named_paths.extend(collect_current_level_named_paths(path_prefix, self.entries()));
+        preregister_current_level_runtime_targets(state, path_prefix, self.entries());
 
         for entry in self.entries() {
             match entry.kind() {
@@ -354,6 +355,12 @@ impl StructuredWeave {
                         Some(choice_key.clone()),
                         story.weave_count_flags(),
                     );
+                    if let Some(source_node) = &choice.source_node {
+                        state.register_parsed_runtime_target_path(
+                            &choice_path,
+                            source_node.object().runtime_cache_handle(),
+                        );
+                    }
                     current.add_named(choice_key.clone(), choice_container.clone());
 
                     choice.export_runtime(
@@ -445,6 +452,23 @@ impl StructuredWeave {
                         Some(gather_name.clone()),
                         story.weave_count_flags(),
                     );
+                    if let Some(source_node) = &gather.source_node {
+                        state.register_parsed_runtime_target_path(
+                            &gather_path,
+                            source_node.object().runtime_cache_handle(),
+                        );
+                    }
+                    if let Some(source_node) = &gather.source_node {
+                        state.add_parsed_runtime_fixup(
+                            source_node.object().runtime_cache_handle(),
+                            gather_container.id(),
+                            crate::runtime_export::ParsedRuntimeFixupFlags {
+                                runtime_object: true,
+                                runtime_path_target: true,
+                                container_for_counting: true,
+                            },
+                        );
+                    }
 
                     if auto_enter {
                         current.push_container(gather_container.clone());
@@ -563,6 +587,57 @@ fn absorb_pending_container(target: &Rc<PendingContainer>, source: &Rc<PendingCo
     }
     for (key, container) in source.named.borrow().iter().cloned() {
         target.add_named(key, container);
+    }
+}
+
+fn preregister_current_level_runtime_targets(
+    state: &ExportState,
+    path_prefix: &str,
+    entries: &[StructuredWeaveEntry],
+) {
+    let mut current_path = path_prefix.to_owned();
+    let mut has_seen_choice_in_section = false;
+    let mut choice_count = 0usize;
+    let mut gather_count = 0usize;
+
+    for entry in entries {
+        match entry.kind() {
+            StructuredWeaveEntryKind::Choice(choice) => {
+                let choice_path = format!("{}.c-{choice_count}", current_path);
+                if let Some(source_node) = &choice.source_node {
+                    state.register_parsed_runtime_target_path(
+                        choice_path,
+                        source_node.object().runtime_cache_handle(),
+                    );
+                }
+                has_seen_choice_in_section = true;
+                choice_count += 1;
+            }
+            StructuredWeaveEntryKind::Gather(gather) => {
+                let is_named_gather = gather.identifier().is_some();
+                let gather_name = gather
+                    .identifier()
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| format!("g-{gather_count}"));
+                let gather_path = if !has_seen_choice_in_section {
+                    format!("{}.{}", current_path, gather_name)
+                } else {
+                    format!("{path_prefix}.{}", gather_name)
+                };
+                if let Some(source_node) = &gather.source_node {
+                    state.register_parsed_runtime_target_path(
+                        gather_path.clone(),
+                        source_node.object().runtime_cache_handle(),
+                    );
+                }
+                current_path = gather_path;
+                has_seen_choice_in_section = false;
+                if !is_named_gather {
+                    gather_count += 1;
+                }
+            }
+            StructuredWeaveEntryKind::Content(_) => {}
+        }
     }
 }
 

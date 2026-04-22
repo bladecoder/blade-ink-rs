@@ -6,7 +6,7 @@ use super::{
 use crate::error::CompilerError;
 use bladeink::{
     story::Story as RuntimeStory, CommandType, InkList, InkListItem, ListDefinition as RuntimeListDefinition,
-    RTObject, Container,
+    RTObject, Container, Path,
 };
 use std::{collections::HashMap, collections::HashSet, rc::Rc};
 
@@ -59,6 +59,18 @@ impl Story {
 
     pub fn flow(&self) -> &FlowBase {
         &self.flow
+    }
+
+    pub fn runtime_object(&self) -> Option<Rc<dyn RTObject>> {
+        self.object().runtime_object()
+    }
+
+    pub fn runtime_path(&self) -> Option<Path> {
+        self.object().runtime_path()
+    }
+
+    pub fn container_for_counting(&self) -> Option<Rc<Container>> {
+        self.object().container_for_counting()
     }
 
     pub fn source(&self) -> &str {
@@ -167,6 +179,7 @@ impl Story {
             &top_level_flow_names,
         )?;
         self.validate_root_scope(&flow_names, &root_scope)?;
+        self.resolve_parsed_targets();
 
         Ok(())
     }
@@ -200,6 +213,8 @@ impl Story {
             vec![inner_root, crate::runtime_export::command(CommandType::Done)],
             named_content,
         );
+        self.object().set_runtime_object(root.clone());
+        self.object().set_container_for_counting(root.clone());
 
         state.apply_path_fixups();
 
@@ -234,6 +249,17 @@ impl Story {
         Self::find_flow_by_name_in(&self.flows, name)
     }
 
+    pub(crate) fn find_flow_by_path(&self, path: &str) -> Option<&ParsedFlow> {
+        let mut parts = path.split('.');
+        let first = parts.next()?;
+        let root = self
+            .flows
+            .iter()
+            .find(|flow| flow.flow().identifier() == Some(first))?;
+        let rest: Vec<&str> = parts.collect();
+        root.find_child_flow_by_path(&rest)
+    }
+
     fn find_flow_by_name_in<'a>(flows: &'a [ParsedFlow], name: &str) -> Option<&'a ParsedFlow> {
         for flow in flows {
             if flow.flow().identifier() == Some(name) {
@@ -248,26 +274,44 @@ impl Story {
     }
 
     pub(crate) fn has_flow_path(&self, target: &str) -> bool {
-        let mut parts = target.split('.');
-        let Some(first) = parts.next() else {
-            return false;
-        };
-        let Some(mut current) = self.flows.iter().find(|flow| flow.flow().identifier() == Some(first)) else {
-            return false;
-        };
+        self.find_flow_by_path(target).is_some()
+    }
 
-        for part in parts {
-            let Some(next) = current
-                .children()
-                .iter()
-                .find(|flow| flow.flow().identifier() == Some(part))
-            else {
-                return false;
-            };
-            current = next;
+    pub(crate) fn runtime_target_cache_for_path(
+        &self,
+        path: &str,
+    ) -> Option<std::rc::Rc<super::ParsedRuntimeCache>> {
+        self.find_flow_by_path(path)
+            .map(|flow| flow.object().runtime_cache_handle())
+    }
+
+    pub(crate) fn runtime_target_cache_for_ref(
+        &self,
+        target: super::ParsedObjectRef,
+    ) -> Option<std::rc::Rc<super::ParsedRuntimeCache>> {
+        if self.object().reference() == target {
+            return Some(self.object().runtime_cache_handle());
         }
 
-        true
+        for node in &self.root_nodes {
+            if let Some(found) = runtime_target_cache_in_node(node, target) {
+                return Some(found);
+            }
+        }
+        for flow in &self.flows {
+            if let Some(found) = runtime_target_cache_in_flow(flow, target) {
+                return Some(found);
+            }
+        }
+
+        None
+    }
+
+    pub(crate) fn resolve_target_ref(&self, target: &str) -> Option<super::ParsedObjectRef> {
+        self.find_flow_by_path(target)
+            .map(|flow| flow.object().reference())
+            .or_else(|| self.resolve_explicit_named_label_ref(target))
+            .or_else(|| self.resolve_named_label_ref(target))
     }
 
     pub(crate) fn has_named_label(&self, target: &str) -> bool {
@@ -294,6 +338,29 @@ impl Story {
                 .iter()
                 .any(|child| Self::node_has_named_label(child, target))
             || node.children().iter().any(|child| Self::node_has_named_label(child, target))
+    }
+
+    fn resolve_named_label_ref(&self, target: &str) -> Option<super::ParsedObjectRef> {
+        self.root_nodes
+            .iter()
+            .find_map(|node| resolve_named_label_ref_in_node(node, target))
+            .or_else(|| {
+                self.flows
+                    .iter()
+                    .find_map(|flow| resolve_named_label_ref_in_flow(flow, target))
+            })
+    }
+
+    fn resolve_explicit_named_label_ref(&self, target: &str) -> Option<super::ParsedObjectRef> {
+        let mut parts: Vec<&str> = target.split('.').collect();
+        if parts.len() < 2 {
+            return None;
+        }
+
+        let label = parts.pop()?;
+        let flow_path = parts.join(".");
+        let flow = self.find_flow_by_path(&flow_path)?;
+        resolve_named_label_ref_in_flow(flow, label)
     }
 
     pub(crate) fn collect_const_names(&self) -> HashSet<String> {
@@ -481,6 +548,16 @@ impl Story {
         Ok(())
     }
 
+    fn resolve_parsed_targets(&mut self) {
+        let story_ref = self.clone();
+        for node in &mut self.root_nodes {
+            node.resolve_targets(&story_ref);
+        }
+        for flow in &mut self.flows {
+            flow.resolve_targets(&story_ref);
+        }
+    }
+
     fn export_runtime_list_defs(&self) -> Vec<RuntimeListDefinition> {
         self.list_definitions()
             .iter()
@@ -559,6 +636,91 @@ fn collect_global_declared_vars_in_flow(flow: &ParsedFlow, names: &mut HashSet<S
         collect_global_declared_vars_in_flow(child, names);
     }
 }
+
+fn runtime_target_cache_in_flow(
+    flow: &ParsedFlow,
+    target: super::ParsedObjectRef,
+) -> Option<std::rc::Rc<super::ParsedRuntimeCache>> {
+    if flow.object().reference() == target {
+        return Some(flow.object().runtime_cache_handle());
+    }
+    for node in flow.content() {
+        if let Some(found) = runtime_target_cache_in_node(node, target) {
+            return Some(found);
+        }
+    }
+    for child in flow.children() {
+        if let Some(found) = runtime_target_cache_in_flow(child, target) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn runtime_target_cache_in_node(
+    node: &ParsedNode,
+    target: super::ParsedObjectRef,
+) -> Option<std::rc::Rc<super::ParsedRuntimeCache>> {
+    if node.object().reference() == target {
+        return Some(node.object().runtime_cache_handle());
+    }
+    for child in node.start_content() {
+        if let Some(found) = runtime_target_cache_in_node(child, target) {
+            return Some(found);
+        }
+    }
+    for child in node.choice_only_content() {
+        if let Some(found) = runtime_target_cache_in_node(child, target) {
+            return Some(found);
+        }
+    }
+    for child in node.children() {
+        if let Some(found) = runtime_target_cache_in_node(child, target) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn resolve_named_label_ref_in_flow(
+    flow: &ParsedFlow,
+    target: &str,
+) -> Option<super::ParsedObjectRef> {
+    flow.content()
+        .iter()
+        .find_map(|node| resolve_named_label_ref_in_node(node, target))
+        .or_else(|| {
+            flow.children()
+                .iter()
+                .find_map(|child| resolve_named_label_ref_in_flow(child, target))
+        })
+}
+
+fn resolve_named_label_ref_in_node(
+    node: &ParsedNode,
+    target: &str,
+) -> Option<super::ParsedObjectRef> {
+    if node.name() == Some(target) {
+        return Some(node.object().reference());
+    }
+    for child in node.start_content() {
+        if let Some(found) = resolve_named_label_ref_in_node(child, target) {
+            return Some(found);
+        }
+    }
+    for child in node.choice_only_content() {
+        if let Some(found) = resolve_named_label_ref_in_node(child, target) {
+            return Some(found);
+        }
+    }
+    for child in node.children() {
+        if let Some(found) = resolve_named_label_ref_in_node(child, target) {
+            return Some(found);
+        }
+    }
+    None
+}
+
 
 #[cfg(test)]
 mod tests {

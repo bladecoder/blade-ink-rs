@@ -1,3 +1,7 @@
+use std::rc::Rc;
+
+use bladeink::{RTObject, Value};
+
 use super::{ContentList, List, ObjectKind, ParsedObject, VariableReference};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -62,6 +66,20 @@ impl Number {
 
     pub fn value(&self) -> &NumberValue {
         &self.value
+    }
+
+    pub fn runtime_object(&self) -> Rc<dyn RTObject> {
+        if let Some(runtime_object) = self.expression.object().runtime_object() {
+            return runtime_object;
+        }
+
+        let runtime_object: Rc<dyn RTObject> = match self.value() {
+            NumberValue::Int(value) => Rc::new(Value::new(*value)),
+            NumberValue::Float(value) => Rc::new(Value::new(*value)),
+            NumberValue::Bool(value) => Rc::new(Value::new(*value)),
+        };
+        self.expression.object().set_runtime_object(runtime_object.clone());
+        runtime_object
     }
 }
 
