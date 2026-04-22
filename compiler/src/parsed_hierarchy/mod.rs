@@ -6,6 +6,7 @@ mod flow;
 mod list;
 mod object;
 mod parsed_node;
+mod resolution;
 mod story;
 mod text;
 mod weave;

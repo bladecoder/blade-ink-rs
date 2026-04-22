@@ -639,7 +639,23 @@ impl Story {
             .as_any()
             .downcast_ref::<VariableAssignment>()
         {
-            let assigned_val = self.get_state_mut().pop_evaluation_stack(); // When in temporary evaluation, don't create new variables purely
+            let Some(assigned_val) = self.get_state_mut().evaluation_stack.pop() else {
+                if var_ass.is_new_declaration
+                    && !var_ass.is_global
+                    && self
+                        .get_state()
+                        .variables_state
+                        .get_variable_with_name(&var_ass.variable_name, -1)
+                        .is_some()
+                {
+                    return Ok(true);
+                }
+
+                return Err(StoryError::InvalidStoryState(format!(
+                    "Variable assignment '{}' expected a value on the evaluation stack",
+                    var_ass.variable_name
+                )));
+            }; // When in temporary evaluation, don't create new variables purely
             // within
             // the temporary context, but attempt to create them globally
             // var prioritiseHigherInCallStack = _temporaryEvaluationContainer

@@ -208,6 +208,18 @@ impl ParsedNode {
         }
         self.children = children;
     }
+
+    pub fn resolve_references(&mut self) {
+        for child in &mut self.start_content {
+            child.resolve_references();
+        }
+        for child in &mut self.choice_only_content {
+            child.resolve_references();
+        }
+        for child in &mut self.children {
+            child.resolve_references();
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -268,5 +280,14 @@ impl ParsedFlow {
 
     pub fn reference(&self) -> ParsedObjectRef {
         self.object().reference()
+    }
+
+    pub fn resolve_references(&mut self) {
+        for node in &mut self.content {
+            node.resolve_references();
+        }
+        for child in &mut self.children {
+            child.resolve_references();
+        }
     }
 }

@@ -107,13 +107,15 @@ impl Compiler {
     }
 
     pub fn compile_story(&self) -> Result<RuntimeStory, CompilerError> {
-        let parsed = self.parse()?;
+        let mut parsed = self.parse()?;
+        parsed.resolve_references()?;
         runtime_export::export_story(&parsed)
     }
 
     pub fn compile_story_from_source(&self, source: &str) -> Result<RuntimeStory, CompilerError> {
-        let parsed = InkParser::new(source, self.options.source_filename.clone())
+        let mut parsed = InkParser::new(source, self.options.source_filename.clone())
             .parse_story(self.options.count_all_visits)?;
+        parsed.resolve_references()?;
         runtime_export::export_story(&parsed)
     }
 
@@ -123,7 +125,7 @@ impl Compiler {
         file_handler: F,
     ) -> Result<RuntimeStory, CompilerError>
     where
-        F: Fn(&str) -> Result<String, CompilerError> + 'static,
+        F: Fn(&str) -> Result<String, CompilerError>,
     {
         let json = self.compile_json_with_file_handler(source, file_handler)?;
         RuntimeStory::new(&json).map_err(|err| CompilerError::invalid_source(err.to_string()))
@@ -138,8 +140,9 @@ impl Compiler {
     }
 
     pub fn compile_to_stats(&self, source: &str) -> Result<stats::Stats, CompilerError> {
-        let parsed = InkParser::new(source, self.options.source_filename.clone())
+        let mut parsed = InkParser::new(source, self.options.source_filename.clone())
             .parse_story(self.options.count_all_visits)?;
+        parsed.resolve_references()?;
         Ok(stats::Stats::generate_from_parsed(&parsed))
     }
 
@@ -149,10 +152,11 @@ impl Compiler {
         file_handler: F,
     ) -> Result<stats::Stats, CompilerError>
     where
-        F: Fn(&str) -> Result<String, CompilerError> + 'static,
+        F: Fn(&str) -> Result<String, CompilerError>,
     {
-        let parsed = InkParser::new(source, self.options.source_filename.clone())
+        let mut parsed = InkParser::new(source, self.options.source_filename.clone())
             .parse_story_with_file_handler(self.options.count_all_visits, file_handler)?;
+        parsed.resolve_references()?;
         Ok(stats::Stats::generate_from_parsed(&parsed))
     }
 
@@ -162,7 +166,7 @@ impl Compiler {
         file_handler: F,
     ) -> Result<String, CompilerError>
     where
-        F: Fn(&str) -> Result<String, CompilerError> + 'static,
+        F: Fn(&str) -> Result<String, CompilerError>,
     {
         self.compile_json_with_file_handler(source, file_handler)
     }
@@ -173,10 +177,11 @@ impl Compiler {
         file_handler: F,
     ) -> Result<String, CompilerError>
     where
-        F: Fn(&str) -> Result<String, CompilerError> + 'static,
+        F: Fn(&str) -> Result<String, CompilerError>,
     {
-        let parsed = InkParser::new(source, self.options.source_filename.clone())
+        let mut parsed = InkParser::new(source, self.options.source_filename.clone())
             .parse_story_with_file_handler(self.options.count_all_visits, file_handler)?;
+        parsed.resolve_references()?;
         let story = runtime_export::export_story(&parsed)?;
         story
             .to_compiled_json()
@@ -186,18 +191,20 @@ impl Compiler {
     fn compile_internal(&self, source: &str) -> Result<String, CompilerError> {
         if let Some(file_handler) = &self.options.file_handler {
             let file_handler = file_handler.clone();
-            let parsed = InkParser::new(source, self.options.source_filename.clone())
+            let mut parsed = InkParser::new(source, self.options.source_filename.clone())
                 .parse_story_with_file_handler(self.options.count_all_visits, move |filename| {
                     file_handler.load_ink_file_contents(filename)
                 })?;
+            parsed.resolve_references()?;
             let story = runtime_export::export_story(&parsed)?;
             return story
                 .to_compiled_json()
                 .map_err(|err| CompilerError::invalid_source(err.to_string()));
         }
 
-        let parsed = InkParser::new(source, self.options.source_filename.clone())
+        let mut parsed = InkParser::new(source, self.options.source_filename.clone())
             .parse_story(self.options.count_all_visits)?;
+        parsed.resolve_references()?;
         let story = runtime_export::export_story(&parsed)?;
         story
             .to_compiled_json()
@@ -371,6 +378,24 @@ Stitch text
 "#;
         let json = Compiler::new().compile(ink).expect("compile to json");
         println!("{json}");
+    }
+
+    #[test]
+    fn tmp_dump_tags_in_seq_runtime() {
+        let ink = r#"
+-> knot -> knot ->
+== knot
+A {red #red|white #white|blue #blue|green #green} sequence.
+->->
+"#;
+        let json = Compiler::new().compile(ink).expect("compile to json");
+        let mut story = RuntimeStory::new(&json).expect("runtime story");
+        println!("json: {json}");
+        println!("{}", story.build_string_of_hierarchy());
+        println!("out1: {:?}", story.cont());
+        println!("tags1: {:?}", story.get_current_tags());
+        println!("out2: {:?}", story.cont());
+        println!("tags2: {:?}", story.get_current_tags());
     }
 
 }

@@ -134,22 +134,22 @@ impl Flow {
         main_content_container: Rc<Container>,
     ) -> Result<(), StoryError> {
         for choice in self.current_choices.iter_mut() {
+            let original_thread_index = *choice.original_thread_index.borrow();
             self.callstack
                 .borrow()
-                .get_thread_with_index(*choice.original_thread_index.borrow())
+                .get_thread_with_index(original_thread_index)
                 .map(|o| choice.set_thread_at_generation(o.clone()))
                 .or_else(|| {
                     let j_saved_choice_thread = j_choice_threads
-                        .and_then(|c| c.get(choice.original_thread_index.borrow().to_string()))
+                        .and_then(|c| c.get(original_thread_index.to_string()))
                         .ok_or("loading choice threads")
                         .unwrap();
-                    choice.set_thread_at_generation(
-                        Thread::from_json(
-                            &main_content_container,
-                            j_saved_choice_thread.as_object().unwrap(),
-                        )
-                        .unwrap(),
-                    );
+                    let thread = Thread::from_json(
+                        &main_content_container,
+                        j_saved_choice_thread.as_object().unwrap(),
+                    )
+                    .unwrap();
+                    choice.set_thread_at_generation(thread);
                     Some(())
                 });
         }

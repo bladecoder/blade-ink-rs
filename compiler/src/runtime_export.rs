@@ -133,7 +133,7 @@ pub(crate) fn export_story(story: &Story) -> Result<RuntimeStory, CompilerError>
     )?;
     let root = Container::new(
         None,
-        visit_count_flags(story.count_all_visits),
+        flow_count_flags(story),
         vec![inner_root, command(CommandType::Done)],
         named_content,
     );
@@ -227,9 +227,10 @@ fn export_flow(
             flow.children()[0].flow().identifier().unwrap_or_default()
         ))]
     } else if has_weave_content(flow.content()) {
+        let weave_root_index = flow.flow().arguments().len();
         vec![export_weave(
             state,
-            &format!("{full_path}.0"),
+            &format!("{full_path}.{weave_root_index}"),
             flow.content(),
             Scope::Flow(flow),
             story,
@@ -237,7 +238,16 @@ fn export_flow(
             &flow_named_paths,
         )? as Rc<dyn RTObject>]
     } else {
-        export_nodes_with_paths(state, flow.content(), Scope::Flow(flow), story, Some(&flow_named_paths))?
+        let flow_content_index_offset = flow.flow().arguments().len();
+        export_nodes_with_paths(
+            state,
+            flow.content(),
+            Scope::Flow(flow),
+            story,
+            Some(&flow_named_paths),
+            Some(full_path),
+            flow_content_index_offset,
+        )?
     };
 
     if flow.flow().has_parameters() {
@@ -266,7 +276,7 @@ fn export_flow(
 
     Ok(Container::new(
         Some(flow.flow().identifier().unwrap_or_default().to_owned()),
-        visit_count_flags(story.count_all_visits),
+        flow_count_flags(story),
         content,
         named,
     ))
@@ -284,7 +294,7 @@ fn export_nodes(
     scope: Scope<'_>,
     story: &Story,
 ) -> Result<Vec<Rc<dyn RTObject>>, CompilerError> {
-    export_nodes_with_paths(state, nodes, scope, story, None)
+    export_nodes_with_paths(state, nodes, scope, story, None, None, 0)
 }
 
 fn export_nodes_with_paths(
@@ -293,10 +303,13 @@ fn export_nodes_with_paths(
     scope: Scope<'_>,
     story: &Story,
     named_paths: Option<&HashMap<String, String>>,
+    container_path: Option<&str>,
+    content_index_offset: usize,
 ) -> Result<Vec<Rc<dyn RTObject>>, CompilerError> {
     let mut content = Vec::new();
 
     for node in nodes {
+        let node_path = container_path.map(|path| format!("{path}.{}", content_index_offset + content.len()));
         match node.kind() {
             ParsedNodeKind::Text => {
                 if let Some(text) = node.text()
@@ -317,7 +330,15 @@ fn export_nodes_with_paths(
                     content.push(command(CommandType::EvalEnd));
                     content.push(export_divert_conditional(target, scope, story, named_paths)?);
                 } else {
-                    content.push(export_divert(target, scope, story, named_paths)?);
+                    export_divert_by_kind(
+                        target,
+                        node.arguments(),
+                        scope,
+                        story,
+                        named_paths,
+                        DivertKind::Normal,
+                        &mut content,
+                    )?;
                 }
             }
             ParsedNodeKind::TunnelDivert => {
@@ -326,7 +347,15 @@ fn export_nodes_with_paths(
                         "runtime export tunnel divert missing target",
                     )
                 })?;
-                content.push(export_tunnel_divert(target, scope, story, named_paths));
+                export_divert_by_kind(
+                    target,
+                    node.arguments(),
+                    scope,
+                    story,
+                    named_paths,
+                    DivertKind::Tunnel,
+                    &mut content,
+                )?;
             }
             ParsedNodeKind::TunnelReturn => {
                 content.push(command(CommandType::EvalStart));
@@ -340,9 +369,22 @@ fn export_nodes_with_paths(
                         "runtime export tunnel onwards missing target",
                     )
                 })?;
-                let resolved = resolve_target(target, scope, story, named_paths);
+                let variable_target = resolve_variable_divert_name(target, scope, story, named_paths);
                 content.push(command(CommandType::EvalStart));
-                content.push(rt_value(Path::new_with_components_string(Some(&resolved))));
+                export_divert_arguments(
+                    node.arguments(),
+                    target,
+                    scope,
+                    story,
+                    named_paths,
+                    &mut content,
+                )?;
+                if let Some(variable_target) = variable_target {
+                    content.push(Rc::new(VariableReference::new(&variable_target)));
+                } else {
+                    let resolved = resolve_target(target, scope, story, named_paths);
+                    content.push(rt_value(Path::new_with_components_string(Some(&resolved))));
+                }
                 content.push(command(CommandType::EvalEnd));
                 content.push(command(CommandType::PopTunnel));
             }
@@ -377,9 +419,25 @@ fn export_nodes_with_paths(
             }
             ParsedNodeKind::Conditional | ParsedNodeKind::SwitchConditional => {
                 if conditional_is_simple(node) {
-                    append_simple_conditional(state, node, scope, story, named_paths, &mut content)?;
+                    append_simple_conditional(
+                        state,
+                        node,
+                        scope,
+                        story,
+                        named_paths,
+                        container_path,
+                        content_index_offset,
+                        &mut content,
+                    )?;
                 } else {
-                    let conditional = export_conditional(state, node, scope, story, named_paths)?;
+                    let conditional = export_conditional(
+                        state,
+                        node,
+                        scope,
+                        story,
+                        named_paths,
+                        node_path.as_deref(),
+                    )?;
                     content.push(conditional);
                 }
             }
@@ -395,29 +453,62 @@ fn export_nodes_with_paths(
                 content.push(command(CommandType::EvalEnd));
             }
             ParsedNodeKind::Assignment => export_assignment(node, scope, story, &mut content)?,
-            ParsedNodeKind::Tag => {
-                return Err(CompilerError::unsupported_feature(
-                    "runtime export does not support tags yet",
-                ));
-            }
+            ParsedNodeKind::Tag => export_tag_node(state, node, scope, story, named_paths, &mut content)?,
             ParsedNodeKind::AuthorWarning => {}
             ParsedNodeKind::Sequence => {
-                content.push(export_sequence(state, node, scope, story, named_paths)?);
+                content.push(export_sequence(
+                    state,
+                    node,
+                    scope,
+                    story,
+                    named_paths,
+                    node_path.as_deref(),
+                )?);
             }
             ParsedNodeKind::Choice
             | ParsedNodeKind::GatherPoint
             | ParsedNodeKind::GatherLabel
-            | ParsedNodeKind::ThreadDivert
             | ParsedNodeKind::ReturnBool => {
                 return Err(CompilerError::unsupported_feature(format!(
                     "runtime export does not support {:?} yet",
                     node.kind()
                 )));
             }
+            ParsedNodeKind::ThreadDivert => {
+                let target = node.target().ok_or_else(|| {
+                    CompilerError::unsupported_feature(
+                        "runtime export thread divert missing target",
+                    )
+                })?;
+                export_divert_by_kind(
+                    target,
+                    node.arguments(),
+                    scope,
+                    story,
+                    named_paths,
+                    DivertKind::Thread,
+                    &mut content,
+                )?;
+            }
         }
     }
 
     Ok(content)
+}
+
+fn export_tag_node(
+    state: &ExportState,
+    node: &ParsedNode,
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: Option<&HashMap<String, String>>,
+    content: &mut Vec<Rc<dyn RTObject>>,
+) -> Result<(), CompilerError> {
+    content.push(command(CommandType::BeginTag));
+    let tag_content = export_nodes_with_paths(state, node.children(), scope, story, named_paths, None, 0)?;
+    content.extend(tag_content);
+    content.push(command(CommandType::EndTag));
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -586,7 +677,12 @@ fn build_weave_pending(
             ParsedNodeKind::Choice => {
                 let choice_key = format!("c-{choice_count}");
                 let choice_path = format!("{}.{}", current.path, choice_key);
-                let choice_container = PendingContainer::new(state, &choice_path, Some(choice_key.clone()), 5);
+                let choice_container = PendingContainer::new(
+                    state,
+                    &choice_path,
+                    Some(choice_key.clone()),
+                    weave_count_flags(story),
+                );
                 current.add_named(choice_key.clone(), choice_container.clone());
 
                 export_choice(
@@ -606,15 +702,38 @@ fn build_weave_pending(
                 }
 
                 if !node.children().is_empty() {
-                    let child_content = export_nodes_with_paths(
-                        state,
-                        node.children(),
-                        scope,
-                        story,
-                        Some(&named_paths),
-                    )?;
-                    for item in child_content {
-                        choice_container.push_object(item);
+                    if has_weave_content(node.children()) {
+                        let weave = build_weave_pending(
+                            state,
+                            &format!("{}.{}", choice_container.path, choice_container.next_content_index()),
+                            node.children(),
+                            scope,
+                            story,
+                            false,
+                            &named_paths,
+                        )?;
+                        for item in weave.content.borrow().iter().cloned() {
+                            match item {
+                                PendingItem::Object(object) => choice_container.push_object(object),
+                                PendingItem::Container(container) => choice_container.push_container(container),
+                            }
+                        }
+                        for (key, container) in weave.named.borrow().iter().cloned() {
+                            choice_container.add_named(key, container);
+                        }
+                    } else {
+                        let child_content = export_nodes_with_paths(
+                            state,
+                            node.children(),
+                            scope,
+                            story,
+                            Some(&named_paths),
+                            Some(&choice_container.path),
+                            0,
+                        )?;
+                        for item in child_content {
+                            choice_container.push_object(item);
+                        }
                     }
                 }
 
@@ -653,7 +772,12 @@ fn build_weave_pending(
                 has_seen_choice_in_section = false;
                 add_to_previous_choice = false;
                 previous_choice = None;
-                let gather_container = PendingContainer::new(state, &gather_path, Some(gather_name.clone()), 5);
+                let gather_container = PendingContainer::new(
+                    state,
+                    &gather_path,
+                    Some(gather_name.clone()),
+                    weave_count_flags(story),
+                );
 
                 if auto_enter {
                     current.push_container(gather_container.clone());
@@ -662,15 +786,38 @@ fn build_weave_pending(
                 }
 
                 if !node.children().is_empty() {
-                    let child_content = export_nodes_with_paths(
-                        state,
-                        node.children(),
-                        scope,
-                        story,
-                        Some(&named_paths),
-                    )?;
-                    for item in child_content {
-                        gather_container.push_object(item);
+                    if has_weave_content(node.children()) {
+                        let weave = build_weave_pending(
+                            state,
+                            &format!("{}.{}", gather_container.path, gather_container.next_content_index()),
+                            node.children(),
+                            scope,
+                            story,
+                            false,
+                            &named_paths,
+                        )?;
+                        for item in weave.content.borrow().iter().cloned() {
+                            match item {
+                                PendingItem::Object(object) => gather_container.push_object(object),
+                                PendingItem::Container(container) => gather_container.push_container(container),
+                            }
+                        }
+                        for (key, container) in weave.named.borrow().iter().cloned() {
+                            gather_container.add_named(key, container);
+                        }
+                    } else {
+                        let child_content = export_nodes_with_paths(
+                            state,
+                            node.children(),
+                            scope,
+                            story,
+                            Some(&named_paths),
+                            Some(&gather_container.path),
+                            0,
+                        )?;
+                        for item in child_content {
+                            gather_container.push_object(item);
+                        }
                     }
                 }
 
@@ -694,6 +841,8 @@ fn build_weave_pending(
                     scope,
                     story,
                     Some(&named_paths),
+                    Some(&target.path),
+                    0,
                 )?;
                 for item in content {
                     target.push_object(item);
@@ -721,7 +870,7 @@ fn build_weave_pending(
             state,
             final_gather_path,
             Some(final_gather_name.clone()),
-            5,
+            weave_count_flags(story),
         );
         final_gather.push_object(command(CommandType::Done));
         if auto_enter {
@@ -933,10 +1082,121 @@ fn export_output_expression(
             if let Some(path) = resolve_output_count_path(name, scope, named_paths) {
                 content.push(Rc::new(VariableReference::from_path_for_count(&path)));
             } else {
+                export_expression_scoped(expression, scope, story, named_paths, content)?;
+            }
+        }
+        _ => export_expression_scoped(expression, scope, story, named_paths, content)?,
+    }
+
+    Ok(())
+}
+
+fn export_expression_scoped(
+    expression: &ParsedExpression,
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: Option<&HashMap<String, String>>,
+    content: &mut Vec<Rc<dyn RTObject>>,
+) -> Result<(), CompilerError> {
+    match expression {
+        ParsedExpression::Bool(value) => content.push(rt_value(*value)),
+        ParsedExpression::Int(value) => content.push(rt_value(*value)),
+        ParsedExpression::Float(value) => content.push(rt_value(*value)),
+        ParsedExpression::String(value) => {
+            content.push(command(CommandType::BeginString));
+            content.push(rt_value(value.as_str()));
+            content.push(command(CommandType::EndString));
+        }
+        ParsedExpression::StringExpression(nodes) => {
+            content.push(command(CommandType::BeginString));
+            export_string_expression(nodes, story, content)?;
+            content.push(command(CommandType::EndString));
+        }
+        ParsedExpression::Variable(name) => {
+            if let Some(constant) = story.const_declaration(name) {
+                export_expression_node(constant.expression(), story, content)?;
+            } else {
+                content.push(Rc::new(VariableReference::new(name)));
+            }
+        }
+        ParsedExpression::DivertTarget(target) => {
+            let resolved = resolve_target(target, scope, story, named_paths);
+            content.push(rt_value(Path::new_with_components_string(Some(&resolved))));
+        }
+        ParsedExpression::ListItems(items) => {
+            let mut list = InkList::new();
+            for item in items {
+                insert_resolved_list_item(story, item, &mut list)?;
+            }
+            content.push(rt_value(list));
+        }
+        ParsedExpression::EmptyList => content.push(rt_value(InkList::new())),
+        ParsedExpression::Unary { operator, expression } => match operator.as_str() {
+            "-" => match expression.as_ref() {
+                ParsedExpression::Int(value) => content.push(rt_value(-value)),
+                ParsedExpression::Float(value) => content.push(rt_value(-value)),
+                other => {
+                    export_expression_scoped(other, scope, story, named_paths, content)?;
+                    content.push(native(NativeOp::Negate));
+                }
+            },
+            "!" => {
+                export_expression_scoped(expression, scope, story, named_paths, content)?;
+                content.push(native(NativeOp::Not));
+            }
+            _ => {
+                return Err(CompilerError::unsupported_feature(format!(
+                    "runtime export does not support unary operator '{operator}'"
+                )));
+            }
+        },
+        ParsedExpression::Binary {
+            left,
+            operator,
+            right,
+        } => {
+            export_expression_scoped(left, scope, story, named_paths, content)?;
+            export_expression_scoped(right, scope, story, named_paths, content)?;
+            content.push(native(operator_token(operator)?));
+        }
+        ParsedExpression::FunctionCall { name, arguments } => {
+            if story
+                .list_definitions()
+                .iter()
+                .any(|list| list.identifier() == Some(name.as_str()))
+            {
+                match arguments.as_slice() {
+                    [] => {
+                        let list = InkList::new();
+                        list.set_initial_origin_names(vec![name.to_owned()]);
+                        content.push(rt_value(list));
+                    }
+                    [argument] => {
+                        content.push(rt_value(name.as_str()));
+                        export_expression_scoped(argument, scope, story, named_paths, content)?;
+                        content.push(command(CommandType::ListFromInt));
+                    }
+                    _ => {
+                        return Err(CompilerError::unsupported_feature(format!(
+                            "runtime export does not support list call '{name}' with {} arguments",
+                            arguments.len()
+                        )));
+                    }
+                }
+            } else if let Some(command_type) = builtin_command(name) {
+                for argument in arguments {
+                    export_expression_scoped(argument, scope, story, named_paths, content)?;
+                }
+                content.push(command(command_type));
+            } else if let Some(native_op) = native_function(name) {
+                for argument in arguments {
+                    export_expression_scoped(argument, scope, story, named_paths, content)?;
+                }
+                content.push(native(native_op));
+            } else {
                 export_expression(expression, story, content)?;
             }
         }
-        _ => export_expression(expression, story, content)?,
     }
 
     Ok(())
@@ -959,6 +1219,35 @@ fn register_named_path(
     {
         named_paths.insert(format!("{flow_name}.{name}"), runtime_path.to_owned());
     }
+}
+
+fn flow_runtime_path(story: &Story, target: &ParsedFlow) -> Option<String> {
+    flow_runtime_path_in(story.parsed_flows(), target.object().id(), None)
+}
+
+fn flow_runtime_path_in(
+    flows: &[ParsedFlow],
+    target_id: usize,
+    prefix: Option<&str>,
+) -> Option<String> {
+    for flow in flows {
+        let flow_name = flow.flow().identifier()?;
+        let path = if let Some(prefix) = prefix {
+            format!("{prefix}.{flow_name}")
+        } else {
+            flow_name.to_owned()
+        };
+
+        if flow.object().id() == target_id {
+            return Some(path);
+        }
+
+        if let Some(found) = flow_runtime_path_in(flow.children(), target_id, Some(&path)) {
+            return Some(found);
+        }
+    }
+
+    None
 }
 
 fn weave_label_alias(runtime_path: &str, name: &str) -> Option<String> {
@@ -1167,6 +1456,90 @@ fn export_divert(
     }
 }
 
+#[derive(Clone, Copy)]
+enum DivertKind {
+    Normal,
+    Tunnel,
+    Thread,
+}
+
+fn export_divert_by_kind(
+    target: &str,
+    arguments: &[ParsedExpression],
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: Option<&HashMap<String, String>>,
+    kind: DivertKind,
+    content: &mut Vec<Rc<dyn RTObject>>,
+) -> Result<(), CompilerError> {
+    if matches!(kind, DivertKind::Normal) {
+        match target {
+            "END" => {
+                content.push(command(CommandType::End));
+                return Ok(());
+            }
+            "DONE" => {
+                content.push(command(CommandType::Done));
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
+
+    let variable_target = resolve_variable_divert_name(target, scope, story, named_paths);
+    let resolved = variable_target
+        .clone()
+        .unwrap_or_else(|| resolve_target(target, scope, story, named_paths));
+
+    if variable_target.is_none()
+        && story
+            .parsed_flows()
+            .iter()
+            .any(|flow| flow.flow().identifier() == Some(resolved.as_str()) && flow.flow().is_function())
+    {
+        return Err(CompilerError::unsupported_feature(format!(
+            "cannot divert to function '{resolved}'"
+        )));
+    }
+
+    if variable_target.is_some() && !arguments.is_empty() {
+        return Err(CompilerError::unsupported_feature(format!(
+            "can't store arguments in a divert target variable '{resolved}'"
+        )));
+    }
+
+    if !arguments.is_empty() {
+        content.push(command(CommandType::EvalStart));
+        export_divert_arguments(arguments, &resolved, scope, story, named_paths, content)?;
+        content.push(command(CommandType::EvalEnd));
+    }
+
+    if matches!(kind, DivertKind::Thread) {
+        content.push(command(CommandType::StartThread));
+    }
+
+    let divert = if let Some(variable_name) = variable_target {
+        Rc::new(Divert::new(
+            matches!(kind, DivertKind::Tunnel),
+            PushPopType::Tunnel,
+            false,
+            0,
+            false,
+            Some(variable_name),
+            None,
+        )) as Rc<dyn RTObject>
+    } else {
+        match kind {
+            DivertKind::Normal => divert_object(&resolved),
+            DivertKind::Tunnel => export_tunnel_divert(&resolved),
+            DivertKind::Thread => divert_object(&resolved),
+        }
+    };
+
+    content.push(divert);
+    Ok(())
+}
+
 fn export_divert_conditional(
     target: &str,
     scope: Scope<'_>,
@@ -1204,12 +1577,7 @@ fn export_divert_conditional(
     }
 }
 
-fn export_tunnel_divert(
-    target: &str,
-    scope: Scope<'_>,
-    story: &Story,
-    named_paths: Option<&HashMap<String, String>>,
-) -> Rc<dyn RTObject> {
+fn export_tunnel_divert(target: &str) -> Rc<dyn RTObject> {
     Rc::new(Divert::new(
         true,
         PushPopType::Tunnel,
@@ -1217,8 +1585,67 @@ fn export_tunnel_divert(
         0,
         false,
         None,
-        Some(&resolve_target(target, scope, story, named_paths)),
+        Some(target),
     ))
+}
+
+fn export_divert_arguments(
+    arguments: &[ParsedExpression],
+    target: &str,
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: Option<&HashMap<String, String>>,
+    content: &mut Vec<Rc<dyn RTObject>>,
+) -> Result<(), CompilerError> {
+    let expected_arguments = find_flow_by_path(story.parsed_flows(), target).map(|flow| flow.flow().arguments());
+
+    for (index, argument) in arguments.iter().enumerate() {
+        let expected_argument = expected_arguments.and_then(|args| args.get(index));
+        if expected_argument.is_some_and(|arg| arg.is_by_reference) {
+            let ParsedExpression::Variable(var_name) = argument else {
+                return Err(CompilerError::unsupported_feature(format!(
+                    "runtime export divert to '{target}' requires variable arguments for by-reference parameters"
+                )));
+            };
+            content.push(Rc::new(Value::new_variable_pointer(var_name, -1)));
+        } else {
+            export_divert_argument_expression(argument, scope, story, named_paths, content)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn export_divert_argument_expression(
+    argument: &ParsedExpression,
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: Option<&HashMap<String, String>>,
+    content: &mut Vec<Rc<dyn RTObject>>,
+) -> Result<(), CompilerError> {
+    match argument {
+        ParsedExpression::DivertTarget(target) => {
+            let resolved = resolve_target(target, scope, story, named_paths);
+            content.push(rt_value(Path::new_with_components_string(Some(&resolved))));
+            Ok(())
+        }
+        _ => export_expression(argument, story, content),
+    }
+}
+
+fn find_flow_by_path<'a>(flows: &'a [ParsedFlow], path: &str) -> Option<&'a ParsedFlow> {
+    let mut parts = path.split('.');
+    let first = parts.next()?;
+    let mut current = flows.iter().find(|flow| flow.flow().identifier() == Some(first))?;
+
+    for part in parts {
+        current = current
+            .children()
+            .iter()
+            .find(|flow| flow.flow().identifier() == Some(part))?;
+    }
+
+    Some(current)
 }
 
 fn is_global_variable_divert(target: &str, story: &Story) -> bool {
@@ -1230,6 +1657,33 @@ fn is_global_variable_divert(target: &str, story: &Story) -> bool {
             .parsed_flows()
             .iter()
             .any(|flow| flow.flow().identifier() == Some(target))
+}
+
+fn resolve_variable_divert_name(
+    target: &str,
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: Option<&HashMap<String, String>>,
+) -> Option<String> {
+    if target.contains('.')
+        || named_paths.is_some_and(|paths| paths.contains_key(target))
+    {
+        return None;
+    }
+
+    if is_global_variable_divert(target, story) {
+        return Some(target.to_owned());
+    }
+
+    let Scope::Flow(flow) = scope else {
+        return None;
+    };
+
+    flow.flow()
+        .arguments()
+        .iter()
+        .any(|arg| arg.identifier == target && arg.is_divert_target)
+        .then_some(target.to_owned())
 }
 
 fn resolve_target(
@@ -1245,10 +1699,19 @@ fn resolve_target(
     }
 
     if target.contains('.') {
+        if let Some(path) = resolve_explicit_weave_target(target, story) {
+            return path;
+        }
+        if let Some(expanded) = expand_weave_point_path(target, story, named_paths) {
+            return expanded;
+        }
         return target.to_owned();
     }
 
     let Scope::Flow(flow) = scope else {
+        if let Some(resolved) = resolve_unique_nested_flow_target(target, story) {
+            return resolved;
+        }
         return target.to_owned();
     };
 
@@ -1263,6 +1726,10 @@ fn resolve_target(
         );
     }
 
+    if let Some(resolved) = resolve_sibling_or_ancestor_flow_target(target, flow, story) {
+        return resolved;
+    }
+
     if story
         .parsed_flows()
         .iter()
@@ -1274,12 +1741,196 @@ fn resolve_target(
     target.to_owned()
 }
 
+fn resolve_unique_nested_flow_target(target: &str, story: &Story) -> Option<String> {
+    let mut matches = Vec::new();
+    collect_nested_flow_target_paths(story.parsed_flows(), target, None, &mut matches);
+    (matches.len() == 1).then(|| matches.pop().unwrap())
+}
+
+fn collect_nested_flow_target_paths(
+    flows: &[ParsedFlow],
+    target: &str,
+    prefix: Option<&str>,
+    matches: &mut Vec<String>,
+) {
+    for flow in flows {
+        let Some(flow_name) = flow.flow().identifier() else {
+            continue;
+        };
+        let path = prefix
+            .map(|prefix| format!("{prefix}.{flow_name}"))
+            .unwrap_or_else(|| flow_name.to_owned());
+
+        if flow
+            .children()
+            .iter()
+            .any(|child| child.flow().identifier() == Some(target))
+        {
+            matches.push(format!("{path}.{target}"));
+        }
+
+        collect_nested_flow_target_paths(flow.children(), target, Some(&path), matches);
+    }
+}
+
+fn resolve_sibling_or_ancestor_flow_target(
+    target: &str,
+    current_flow: &ParsedFlow,
+    story: &Story,
+) -> Option<String> {
+    resolve_sibling_or_ancestor_flow_target_in(
+        story.parsed_flows(),
+        current_flow.object().id(),
+        target,
+        None,
+    )
+}
+
+fn resolve_sibling_or_ancestor_flow_target_in(
+    flows: &[ParsedFlow],
+    current_flow_id: usize,
+    target: &str,
+    prefix: Option<&str>,
+) -> Option<String> {
+    for flow in flows {
+        let flow_name = flow.flow().identifier()?;
+        let path = prefix
+            .map(|prefix| format!("{prefix}.{flow_name}"))
+            .unwrap_or_else(|| flow_name.to_owned());
+
+        if flow.children().iter().any(|child| child.object().id() == current_flow_id)
+            && flow
+                .children()
+                .iter()
+                .any(|child| child.flow().identifier() == Some(target))
+        {
+            return Some(format!("{path}.{target}"));
+        }
+
+        if let Some(found) = resolve_sibling_or_ancestor_flow_target_in(
+            flow.children(),
+            current_flow_id,
+            target,
+            Some(&path),
+        ) {
+            return Some(found);
+        }
+    }
+
+    None
+}
+
+fn resolve_explicit_weave_target(target: &str, story: &Story) -> Option<String> {
+    let mut parts: Vec<&str> = target.split('.').collect();
+    if parts.len() < 2 {
+        return None;
+    }
+
+    let weave_name = parts.pop()?;
+    let mut flows = story.parsed_flows();
+    let mut prefix = String::new();
+    let mut current_flow: Option<&ParsedFlow> = None;
+
+    for flow_name in parts {
+        let flow = flows.iter().find(|flow| flow.flow().identifier() == Some(flow_name))?;
+        if !prefix.is_empty() {
+            prefix.push('.');
+        }
+        prefix.push_str(flow_name);
+        current_flow = Some(flow);
+        flows = flow.children();
+    }
+
+    let flow = current_flow?;
+    let path_prefix = format!("{prefix}.0");
+    let named_paths = collect_current_level_named_paths(&path_prefix, flow.content());
+    named_paths.get(weave_name).cloned()
+}
+
+fn expand_weave_point_path(
+    target: &str,
+    story: &Story,
+    named_paths: Option<&HashMap<String, String>>,
+) -> Option<String> {
+    if let Some(named_paths) = named_paths
+        && let Some(path) = named_paths.get(target)
+    {
+        return Some(path.clone());
+    }
+
+    let mut parts: Vec<&str> = target.split('.').collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    let last = parts.pop()?;
+    let candidate = format!("{}.0.{last}", parts.join("."));
+    if has_named_content_path(story.parsed_flows(), &candidate) {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
+fn has_named_content_path(flows: &[ParsedFlow], path: &str) -> bool {
+    let parts: Vec<&str> = path.split('.').collect();
+    if parts.is_empty() {
+        return false;
+    }
+
+    for flow in flows {
+        if flow.flow().identifier() == Some(parts[0]) {
+            return has_named_content_path_in_flow(flow, &parts[1..]);
+        }
+    }
+
+    false
+}
+
+fn has_named_content_path_in_flow(flow: &ParsedFlow, parts: &[&str]) -> bool {
+    if parts.is_empty() {
+        return true;
+    }
+
+    if parts[0] == "0" {
+        return has_named_content_path_in_nodes(flow.content(), &parts[1..]);
+    }
+
+    for child in flow.children() {
+        if child.flow().identifier() == Some(parts[0]) {
+            return has_named_content_path_in_flow(child, &parts[1..]);
+        }
+    }
+
+    false
+}
+
+fn has_named_content_path_in_nodes(nodes: &[ParsedNode], parts: &[&str]) -> bool {
+    if parts.is_empty() {
+        return true;
+    }
+
+    let target = parts[0];
+    for node in nodes {
+        if matches!(node.kind(), ParsedNodeKind::Choice | ParsedNodeKind::GatherLabel)
+            && node.name() == Some(target)
+        {
+            return true;
+        }
+        if node.kind() == ParsedNodeKind::GatherPoint && node.name().is_none() {
+            continue;
+        }
+    }
+
+    false
+}
+
 fn export_sequence(
     state: &ExportState,
     node: &ParsedNode,
     scope: Scope<'_>,
     story: &Story,
     named_paths: Option<&HashMap<String, String>>,
+    container_path: Option<&str>,
 ) -> Result<Rc<dyn RTObject>, CompilerError> {
     use crate::parsed_hierarchy::SequenceType;
 
@@ -1388,9 +2039,12 @@ fn export_sequence(
         let (branch_content, branch_named, branch_flags): (Vec<Rc<dyn RTObject>>, HashMap<String, Rc<Container>>, i32) = if el_index < num_elements {
             let element_nodes = elements[el_index].children();
             if has_weave_content(element_nodes) {
+                let branch_path_prefix = container_path
+                    .map(|path| format!("{path}.s{el_index}"))
+                    .unwrap_or_else(|| ".^".to_owned());
                 let weave = unwrap_weave_root_container(&export_weave(
                     state,
-                    ".^",
+                    &branch_path_prefix,
                     element_nodes,
                     scope,
                     story,
@@ -1400,7 +2054,15 @@ fn export_sequence(
                 (weave.content.clone(), weave.named_content.clone(), weave.get_count_flags())
             } else {
                 (
-                    export_nodes_with_paths(state, element_nodes, scope, story, Some(named_paths))?,
+                    export_nodes_with_paths(
+                        state,
+                        element_nodes,
+                        scope,
+                        story,
+                        Some(named_paths),
+                        container_path.map(|path| format!("{path}.s{el_index}")).as_deref(),
+                        0,
+                    )?,
                     HashMap::new(),
                     0,
                 )
@@ -1455,8 +2117,7 @@ fn unwrap_weave_root_container(container: &Rc<Container>) -> Rc<Container> {
 fn conditional_is_simple(node: &ParsedNode) -> bool {
     node.children().iter().all(|branch| {
         branch.children().iter().all(|child| {
-            !matches!(child.kind(), ParsedNodeKind::Choice | ParsedNodeKind::GatherPoint | ParsedNodeKind::GatherLabel)
-                && !matches!(child.kind(), ParsedNodeKind::Conditional | ParsedNodeKind::SwitchConditional)
+            !matches!(child.kind(), ParsedNodeKind::Conditional | ParsedNodeKind::SwitchConditional)
         })
     })
 }
@@ -1467,6 +2128,8 @@ fn append_simple_conditional(
     scope: Scope<'_>,
     story: &Story,
     named_paths: Option<&HashMap<String, String>>,
+    parent_container_path: Option<&str>,
+    content_index_offset: usize,
     content: &mut Vec<Rc<dyn RTObject>>,
 ) -> Result<(), CompilerError> {
     let empty_named_paths = HashMap::new();
@@ -1487,6 +2150,10 @@ fn append_simple_conditional(
     for branch in node.children() {
         let duplicates_stack_value = branch.matching_equality && !branch.is_else;
         let mut branch_control: Vec<Rc<dyn RTObject>> = Vec::new();
+        let mut branch_nodes = branch.children().to_vec();
+        if !branch.is_inline && has_weave_content(branch.children()) {
+            branch_nodes.insert(0, ParsedNode::new(ParsedNodeKind::Newline));
+        }
         if duplicates_stack_value {
             branch_control.push(command(CommandType::Duplicate));
         }
@@ -1515,8 +2182,38 @@ fn append_simple_conditional(
         ));
         branch_control.push(branch_divert.clone());
 
-        let mut branch_content = export_nodes_with_paths(state, branch.children(), scope, story, Some(named_paths))?;
-        branch_content.insert(0, rt_value("\n"));
+        let (mut branch_content, mut branch_named) = if has_weave_content(branch.children()) {
+            let branch_container_index = content_index_offset + content.len();
+            let branch_path = parent_container_path
+                .map(|path| format!("{path}.{branch_container_index}.b"))
+                .unwrap_or_else(|| "b".to_owned());
+            let weave = unwrap_weave_root_container(&export_weave(
+                state,
+                &branch_path,
+                &branch_nodes,
+                scope,
+                story,
+                false,
+                named_paths,
+            )?);
+            (weave.content.clone(), weave.named_content.clone())
+        } else {
+            (
+                export_nodes_with_paths(
+                    state,
+                    branch.children(),
+                    scope,
+                    story,
+                    Some(named_paths),
+                    None,
+                    0,
+                )?,
+                HashMap::new(),
+            )
+        };
+        if !branch.is_inline && !has_weave_content(branch.children()) {
+            branch_content.insert(0, rt_value("\n"));
+        }
         if duplicates_stack_value || (branch.is_else && branch.matching_equality) {
             branch_content.insert(0, command(CommandType::PopEvaluatedValue));
         }
@@ -1535,7 +2232,7 @@ fn append_simple_conditional(
         );
         branch_content.push(return_divert);
 
-        let branch_b = Container::new(Some("b".to_owned()), 0, branch_content, HashMap::new());
+        let branch_b = Container::new(Some("b".to_owned()), 0, branch_content, branch_named);
         state.add_runtime_target_fixup(
             PathFixupSource::Divert(branch_divert),
             branch_b.clone(),
@@ -1558,6 +2255,7 @@ fn export_conditional(
     scope: Scope<'_>,
     story: &Story,
     named_paths: Option<&HashMap<String, String>>,
+    container_path: Option<&str>,
 ) -> Result<Rc<Container>, CompilerError> {
     let mut content: Vec<Rc<dyn RTObject>> = Vec::new();
     let is_switch = node.kind() == ParsedNodeKind::SwitchConditional;
@@ -1570,28 +2268,34 @@ fn export_conditional(
         content.push(command(CommandType::EvalEnd));
     }
 
+    let branch_container_base_index = content.len();
+
     let mut branch_specs: Vec<(bool, bool, Vec<Rc<dyn RTObject>>, HashMap<String, Rc<Container>>, i32)> = Vec::new();
 
-    for branch in node.children() {
+    for (idx, branch) in node.children().iter().enumerate() {
         let duplicates_stack_value = branch.matching_equality && !branch.is_else;
         let mut branch_nodes = branch.children().to_vec();
         if !branch.is_inline {
             branch_nodes.insert(0, ParsedNode::new(ParsedNodeKind::Newline));
         }
 
+        let branch_b_path = container_path.map(|path| format!("{path}.{}.b", branch_container_base_index + idx));
+
         let (mut branch_content, branch_named, branch_flags) = if has_weave_content(&branch_nodes) {
-            let branch_path_prefix = if branch
-                .children()
-                .iter()
-                .any(|node| node.kind() == ParsedNodeKind::Choice && !node.start_content.is_empty())
-            {
-                ".^.^"
-            } else {
-                ".^"
-            };
+            let branch_path_prefix = branch_b_path.clone().unwrap_or_else(|| {
+                if branch
+                    .children()
+                    .iter()
+                    .any(|node| node.kind() == ParsedNodeKind::Choice && !node.start_content.is_empty())
+                {
+                    ".^.^".to_owned()
+                } else {
+                    ".^".to_owned()
+                }
+            });
             let weave = unwrap_weave_root_container(&export_weave(
                 state,
-                branch_path_prefix,
+                &branch_path_prefix,
                 &branch_nodes,
                 scope,
                 story,
@@ -1601,7 +2305,15 @@ fn export_conditional(
             (weave.content.clone(), weave.named_content.clone(), weave.get_count_flags())
         } else {
             (
-                export_nodes_with_paths(state, &branch_nodes, scope, story, Some(named_paths))?,
+                export_nodes_with_paths(
+                    state,
+                    &branch_nodes,
+                    scope,
+                    story,
+                    Some(named_paths),
+                    branch_b_path.as_deref(),
+                    0,
+                )?,
                 HashMap::new(),
                 0,
             )
@@ -1789,21 +2501,27 @@ fn export_assignment(
             export_expression(expression, story, content)?;
             content.push(command(CommandType::EvalEnd));
             content.push(variable_assignment(name, !is_temporary, false));
-            content.push(rt_value("\n"));
+            if expression_contains_function_call(expression) {
+                content.push(rt_value("\n"));
+            }
         }
         "GlobalDecl" => {
             content.push(command(CommandType::EvalStart));
             export_expression(expression, story, content)?;
             content.push(command(CommandType::EvalEnd));
             content.push(variable_assignment(name, !is_temporary, true));
-            content.push(rt_value("\n"));
+            if expression_contains_function_call(expression) {
+                content.push(rt_value("\n"));
+            }
         }
         "TempSet" => {
             content.push(command(CommandType::EvalStart));
             export_expression(expression, story, content)?;
             content.push(command(CommandType::EvalEnd));
             content.push(variable_assignment(name, false, true));
-            content.push(rt_value("\n"));
+            if expression_contains_function_call(expression) {
+                content.push(rt_value("\n"));
+            }
         }
         "AddAssign" => {
             content.push(command(CommandType::EvalStart));
@@ -1812,7 +2530,9 @@ fn export_assignment(
             content.push(native(NativeOp::Add));
             content.push(variable_assignment(name, !is_temporary, false));
             content.push(command(CommandType::EvalEnd));
-            content.push(rt_value("\n"));
+            if expression_contains_function_call(expression) {
+                content.push(rt_value("\n"));
+            }
         }
         "SubtractAssign" => {
             content.push(command(CommandType::EvalStart));
@@ -1821,7 +2541,9 @@ fn export_assignment(
             content.push(native(NativeOp::Subtract));
             content.push(variable_assignment(name, !is_temporary, false));
             content.push(command(CommandType::EvalEnd));
-            content.push(rt_value("\n"));
+            if expression_contains_function_call(expression) {
+                content.push(rt_value("\n"));
+            }
         }
         other => {
             return Err(CompilerError::unsupported_feature(format!(
@@ -1839,6 +2561,17 @@ fn variable_is_temporary_in_scope(name: &str, scope: Scope<'_>) -> bool {
     };
 
     flow.flow().arguments().iter().any(|arg| arg.identifier == name)
+}
+
+fn expression_contains_function_call(expression: &ParsedExpression) -> bool {
+    match expression {
+        ParsedExpression::FunctionCall { .. } => true,
+        ParsedExpression::Unary { expression, .. } => expression_contains_function_call(expression),
+        ParsedExpression::Binary { left, right, .. } => {
+            expression_contains_function_call(left) || expression_contains_function_call(right)
+        }
+        _ => false,
+    }
 }
 
 fn export_expression_node(
@@ -2144,6 +2877,10 @@ fn native_function(name: &str) -> Option<NativeOp> {
 
 fn builtin_command(name: &str) -> Option<CommandType> {
     match name {
+        "CHOICE_COUNT" => Some(CommandType::ChoiceCount),
+        "TURNS" => Some(CommandType::Turns),
+        "TURNS_SINCE" => Some(CommandType::TurnsSince),
+        "READ_COUNT" => Some(CommandType::ReadCount),
         "RANDOM" => Some(CommandType::Random),
         "SEED_RANDOM" => Some(CommandType::SeedRandom),
         "LIST_RANGE" => Some(CommandType::ListRange),
@@ -2218,6 +2955,56 @@ fn divert_object(target: &str) -> Rc<dyn RTObject> {
     ))
 }
 
-fn visit_count_flags(count_all_visits: bool) -> i32 {
-    if count_all_visits { 1 } else { 0 }
+fn flow_count_flags(story: &Story) -> i32 {
+    if !story.count_all_visits {
+        0
+    } else if story_uses_turn_or_read_count(story) {
+        3
+    } else {
+        1
+    }
+}
+
+fn weave_count_flags(story: &Story) -> i32 {
+    if story_uses_turn_or_read_count(story) {
+        7
+    } else {
+        5
+    }
+}
+
+fn story_uses_turn_or_read_count(story: &Story) -> bool {
+    story.root_nodes().iter().any(node_uses_turn_or_read_count)
+        || story
+            .parsed_flows()
+            .iter()
+            .any(flow_uses_turn_or_read_count)
+}
+
+fn flow_uses_turn_or_read_count(flow: &ParsedFlow) -> bool {
+    flow.content().iter().any(node_uses_turn_or_read_count)
+        || flow.children().iter().any(flow_uses_turn_or_read_count)
+}
+
+fn node_uses_turn_or_read_count(node: &ParsedNode) -> bool {
+    node.expression().is_some_and(expression_uses_turn_or_read_count)
+        || node.condition().is_some_and(expression_uses_turn_or_read_count)
+        || node.start_content.iter().any(node_uses_turn_or_read_count)
+        || node.choice_only_content.iter().any(node_uses_turn_or_read_count)
+        || node.children().iter().any(node_uses_turn_or_read_count)
+}
+
+fn expression_uses_turn_or_read_count(expression: &ParsedExpression) -> bool {
+    match expression {
+        ParsedExpression::FunctionCall { name, arguments } => {
+            matches!(name.as_str(), "TURNS_SINCE" | "READ_COUNT")
+                || arguments.iter().any(expression_uses_turn_or_read_count)
+        }
+        ParsedExpression::Unary { expression, .. } => expression_uses_turn_or_read_count(expression),
+        ParsedExpression::Binary { left, right, .. } => {
+            expression_uses_turn_or_read_count(left) || expression_uses_turn_or_read_count(right)
+        }
+        ParsedExpression::StringExpression(nodes) => nodes.iter().any(node_uses_turn_or_read_count),
+        _ => false,
+    }
 }
