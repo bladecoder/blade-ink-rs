@@ -6,8 +6,8 @@ use std::{collections::HashMap, rc::Rc};
 
 use super::{
     AssignmentNode, ChoiceNode, ConditionalNode, DivertNode, DivertTarget, FlowArgument,
-    FlowBase, FlowLevel, FunctionCall, GatherNode, ObjectKind, ParsedObject, ParsedObjectRef,
-    Story, ValidationScope, VariableReference,
+    FlowBase, FlowLevel, FunctionCall, GatherNode, GenerateIntoContainer, ObjectKind,
+    ParsedObject, ParsedObjectRef, ParsedPath, Story, ValidationScope, VariableReference,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,11 +66,11 @@ pub enum ParsedExpression {
     String(String),
     StringExpression(Vec<ParsedNode>),
     Variable {
-        name: String,
+        path: ParsedPath,
         resolved_count_target: Option<ParsedObjectRef>,
     },
     DivertTarget {
-        target: String,
+        target_path: ParsedPath,
         resolved_target: Option<ParsedObjectRef>,
     },
     ListItems(Vec<String>),
@@ -85,7 +85,7 @@ pub enum ParsedExpression {
         right: Box<ParsedExpression>,
     },
     FunctionCall {
-        name: String,
+        path: ParsedPath,
         arguments: Vec<ParsedExpression>,
         resolved_target: Option<ParsedObjectRef>,
     },
@@ -108,7 +108,7 @@ pub struct ParsedNode {
     name: Option<String>,
     assignment_mode: Option<ParsedAssignmentMode>,
     assignment_target: Option<String>,
-    target: Option<String>,
+    target: Option<ParsedPath>,
     resolved_target: Option<ParsedObjectRef>,
     arguments: Vec<ParsedExpression>,
     expression: Option<ParsedExpression>,
@@ -186,7 +186,11 @@ impl ParsedNode {
     }
 
     pub fn target(&self) -> Option<&str> {
-        self.target.as_deref()
+        self.target.as_ref().map(ParsedPath::as_str)
+    }
+
+    pub fn target_path(&self) -> Option<&ParsedPath> {
+        self.target.as_ref()
     }
 
     pub fn arguments(&self) -> &[ParsedExpression] {
@@ -265,7 +269,7 @@ impl ParsedNode {
         self
     }
 
-    pub fn with_target(mut self, target: impl Into<String>) -> Self {
+    pub fn with_target(mut self, target: impl Into<ParsedPath>) -> Self {
         self.target = Some(target.into());
         self
     }
@@ -346,6 +350,35 @@ impl ParsedNode {
         for child in &mut self.children {
             child.resolve_targets(story);
         }
+    }
+
+    pub(crate) fn mark_count_target(&mut self, target: ParsedObjectRef, count_turns: bool) -> bool {
+        if self.object().reference() == target {
+            if count_turns {
+                self.object().mark_turn_index_should_be_counted();
+            } else {
+                self.object().mark_visits_should_be_counted();
+            }
+            return true;
+        }
+
+        for child in &mut self.start_content {
+            if child.mark_count_target(target, count_turns) {
+                return true;
+            }
+        }
+        for child in &mut self.choice_only_content {
+            if child.mark_count_target(target, count_turns) {
+                return true;
+            }
+        }
+        for child in &mut self.children {
+            if child.mark_count_target(target, count_turns) {
+                return true;
+            }
+        }
+
+        false
     }
 
     pub(super) fn validate(&self, scope: &ValidationScope, story: &Story) -> Result<(), CompilerError> {
@@ -461,17 +494,6 @@ impl ParsedNode {
         }
     }
 
-    pub(crate) fn uses_turn_or_read_count(&self) -> bool {
-        self.expression().is_some_and(expression_uses_turn_or_read_count)
-            || self.condition().is_some_and(expression_uses_turn_or_read_count)
-            || self.start_content().iter().any(ParsedNode::uses_turn_or_read_count)
-            || self
-                .choice_only_content()
-                .iter()
-                .any(ParsedNode::uses_turn_or_read_count)
-            || self.children().iter().any(ParsedNode::uses_turn_or_read_count)
-    }
-
     pub(crate) fn export_runtime_nodes(
         state: &crate::runtime_export::ExportState,
         nodes: &[ParsedNode],
@@ -484,15 +506,12 @@ impl ParsedNode {
         let mut content = Vec::new();
 
         for node in nodes {
-            let node_path = container_path
-                .map(|path| format!("{path}.{}", content_index_offset + content.len()));
-            node.export_runtime(
+            node.generate_into_container(
                 state,
                 scope,
                 story,
                 named_paths,
                 container_path,
-                node_path.as_deref(),
                 content_index_offset,
                 &mut content,
             )?;
@@ -645,21 +664,21 @@ impl ParsedNode {
 impl ParsedExpression {
     pub fn variable(name: impl Into<String>) -> Self {
         Self::Variable {
-            name: name.into(),
+            path: ParsedPath::from(name.into()),
             resolved_count_target: None,
         }
     }
 
     pub fn divert_target(target: impl Into<String>) -> Self {
         Self::DivertTarget {
-            target: target.into(),
+            target_path: ParsedPath::from(target.into()),
             resolved_target: None,
         }
     }
 
     pub fn function_call(name: impl Into<String>, arguments: Vec<ParsedExpression>) -> Self {
         Self::FunctionCall {
-            name: name.into(),
+            path: ParsedPath::from(name.into()),
             arguments,
             resolved_target: None,
         }
@@ -667,21 +686,21 @@ impl ParsedExpression {
 
     pub fn variable_name(&self) -> Option<&str> {
         match self {
-            ParsedExpression::Variable { name, .. } => Some(name),
+            ParsedExpression::Variable { path, .. } => Some(path.as_str()),
             _ => None,
         }
     }
 
     pub fn divert_target_name(&self) -> Option<&str> {
         match self {
-            ParsedExpression::DivertTarget { target, .. } => Some(target),
+            ParsedExpression::DivertTarget { target_path, .. } => Some(target_path.as_str()),
             _ => None,
         }
     }
 
     pub fn function_call_name(&self) -> Option<&str> {
         match self {
-            ParsedExpression::FunctionCall { name, .. } => Some(name),
+            ParsedExpression::FunctionCall { path, .. } => Some(path.as_str()),
             _ => None,
         }
     }
@@ -714,16 +733,16 @@ impl ParsedExpression {
     pub fn resolve_targets(&mut self, story: &Story) {
         match self {
             ParsedExpression::Variable {
-                name,
+                path,
                 resolved_count_target,
             } => {
-                *resolved_count_target = story.resolve_target_ref(name);
+                *resolved_count_target = story.resolve_target_ref(path.as_str());
             }
             ParsedExpression::DivertTarget {
-                target,
+                target_path,
                 resolved_target,
             } => {
-                *resolved_target = story.resolve_target_ref(target);
+                *resolved_target = story.resolve_target_ref(target_path.as_str());
             }
             ParsedExpression::Unary { expression, .. } => expression.resolve_targets(story),
             ParsedExpression::Binary { left, right, .. } => {
@@ -731,11 +750,11 @@ impl ParsedExpression {
                 right.resolve_targets(story);
             }
             ParsedExpression::FunctionCall {
-                name,
+                path,
                 arguments,
                 resolved_target,
             } => {
-                *resolved_target = story.find_flow_by_name(name).map(|flow| flow.reference());
+                *resolved_target = story.find_flow_by_name(path.as_str()).map(|flow| flow.reference());
                 for argument in arguments {
                     argument.resolve_targets(story);
                 }
@@ -752,23 +771,6 @@ impl ParsedExpression {
             | ParsedExpression::ListItems(_)
             | ParsedExpression::EmptyList => {}
         }
-    }
-}
-
-fn expression_uses_turn_or_read_count(expression: &ParsedExpression) -> bool {
-    match expression {
-        ParsedExpression::FunctionCall {
-            name, arguments, ..
-        } => {
-            matches!(name.as_str(), "TURNS_SINCE" | "READ_COUNT")
-                || arguments.iter().any(expression_uses_turn_or_read_count)
-        }
-        ParsedExpression::Unary { expression, .. } => expression_uses_turn_or_read_count(expression),
-        ParsedExpression::Binary { left, right, .. } => {
-            expression_uses_turn_or_read_count(left) || expression_uses_turn_or_read_count(right)
-        }
-        ParsedExpression::StringExpression(nodes) => nodes.iter().any(ParsedNode::uses_turn_or_read_count),
-        _ => false,
     }
 }
 
@@ -849,16 +851,39 @@ impl ParsedFlow {
             child.resolve_targets(story);
         }
     }
+
+    pub(crate) fn mark_count_target(&mut self, target: ParsedObjectRef, count_turns: bool) -> bool {
+        if self.object().reference() == target {
+            if count_turns {
+                self.object().mark_turn_index_should_be_counted();
+            } else {
+                self.object().mark_visits_should_be_counted();
+            }
+            return true;
+        }
+
+        for node in &mut self.content {
+            if node.mark_count_target(target, count_turns) {
+                return true;
+            }
+        }
+        for child in &mut self.children {
+            if child.mark_count_target(target, count_turns) {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 impl ParsedExpression {
     pub(super) fn validate(&self, scope: &ValidationScope, story: &Story) -> Result<(), CompilerError> {
         match self {
-            ParsedExpression::Variable { name, .. } => {
-                VariableReference::validate_name(name, scope, story)?;
+            ParsedExpression::Variable { path, .. } => {
+                VariableReference::validate_name(path.as_str(), scope, story)?;
             }
-            ParsedExpression::DivertTarget { target, .. } => {
-                DivertTarget::validate_explicit_target(target, scope, story)?;
+            ParsedExpression::DivertTarget { target_path, .. } => {
+                DivertTarget::validate_explicit_target(target_path.as_str(), scope, story)?;
             }
             ParsedExpression::Unary { expression, .. } => {
                 expression.validate(scope, story)?;
@@ -868,9 +893,9 @@ impl ParsedExpression {
                 right.validate(scope, story)?;
             }
             ParsedExpression::FunctionCall {
-                name, arguments, ..
+                path, arguments, ..
             } => {
-                FunctionCall::validate_call_arguments(name, arguments, scope, story)?;
+                FunctionCall::validate_call_arguments(path.as_str(), arguments, scope, story)?;
             }
             ParsedExpression::StringExpression(nodes) => {
                 ParsedNode::validate_list(nodes, scope, story)?;

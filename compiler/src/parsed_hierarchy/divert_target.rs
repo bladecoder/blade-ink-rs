@@ -1,15 +1,15 @@
 use crate::error::CompilerError;
 
-use super::{Expression, ObjectKind, Story, ValidationScope};
+use super::{Expression, ObjectKind, ParsedPath, Story, ValidationScope};
 
 #[derive(Debug, Clone)]
 pub struct DivertTarget {
     expression: Expression,
-    target_path: String,
+    target_path: ParsedPath,
 }
 
 impl DivertTarget {
-    pub fn new(target_path: impl Into<String>) -> Self {
+    pub fn new(target_path: impl Into<ParsedPath>) -> Self {
         Self {
             expression: Expression::new(ObjectKind::DivertTarget),
             target_path: target_path.into(),
@@ -20,7 +20,7 @@ impl DivertTarget {
         &self.expression
     }
 
-    pub fn target_path(&self) -> &str {
+    pub fn target_path(&self) -> &ParsedPath {
         &self.target_path
     }
 
@@ -94,6 +94,6 @@ mod tests {
     #[test]
     fn divert_target_keeps_target_path() {
         let target = DivertTarget::new("knot.stitch");
-        assert_eq!("knot.stitch", target.target_path());
+        assert_eq!("knot.stitch", target.target_path().as_str());
     }
 }

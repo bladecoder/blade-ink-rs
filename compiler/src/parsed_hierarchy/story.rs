@@ -180,6 +180,8 @@ impl Story {
         )?;
         self.validate_root_scope(&flow_names, &root_scope)?;
         self.resolve_parsed_targets();
+        let resolved_story = self.clone();
+        self.apply_counting_marks(&resolved_story);
 
         Ok(())
     }
@@ -209,7 +211,7 @@ impl Story {
         )?;
         let root = Container::new(
             None,
-            self.flow_count_flags(),
+            self.object().count_flags(self.count_all_visits, false),
             vec![inner_root, crate::runtime_export::command(CommandType::Done)],
             named_content,
         );
@@ -222,27 +224,12 @@ impl Story {
             .map_err(|error| CompilerError::invalid_source(error.to_string()))
     }
 
-    pub(crate) fn flow_count_flags(&self) -> i32 {
-        if !self.count_all_visits {
-            0
-        } else if self.uses_turn_or_read_count() {
-            3
-        } else {
-            1
-        }
+    pub(crate) fn flow_count_flags_for(&self, object: &ParsedObject) -> i32 {
+        object.count_flags(self.count_all_visits, false)
     }
 
-    pub(crate) fn weave_count_flags(&self) -> i32 {
-        if self.uses_turn_or_read_count() {
-            7
-        } else {
-            5
-        }
-    }
-
-    pub(crate) fn uses_turn_or_read_count(&self) -> bool {
-        self.root_nodes().iter().any(ParsedNode::uses_turn_or_read_count)
-            || self.parsed_flows().iter().any(ParsedFlow::uses_turn_or_read_count)
+    pub(crate) fn weave_count_flags_for(&self, object: &ParsedObject) -> i32 {
+        object.count_flags(self.count_all_visits, true)
     }
 
     pub(crate) fn find_flow_by_name(&self, name: &str) -> Option<&ParsedFlow> {
@@ -558,6 +545,41 @@ impl Story {
         }
     }
 
+    fn apply_counting_marks(&mut self, resolved_story: &Story) {
+        for node in &resolved_story.root_nodes {
+            apply_counting_marks_in_node(node, self);
+        }
+        for flow in &resolved_story.flows {
+            apply_counting_marks_in_flow(flow, self);
+        }
+    }
+
+    pub(crate) fn mark_count_target(
+        &mut self,
+        target: super::ParsedObjectRef,
+        count_turns: bool,
+    ) {
+        if self.object().reference() == target {
+            if count_turns {
+                self.object().mark_turn_index_should_be_counted();
+            } else {
+                self.object().mark_visits_should_be_counted();
+            }
+            return;
+        }
+
+        for node in &mut self.root_nodes {
+            if node.mark_count_target(target, count_turns) {
+                return;
+            }
+        }
+        for flow in &mut self.flows {
+            if flow.mark_count_target(target, count_turns) {
+                return;
+            }
+        }
+    }
+
     fn export_runtime_list_defs(&self) -> Vec<RuntimeListDefinition> {
         self.list_definitions()
             .iter()
@@ -636,6 +658,80 @@ fn collect_global_declared_vars_in_flow(flow: &ParsedFlow, names: &mut HashSet<S
         collect_global_declared_vars_in_flow(child, names);
     }
 }
+
+fn apply_counting_marks_in_flow(flow: &ParsedFlow, story: &mut Story) {
+    for node in flow.content() {
+        apply_counting_marks_in_node(node, story);
+    }
+    for child in flow.children() {
+        apply_counting_marks_in_flow(child, story);
+    }
+}
+
+fn apply_counting_marks_in_node(node: &ParsedNode, story: &mut Story) {
+    if let Some(expression) = node.expression() {
+        apply_counting_marks_in_expression(expression, story);
+    }
+    if let Some(condition) = node.condition() {
+        apply_counting_marks_in_expression(condition, story);
+    }
+    for child in node.start_content() {
+        apply_counting_marks_in_node(child, story);
+    }
+    for child in node.choice_only_content() {
+        apply_counting_marks_in_node(child, story);
+    }
+    for child in node.children() {
+        apply_counting_marks_in_node(child, story);
+    }
+}
+
+fn apply_counting_marks_in_expression(expression: &ParsedExpression, story: &mut Story) {
+    match expression {
+        ParsedExpression::Variable {
+            resolved_count_target,
+            ..
+        } => {
+            if let Some(target) = resolved_count_target {
+                story.mark_count_target(*target, false);
+            }
+        }
+        ParsedExpression::DivertTarget { .. } => {}
+        ParsedExpression::Unary { expression, .. } => apply_counting_marks_in_expression(expression, story),
+        ParsedExpression::Binary { left, right, .. } => {
+            apply_counting_marks_in_expression(left, story);
+            apply_counting_marks_in_expression(right, story);
+        }
+        ParsedExpression::FunctionCall {
+            path,
+            arguments,
+            ..
+        } => {
+            if matches!(path.as_str(), "TURNS_SINCE" | "READ_COUNT")
+                && let Some(argument) = arguments.first()
+            {
+                if let Some(target) = argument.resolved_target().or_else(|| argument.resolved_count_target()) {
+                    story.mark_count_target(target, path.as_str() == "TURNS_SINCE");
+                }
+            }
+            for argument in arguments {
+                apply_counting_marks_in_expression(argument, story);
+            }
+        }
+        ParsedExpression::StringExpression(nodes) => {
+            for node in nodes {
+                apply_counting_marks_in_node(node, story);
+            }
+        }
+        ParsedExpression::Bool(_)
+        | ParsedExpression::Int(_)
+        | ParsedExpression::Float(_)
+        | ParsedExpression::String(_)
+        | ParsedExpression::ListItems(_)
+        | ParsedExpression::EmptyList => {}
+    }
+}
+
 
 fn runtime_target_cache_in_flow(
     flow: &ParsedFlow,

@@ -4,19 +4,19 @@ use bladeink::{RTObject, VariableReference as RuntimeVariableReference};
 
 use crate::error::CompilerError;
 
-use super::{Expression, ObjectKind, Story, ValidationScope};
+use super::{Expression, ObjectKind, ParsedPath, Story, ValidationScope};
 
 #[derive(Debug, Clone)]
 pub struct VariableReference {
     pub(crate) expression: Expression,
-    pub(crate) path: Vec<String>,
+    pub(crate) path: ParsedPath,
 }
 
 impl VariableReference {
-    pub fn new(path: Vec<String>) -> Self {
+    pub fn new(path: impl Into<ParsedPath>) -> Self {
         Self {
             expression: Expression::new(ObjectKind::VariableReference),
-            path,
+            path: path.into(),
         }
     }
 
@@ -28,12 +28,12 @@ impl VariableReference {
         &mut self.expression
     }
 
-    pub fn path(&self) -> &[String] {
+    pub fn path(&self) -> &ParsedPath {
         &self.path
     }
 
     pub fn name(&self) -> String {
-        self.path.join(".")
+        self.path.as_str().to_owned()
     }
 
     pub fn runtime_object(&self) -> Rc<dyn RTObject> {

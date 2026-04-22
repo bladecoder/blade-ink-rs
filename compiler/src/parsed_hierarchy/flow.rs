@@ -133,11 +133,6 @@ impl super::ParsedFlow {
         child.find_child_flow_by_path(rest)
     }
 
-    pub(crate) fn uses_turn_or_read_count(&self) -> bool {
-        self.content().iter().any(ParsedNode::uses_turn_or_read_count)
-            || self.children().iter().any(super::ParsedFlow::uses_turn_or_read_count)
-    }
-
     pub(super) fn validate(
         &self,
         top_level_flow_names: &HashSet<String>,
@@ -317,7 +312,7 @@ impl super::ParsedFlow {
 
         let container = Container::new(
             Some(self.flow().identifier().unwrap_or_default().to_owned()),
-            story.flow_count_flags(),
+            story.flow_count_flags_for(self.object()),
             content,
             named,
         );

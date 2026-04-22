@@ -164,7 +164,7 @@ impl<'fh> InkParser<'fh> {
             let node = if let Some(divert) = self.divert_identifier_with_arguments() {
                 let arguments = parse_divert_argument_expressions(&divert.arguments)?;
                 ParsedNode::new(ParsedNodeKind::TunnelOnwardsWithTarget)
-                    .with_target(divert.target.join("."))
+                    .with_target(divert.target)
                     .with_arguments(arguments)
             } else {
                 ParsedNode::new(ParsedNodeKind::TunnelReturn)
@@ -182,16 +182,15 @@ impl<'fh> InkParser<'fh> {
             return self.parser.succeed_rule(rule_id, None);
         };
 
-        let target = divert.target.join(".");
         let arguments = parse_divert_argument_expressions(&divert.arguments)?;
 
         let node = if self.parser.parse_string("->").is_some() {
             ParsedNode::new(ParsedNodeKind::TunnelDivert)
-                .with_target(target)
+                .with_target(divert.target.clone())
                 .with_arguments(arguments)
         } else {
             ParsedNode::new(ParsedNodeKind::Divert)
-                .with_target(target)
+                .with_target(divert.target)
                 .with_arguments(arguments)
         };
         self.parser.succeed_rule(rule_id, Some(node))

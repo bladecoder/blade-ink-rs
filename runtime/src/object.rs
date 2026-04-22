@@ -9,6 +9,7 @@ use as_any::{AsAny, Downcast};
 
 use crate::{
     container::Container,
+    debug_metadata::DebugMetadata,
     path::{Component, Path},
     search_result::SearchResult,
 };
@@ -17,7 +18,7 @@ use crate::{
 pub struct Object {
     parent: RefCell<Weak<Container>>,
     path: RefCell<Option<Path>>,
-    //debug_metadata: DebugMetadata,
+    debug_metadata: RefCell<Option<DebugMetadata>>,
 }
 
 impl Object {
@@ -25,7 +26,16 @@ impl Object {
         Object {
             parent: RefCell::new(Weak::new()),
             path: RefCell::new(None),
+            debug_metadata: RefCell::new(None),
         }
+    }
+
+    pub fn set_debug_metadata(&self, debug_metadata: DebugMetadata) {
+        self.debug_metadata.replace(Some(debug_metadata));
+    }
+
+    pub fn debug_metadata(&self) -> Option<DebugMetadata> {
+        self.debug_metadata.borrow().clone()
     }
 
     pub fn is_root(&self) -> bool {

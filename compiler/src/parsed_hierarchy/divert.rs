@@ -172,7 +172,7 @@ impl<'a> DivertNode<'a> {
 impl ParsedNode {
     pub fn new_divert(
         kind: DivertNodeKind,
-        target: impl Into<String>,
+        target: impl Into<super::ParsedPath>,
         arguments: Vec<ParsedExpression>,
     ) -> Self {
         Self::new(kind.parsed_kind())

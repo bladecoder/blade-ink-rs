@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     cell::RefCell,
     collections::{BTreeMap, VecDeque},
     rc::Rc,
@@ -69,6 +70,8 @@ pub(crate) struct ParsedRuntimeCache {
     runtime_object: RefCell<Option<Rc<dyn RTObject>>>,
     runtime_path_target: RefCell<Option<Rc<dyn RTObject>>>,
     container_for_counting: RefCell<Option<Rc<Container>>>,
+    visits_should_be_counted: Cell<bool>,
+    turn_index_should_be_counted: Cell<bool>,
 }
 
 impl std::fmt::Debug for ParsedRuntimeCache {
@@ -80,6 +83,8 @@ impl std::fmt::Debug for ParsedRuntimeCache {
                 "has_container_for_counting",
                 &self.container_for_counting.borrow().is_some(),
             )
+            .field("visits_should_be_counted", &self.visits_should_be_counted.get())
+            .field("turn_index_should_be_counted", &self.turn_index_should_be_counted.get())
             .finish()
     }
 }
@@ -128,6 +133,20 @@ impl ParsedRuntimeCache {
         self.runtime_object.replace(None);
         self.runtime_path_target.replace(None);
         self.container_for_counting.replace(None);
+    }
+
+    pub(crate) fn mark_visits_should_be_counted(&self) {
+        self.visits_should_be_counted.set(true);
+    }
+
+    pub(crate) fn mark_turn_index_should_be_counted(&self) {
+        self.turn_index_should_be_counted.set(true);
+    }
+
+    pub(crate) fn count_flags(&self, default_visits: bool, counting_at_start_only: bool) -> i32 {
+        let visits = default_visits || self.visits_should_be_counted.get();
+        let turns = self.turn_index_should_be_counted.get();
+        (visits as i32) + ((turns as i32) * 2) + ((counting_at_start_only as i32) * 4)
     }
 }
 
@@ -336,6 +355,11 @@ impl ParsedObject {
     }
 
     pub fn set_runtime_object(&self, runtime_object: Rc<dyn RTObject>) {
+        if let Some(debug_metadata) = self.debug_metadata() {
+            runtime_object
+                .get_object()
+                .set_debug_metadata(debug_metadata.into());
+        }
         self.runtime_cache.set_runtime_object(runtime_object);
     }
 
@@ -369,6 +393,18 @@ impl ParsedObject {
 
     pub fn clear_runtime_object_cache(&self) {
         self.runtime_cache.clear();
+    }
+
+    pub fn mark_visits_should_be_counted(&self) {
+        self.runtime_cache.mark_visits_should_be_counted();
+    }
+
+    pub fn mark_turn_index_should_be_counted(&self) {
+        self.runtime_cache.mark_turn_index_should_be_counted();
+    }
+
+    pub fn count_flags(&self, default_visits: bool, counting_at_start_only: bool) -> i32 {
+        self.runtime_cache.count_flags(default_visits, counting_at_start_only)
     }
 
     pub(crate) fn runtime_cache_handle(&self) -> Rc<ParsedRuntimeCache> {

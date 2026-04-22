@@ -353,7 +353,11 @@ impl StructuredWeave {
                         state,
                         &choice_path,
                         Some(choice_key.clone()),
-                        story.weave_count_flags(),
+                        choice
+                            .source_node
+                            .as_ref()
+                            .map(|node| story.weave_count_flags_for(node.object()))
+                            .unwrap_or_else(|| story.weave_count_flags_for(story.object())),
                     );
                     if let Some(source_node) = &choice.source_node {
                         state.register_parsed_runtime_target_path(
@@ -450,7 +454,11 @@ impl StructuredWeave {
                         state,
                         &gather_path,
                         Some(gather_name.clone()),
-                        story.weave_count_flags(),
+                        gather
+                            .source_node
+                            .as_ref()
+                            .map(|node| story.weave_count_flags_for(node.object()))
+                            .unwrap_or_else(|| story.weave_count_flags_for(story.object())),
                     );
                     if let Some(source_node) = &gather.source_node {
                         state.register_parsed_runtime_target_path(
@@ -564,7 +572,7 @@ impl StructuredWeave {
                 state,
                 final_gather_path,
                 Some(final_gather_name.clone()),
-                story.weave_count_flags(),
+                story.weave_count_flags_for(story.object()),
             );
             final_gather.push_object(command(CommandType::Done));
             if auto_enter {

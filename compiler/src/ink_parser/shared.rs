@@ -72,9 +72,9 @@ pub(super) fn parsed_expression_to_expression_node(
                 crate::parsed_hierarchy::StringExpression::new(content),
             ))
         }
-        crate::parsed_hierarchy::ParsedExpression::Variable { name, .. } => Some(
+        crate::parsed_hierarchy::ParsedExpression::Variable { path, .. } => Some(
             ExpressionNode::VariableReference(VariableReference::new(
-                name.split('.').map(ToOwned::to_owned).collect(),
+                path.clone(),
             )),
         ),
         crate::parsed_hierarchy::ParsedExpression::ListItems(items) => {

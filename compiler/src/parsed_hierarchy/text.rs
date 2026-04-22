@@ -48,3 +48,26 @@ impl Text {
         runtime_object
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Text;
+    use crate::parsed_hierarchy::DebugMetadata;
+
+    #[test]
+    fn text_runtime_object_receives_debug_metadata() {
+        let mut text = Text::new("hello");
+        text.object_mut().set_debug_metadata(DebugMetadata {
+            start_line_number: 1,
+            end_line_number: 1,
+            start_character_number: 1,
+            end_character_number: 5,
+            file_name: Some("main.ink".to_owned()),
+        });
+
+        let runtime = text.runtime_object();
+        let metadata = runtime.get_object().debug_metadata().expect("runtime metadata");
+        assert_eq!(1, metadata.start_line_number);
+        assert_eq!(Some("main.ink".to_owned()), metadata.file_name);
+    }
+}

@@ -12,7 +12,7 @@ impl<'fh> InkParser<'fh> {
             let arguments = parse_divert_argument_expressions(&thread.arguments)?;
             let node = ParsedNode::new_divert(
                 DivertNodeKind::Thread,
-                thread.target.join("."),
+                thread.target,
                 arguments,
             );
             return self.parser.succeed_rule(rule_id, Some(vec![node]));
@@ -48,7 +48,7 @@ impl<'fh> InkParser<'fh> {
                         nodes.push(
                             ParsedNode::new_divert(
                                 DivertNodeKind::TunnelOnwards,
-                                divert.target.join("."),
+                                divert.target.clone(),
                                 arguments,
                             ),
                         );
@@ -68,7 +68,7 @@ impl<'fh> InkParser<'fh> {
                         DivertNodeKind::Normal
                     };
                     let arguments = parse_divert_argument_expressions(&divert.arguments)?;
-                    nodes.push(ParsedNode::new_divert(kind, divert.target.join("."), arguments));
+                    nodes.push(ParsedNode::new_divert(kind, divert.target.clone(), arguments));
                 }
                 _ => return self.parser.fail_rule(rule_id),
             }

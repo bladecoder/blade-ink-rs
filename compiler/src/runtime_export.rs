@@ -9,9 +9,9 @@ use bladeink::{
 use crate::{
     error::CompilerError,
     parsed_hierarchy::{
-        ChoiceNode, ConditionalNode, GatherNode, ParsedExpression, ParsedFlow, ParsedNode,
-        ParsedNodeKind, ParsedRuntimeCache, Story, StructuredWeave, StructuredWeaveEntry,
-        StructuredWeaveEntryKind,
+        ChoiceNode, ConditionalNode, FunctionCall, GatherNode, ParsedExpression, ParsedFlow,
+        ParsedNode, ParsedNodeKind, ParsedRuntimeCache, Story, StructuredWeave,
+        StructuredWeaveEntry, StructuredWeaveEntryKind,
     },
 };
 
@@ -326,8 +326,8 @@ pub(crate) fn export_condition_expression(
     content: &mut Vec<PendingItem>,
 ) -> Result<(), CompilerError> {
     match expression {
-        ParsedExpression::Variable { name, .. } => {
-            if let Some(path) = resolve_count_path(name, named_paths) {
+        ParsedExpression::Variable { path, .. } => {
+            if let Some(path) = resolve_count_path(path.as_str(), named_paths) {
                 content.push(PendingItem::Object(Rc::new(VariableReference::from_path_for_count(
                     &path,
                 ))));
@@ -377,8 +377,8 @@ pub(crate) fn export_output_expression(
     content: &mut Vec<Rc<dyn RTObject>>,
 ) -> Result<(), CompilerError> {
     match expression {
-        ParsedExpression::Variable { name, .. } => {
-            if let Some(path) = resolve_output_count_path(name, scope, named_paths) {
+        ParsedExpression::Variable { path, .. } => {
+            if let Some(path) = resolve_output_count_path(path.as_str(), scope, named_paths) {
                 content.push(Rc::new(VariableReference::from_path_for_count(&path)));
             } else {
                 export_expression_scoped(expression, scope, story, named_paths, content)?;
@@ -411,22 +411,22 @@ fn export_expression_scoped(
             export_string_expression(nodes, story, content)?;
             content.push(command(CommandType::EndString));
         }
-        ParsedExpression::Variable { name, .. } => {
-            if let Some(constant) = story.const_declaration(name) {
+        ParsedExpression::Variable { path, .. } => {
+            if let Some(constant) = story.const_declaration(path.as_str()) {
                 export_expression_node(constant.expression(), story, content)?;
             } else {
-                content.push(Rc::new(VariableReference::new(name)));
+                content.push(Rc::new(VariableReference::new(path.as_str())));
             }
         }
         ParsedExpression::DivertTarget {
-            target,
+            target_path,
             resolved_target,
         } => {
             let resolved = resolved_target
                 .and_then(|target_ref| story.runtime_target_cache_for_ref(target_ref))
                 .and_then(|cache| cache.runtime_path())
                 .map(|path| path.to_string())
-                .unwrap_or_else(|| resolve_target(target, scope, story, named_paths));
+                .unwrap_or_else(|| resolve_target(target_path.as_str(), scope, story, named_paths));
             content.push(rt_value(Path::new_with_components_string(Some(&resolved))));
         }
         ParsedExpression::ListItems(items) => {
@@ -466,41 +466,42 @@ fn export_expression_scoped(
             content.push(native(operator_token(operator)?));
         }
         ParsedExpression::FunctionCall {
-            name, arguments, ..
+            path, arguments, ..
         } => {
             if story
                 .list_definitions()
                 .iter()
-                .any(|list| list.identifier() == Some(name.as_str()))
+                .any(|list| list.identifier() == Some(path.as_str()))
             {
                 match arguments.as_slice() {
                     [] => {
                         let list = InkList::new();
-                        list.set_initial_origin_names(vec![name.to_owned()]);
+                        list.set_initial_origin_names(vec![path.as_str().to_owned()]);
                         content.push(rt_value(list));
                     }
                     [argument] => {
-                        content.push(rt_value(name.as_str()));
+                        content.push(rt_value(path.as_str()));
                         export_expression_scoped(argument, scope, story, named_paths, content)?;
                         content.push(command(CommandType::ListFromInt));
                     }
                     _ => {
                         return Err(CompilerError::unsupported_feature(format!(
-                            "runtime export does not support list call '{name}' with {} arguments",
+                            "runtime export does not support list call '{}' with {} arguments",
+                            path.as_str(),
                             arguments.len()
                         )));
                     }
                 }
-            } else if let Some(command_type) = builtin_command(name) {
+            } else if let Some(command_type) = builtin_command(path.as_str()) {
                 for argument in arguments {
-                    if matches!(name.as_str(), "TURNS_SINCE" | "READ_COUNT") {
+                    if matches!(path.as_str(), "TURNS_SINCE" | "READ_COUNT") {
                         export_count_argument_expression(argument, story, content)?;
                     } else {
                         export_expression_scoped(argument, scope, story, named_paths, content)?;
                     }
                 }
                 content.push(command(command_type));
-            } else if let Some(native_op) = native_function(name) {
+            } else if let Some(native_op) = native_function(path.as_str()) {
                 for argument in arguments {
                     export_expression_scoped(argument, scope, story, named_paths, content)?;
                 }
@@ -871,12 +872,12 @@ pub(crate) fn export_divert_arguments(
     for (index, argument) in arguments.iter().enumerate() {
         let expected_argument = expected_arguments.and_then(|args| args.get(index));
         if expected_argument.is_some_and(|arg| arg.is_by_reference) {
-            let ParsedExpression::Variable { name: var_name, .. } = argument else {
+            let ParsedExpression::Variable { path: var_name, .. } = argument else {
                 return Err(CompilerError::unsupported_feature(format!(
                     "runtime export divert to '{target}' requires variable arguments for by-reference parameters"
                 )));
             };
-            content.push(Rc::new(Value::new_variable_pointer(var_name, -1)));
+            content.push(Rc::new(Value::new_variable_pointer(var_name.as_str(), -1)));
         } else {
             export_divert_argument_expression(argument, scope, story, named_paths, content)?;
         }
@@ -894,14 +895,14 @@ fn export_divert_argument_expression(
 ) -> Result<(), CompilerError> {
     match argument {
         ParsedExpression::DivertTarget {
-            target,
+            target_path,
             resolved_target,
         } => {
             let resolved = resolved_target
                 .and_then(|target_ref| story.runtime_target_cache_for_ref(target_ref))
                 .and_then(|cache| cache.runtime_path())
                 .map(|path| path.to_string())
-                .unwrap_or_else(|| resolve_target(target, scope, story, named_paths));
+                .unwrap_or_else(|| resolve_target(target_path.as_str(), scope, story, named_paths));
             content.push(rt_value(Path::new_with_components_string(Some(&resolved))));
             Ok(())
         }
@@ -1259,12 +1260,12 @@ pub(crate) fn export_condition_expression_runtime(
 ) -> Result<(), CompilerError> {
     match expression {
         ParsedExpression::Variable {
-            name,
+            path,
             resolved_count_target,
         } => {
             if let Some(path) = resolved_count_target
                 .and_then(|target_ref| resolved_count_target_path(story, target_ref))
-                .or_else(|| resolve_condition_count_path(name, scope, story, named_paths))
+                .or_else(|| resolve_condition_count_path(path.as_str(), scope, story, named_paths))
             {
                 content.push(Rc::new(VariableReference::from_path_for_count(&path)));
             } else {
@@ -1404,23 +1405,23 @@ pub(crate) fn export_expression(
             export_string_expression(nodes, story, content)?;
             content.push(command(CommandType::EndString));
         }
-        ParsedExpression::Variable { name, .. } => {
-            if let Some(constant) = story.const_declaration(name) {
+        ParsedExpression::Variable { path, .. } => {
+            if let Some(constant) = story.const_declaration(path.as_str()) {
                 export_expression_node(constant.expression(), story, content)?;
             } else {
-                content.push(Rc::new(VariableReference::new(name)));
+                content.push(Rc::new(VariableReference::new(path.as_str())));
             }
         }
         ParsedExpression::DivertTarget {
-            target,
+            target_path,
             resolved_target,
         } => {
             let resolved_path = resolved_target
                 .and_then(|target_ref| story.runtime_target_cache_for_ref(target_ref))
-                .or_else(|| story.runtime_target_cache_for_path(target))
+                .or_else(|| story.runtime_target_cache_for_path(target_path.as_str()))
                 .and_then(|cache| cache.runtime_path())
                 .map(|path| path.to_string())
-                .unwrap_or_else(|| target.to_owned());
+                .unwrap_or_else(|| target_path.as_str().to_owned());
             content.push(rt_value(Path::new_with_components_string(Some(&resolved_path))));
         }
         ParsedExpression::ListItems(items) => {
@@ -1460,99 +1461,11 @@ pub(crate) fn export_expression(
             content.push(native(operator_token(operator)?));
         }
         ParsedExpression::FunctionCall {
-            name,
+            path,
             arguments,
             resolved_target,
         } => {
-            if story
-                .list_definitions()
-                .iter()
-                .any(|list| list.identifier() == Some(name.as_str()))
-            {
-                match arguments.as_slice() {
-                    [] => {
-                        let list = InkList::new();
-                        list.set_initial_origin_names(vec![name.to_owned()]);
-                        content.push(rt_value(list));
-                    }
-                    [argument] => {
-                        content.push(rt_value(name.as_str()));
-                        export_expression(argument, story, content)?;
-                        content.push(command(CommandType::ListFromInt));
-                    }
-                    _ => {
-                        return Err(CompilerError::unsupported_feature(format!(
-                            "runtime export does not support list call '{name}' with {} arguments",
-                            arguments.len()
-                        )));
-                    }
-                }
-            } else if let Some(command_type) = builtin_command(name) {
-                for argument in arguments {
-                    if matches!(name.as_str(), "TURNS_SINCE" | "READ_COUNT") {
-                        export_count_argument_expression(argument, story, content)?;
-                    } else {
-                        export_expression(argument, story, content)?;
-                    }
-                }
-                content.push(command(command_type));
-            } else if let Some(native_op) = native_function(name) {
-                for argument in arguments {
-                    export_expression(argument, story, content)?;
-                }
-                content.push(native(native_op));
-            } else if let Some(function_flow) = story.parsed_flows().iter().find(|flow| {
-                flow.flow().identifier() == Some(name.as_str()) && flow.flow().is_function()
-            }) {
-                if arguments.is_empty()
-                    && let Some(text) = simple_function_text(function_flow)
-                {
-                    content.push(rt_value(text.as_str()));
-                } else {
-                    let params = function_flow.flow().arguments();
-                    if params.len() != arguments.len() {
-                        return Err(CompilerError::unsupported_feature(format!(
-                            "runtime export function call '{name}' has {} arguments but expected {}",
-                            arguments.len(),
-                            params.len()
-                        )));
-                    }
-
-                    for (argument, parameter) in arguments.iter().zip(params.iter()) {
-                        if parameter.is_by_reference {
-                            let ParsedExpression::Variable { name: var_name, .. } = argument else {
-                                return Err(CompilerError::unsupported_feature(format!(
-                                    "runtime export by-reference function call '{name}' requires variable arguments"
-                                )));
-                            };
-                            content.push(Rc::new(Value::new_variable_pointer(var_name, -1)));
-                        } else {
-                            export_expression(argument, story, content)?;
-                        }
-                    }
-
-                    let target_path = resolved_target
-                        .and_then(|target_ref| story.runtime_target_cache_for_ref(target_ref))
-                        .and_then(|cache| cache.runtime_path())
-                        .or_else(|| function_flow.runtime_path())
-                        .map(|path| path.to_string())
-                        .unwrap_or_else(|| name.to_owned());
-
-                    content.push(Rc::new(Divert::new(
-                        true,
-                        PushPopType::Function,
-                        false,
-                        0,
-                        false,
-                        None,
-                        Some(&target_path),
-                    )));
-                }
-            } else {
-                return Err(CompilerError::unsupported_feature(format!(
-                    "runtime export does not support function call '{name}'"
-                )));
-            }
+            FunctionCall::export_parsed_call(path, arguments, *resolved_target, story, content)?;
         }
     }
 
@@ -1611,14 +1524,14 @@ fn insert_resolved_list_item(
     }
 }
 
-fn export_count_argument_expression(
+pub(crate) fn export_count_argument_expression(
     argument: &ParsedExpression,
     story: &Story,
     content: &mut Vec<Rc<dyn RTObject>>,
 ) -> Result<(), CompilerError> {
     match argument {
         ParsedExpression::Variable {
-            name: _,
+            path: _,
             resolved_count_target,
         } => {
             if let Some(path) = resolved_count_target
@@ -1631,12 +1544,12 @@ fn export_count_argument_expression(
             }
         }
         ParsedExpression::DivertTarget {
-            target,
+            target_path,
             resolved_target,
         } => {
             let resolved_path = resolved_target
                 .and_then(|target_ref| resolved_count_target_path(story, target_ref))
-                .unwrap_or_else(|| target.to_owned());
+                .unwrap_or_else(|| target_path.as_str().to_owned());
             content.push(Rc::new(VariableReference::from_path_for_count(&resolved_path)));
             Ok(())
         }
@@ -1644,7 +1557,7 @@ fn export_count_argument_expression(
     }
 }
 
-fn simple_function_text(flow: &ParsedFlow) -> Option<String> {
+pub(crate) fn simple_function_text(flow: &ParsedFlow) -> Option<String> {
     let mut text = String::new();
 
     for node in flow.content() {
@@ -1682,7 +1595,7 @@ fn operator_token(operator: &str) -> Result<NativeOp, CompilerError> {
     }
 }
 
-fn native_function(name: &str) -> Option<NativeOp> {
+pub(crate) fn native_function(name: &str) -> Option<NativeOp> {
     match name {
         "MIN" => Some(NativeOp::Min),
         "MAX" => Some(NativeOp::Max),
@@ -1701,7 +1614,7 @@ fn native_function(name: &str) -> Option<NativeOp> {
     }
 }
 
-fn builtin_command(name: &str) -> Option<CommandType> {
+pub(crate) fn builtin_command(name: &str) -> Option<CommandType> {
     match name {
         "CHOICE_COUNT" => Some(CommandType::ChoiceCount),
         "TURNS" => Some(CommandType::Turns),
