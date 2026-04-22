@@ -204,6 +204,10 @@ impl Default for Object {
     }
 }
 
+pub fn path_of(rtobject: &dyn RTObject) -> Path {
+    Object::get_path(rtobject)
+}
+
 pub trait IntoAny: AsAny {
     fn into_any(self: Rc<Self>) -> Rc<dyn Any>;
 }

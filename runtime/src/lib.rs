@@ -85,6 +85,7 @@ pub use ink_list::InkList;
 pub use ink_list_item::InkListItem;
 pub use list_definition::ListDefinition;
 pub use native_function_call::{NativeFunctionCall, Op as NativeOp};
+pub use object::path_of;
 pub use object::RTObject;
 pub use path::Path;
 pub use push_pop::PushPopType;

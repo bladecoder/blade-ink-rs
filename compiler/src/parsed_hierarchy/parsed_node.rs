@@ -23,6 +23,7 @@ pub enum ParsedNodeKind {
     GatherPoint,
     GatherLabel,
     VoidCall,
+    AuthorWarning,
 }
 
 impl ParsedNodeKind {
@@ -42,16 +43,18 @@ impl ParsedNodeKind {
             Self::Choice => ObjectKind::Choice,
             Self::GatherPoint | Self::GatherLabel => ObjectKind::Gather,
             Self::VoidCall => ObjectKind::FunctionCall,
+            Self::AuthorWarning => ObjectKind::AuthorWarning,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum ParsedExpression {
     Bool(bool),
     Int(i32),
     Float(f32),
     String(String),
+    StringExpression(Vec<ParsedNode>),
     Variable(String),
     DivertTarget(String),
     ListItems(Vec<String>),

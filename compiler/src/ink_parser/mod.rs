@@ -1,5 +1,6 @@
 use crate::{
     error::CompilerError,
+    file_handler::{DefaultFileHandler, FileHandler},
     parsed_hierarchy::{
         ContentList, DebugMetadata, ExternalDeclaration, FlowArgument, FlowDecl, FlowLevel, List,
         ListDefinition, ListElementDefinition, Number, NumberValue, ParsedFlow, ParsedNode,
@@ -10,12 +11,14 @@ use crate::{
         StringParserStateElement,
     },
 };
+use std::{cell::RefCell, collections::HashSet, path::Path, rc::Rc};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum InkParseLevel {
-    Top,
-    Knot,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum StatementLevel {
+    InnerBlock,
     Stitch,
+    Knot,
+    Top,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,13 +62,15 @@ pub struct CommandLineInput {
     pub user_immediate_mode_statement: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct InkParser {
     source_name: Option<String>,
     parser: StringParser,
     parsing_string_expression: bool,
     parsing_choice: bool,
     tag_active: bool,
+    file_handler: Rc<dyn FileHandler>,
+    open_filenames: Rc<RefCell<HashSet<String>>>,
 }
 
 #[derive(Default)]
@@ -81,12 +86,42 @@ struct ParseSection {
 impl InkParser {
     pub fn new(input: impl Into<String>, source_name: Option<String>) -> Self {
         let processed = CommentEliminator::process(input.into());
+        let working_dir = source_name
+            .as_deref()
+            .and_then(|name| Path::new(name).parent())
+            .map(|path| path.to_path_buf());
+        let file_handler: Rc<dyn FileHandler> = Rc::new(DefaultFileHandler::new(working_dir));
+        let open_filenames = Rc::new(RefCell::new(HashSet::new()));
+        if let Some(source_name) = source_name.as_deref() {
+            open_filenames
+                .borrow_mut()
+                .insert(file_handler.resolve_ink_filename(source_name));
+        }
         Self {
             source_name,
             parser: StringParser::new(processed),
             parsing_string_expression: false,
             parsing_choice: false,
             tag_active: false,
+            file_handler,
+            open_filenames,
+        }
+    }
+
+    fn new_with_file_handler(
+        input: impl Into<String>,
+        source_name: Option<String>,
+        file_handler: Rc<dyn FileHandler>,
+        open_filenames: Rc<RefCell<HashSet<String>>>,
+    ) -> Self {
+        Self {
+            source_name,
+            parser: StringParser::new(CommentEliminator::process(input.into())),
+            parsing_string_expression: false,
+            parsing_choice: false,
+            tag_active: false,
+            file_handler,
+            open_filenames,
         }
     }
 
@@ -97,16 +132,8 @@ impl InkParser {
     pub fn parse_story(mut self, count_all_visits: bool) -> Result<Story, CompilerError> {
         let source = self.parser.input_string().to_owned();
         let source_name = self.source_name.clone();
-        let parsed = self.parse_at_level(InkParseLevel::Top);
-        let mut story = Story::new(&source, source_name, count_all_visits);
-        story.root_nodes = parsed.nodes;
-        story.flows = parsed.flows;
-        story.global_declarations = parsed.global_declarations;
-        story.global_initializers = parsed.global_initializers;
-        story.list_definitions = parsed.list_definitions;
-        story.external_declarations = parsed.external_declarations;
-        story.rebuild_parse_tree_refs();
-        Ok(story)
+        let parsed = self.statements_at_level(StatementLevel::Top);
+        Ok(build_story_from_section(source, source_name, count_all_visits, parsed))
     }
 
     pub fn parse_story_with_file_handler<F>(
@@ -115,59 +142,43 @@ impl InkParser {
         file_handler: F,
     ) -> Result<Story, CompilerError>
     where
-        F: Fn(&str) -> Result<String, CompilerError>,
+        F: Fn(&str) -> Result<String, CompilerError> + 'static,
     {
-        parse_story_with_file_handler_inner(
+        let file_handler: Rc<dyn FileHandler> = Rc::new(ClosureFileHandler { load: file_handler });
+        let open_filenames = Rc::new(RefCell::new(HashSet::new()));
+        if let Some(source_name) = self.source_name.as_deref() {
+            open_filenames
+                .borrow_mut()
+                .insert(file_handler.resolve_ink_filename(source_name));
+        }
+        let mut parser = InkParser::new_with_file_handler(
             self.parser.input_string(),
             self.source_name.clone(),
-            count_all_visits,
-            &file_handler,
-        )
+            file_handler,
+            open_filenames,
+        );
+        let source = parser.parser.input_string().to_owned();
+        let source_name = parser.source_name.clone();
+        let parsed = parser.statements_at_level(StatementLevel::Top);
+        Ok(build_story_from_section(source, source_name, count_all_visits, parsed))
     }
 }
 
-fn parse_story_with_file_handler_inner(
-    source: &str,
-    source_name: Option<String>,
-    count_all_visits: bool,
-    file_handler: &dyn Fn(&str) -> Result<String, CompilerError>,
-) -> Result<Story, CompilerError> {
-    let mut merged = Story::new(source, source_name.clone(), count_all_visits);
-        let mut chunk = String::new();
+struct ClosureFileHandler<F> {
+    load: F,
+}
 
-        for line in source.lines() {
-            let mut include_parser = InkParser::new(line, source_name.clone());
-            if let Some(filename) = include_parser.include_statement_filename()
-                && line.trim_start().starts_with("INCLUDE")
-            {
-                if !chunk.trim().is_empty() {
-                    let chunk_story = InkParser::new(chunk.clone(), source_name.clone())
-                        .parse_story(count_all_visits)?;
-                    merge_story(&mut merged, chunk_story);
-                    chunk.clear();
-                }
+impl<F> FileHandler for ClosureFileHandler<F>
+where
+    F: Fn(&str) -> Result<String, CompilerError>,
+{
+    fn resolve_ink_filename(&self, include_name: &str) -> String {
+        include_name.to_owned()
+    }
 
-                let included = file_handler(&filename)?;
-                let included_story = parse_story_with_file_handler_inner(
-                    &included,
-                    Some(filename.clone()),
-                    count_all_visits,
-                    file_handler,
-                )?;
-                merge_story(&mut merged, included_story);
-                continue;
-            }
-
-            chunk.push_str(line);
-            chunk.push('\n');
-        }
-
-        if !chunk.trim().is_empty() {
-            let chunk_story = InkParser::new(chunk, source_name).parse_story(count_all_visits)?;
-            merge_story(&mut merged, chunk_story);
-        }
-
-        Ok(merged)
+    fn load_ink_file_contents(&self, full_filename: &str) -> Result<String, CompilerError> {
+        (self.load)(full_filename)
+    }
 }
 
 impl InkParser {
@@ -529,11 +540,7 @@ impl InkParser {
                 break;
             }
 
-            let argument = self
-                .parser
-                .parse_until_characters_from_string(",)", -1)?
-                .trim()
-                .to_owned();
+            let argument = self.parse_until_top_level_terminator_set(",)")?.trim().to_owned();
             arguments.push(argument);
             let _ = self.whitespace();
 
@@ -943,6 +950,58 @@ impl InkParser {
         self.parser.succeed_rule(rule_id, Some(filename))
     }
 
+    fn try_parse_author_warning_line(&mut self) -> Option<ParsedNode> {
+        let rule_id = self.parser.begin_rule();
+        self.whitespace();
+
+        let identifier = self.parse_identifier()?;
+        if identifier != "TODO" {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        self.whitespace();
+        let _ = self.parser.parse_string(":");
+        self.whitespace();
+        let message = self
+            .parser
+            .parse_until_characters_from_string("\n\r", -1)
+            .unwrap_or_default();
+        let _ = self.end_of_line();
+
+        self.parser.succeed_rule(
+            rule_id,
+            Some(ParsedNode::new(ParsedNodeKind::AuthorWarning).with_text(message)),
+        )
+    }
+
+    fn try_parse_include_statement_line(&mut self) -> Option<ParseSection> {
+        let rule_id = self.parser.begin_rule();
+        let filename = self.include_statement_filename()?;
+        let _ = self.end_of_line();
+        self.parser.succeed_rule(rule_id, Some(()));
+
+        let full_filename = self.file_handler.resolve_ink_filename(&filename);
+        if self.open_filenames.borrow().contains(&full_filename) {
+            return Some(ParseSection::default());
+        }
+
+        self.open_filenames
+            .borrow_mut()
+            .insert(full_filename.clone());
+
+        let included = self.file_handler.load_ink_file_contents(&full_filename).ok()?;
+        let mut parser = InkParser::new_with_file_handler(
+            included,
+            Some(filename),
+            self.file_handler.clone(),
+            self.open_filenames.clone(),
+        );
+        let parsed = parser.statements_at_level(StatementLevel::Top);
+
+        self.open_filenames.borrow_mut().remove(&full_filename);
+        Some(parsed)
+    }
+
     fn try_parse_external_declaration_line(&mut self) -> Option<ExternalDeclaration> {
         let rule_id = self.parser.begin_rule();
         let declaration = self.external_declaration()?;
@@ -977,7 +1036,7 @@ impl InkParser {
         &mut self,
     ) -> Option<(VariableAssignment, (String, crate::parsed_hierarchy::ParsedExpression))> {
         let rule_id = self.parser.begin_rule();
-        let node = self.try_parse_assignment_line()?;
+        let node = self.try_parse_variable_declaration_line()?;
         let encoded = node.name()?;
         let (mode, name) = encoded.split_once(':')?;
         if mode != "GlobalDecl" {
@@ -988,6 +1047,34 @@ impl InkParser {
         declaration.set_global_declaration(true);
         self.parser
             .succeed_rule(rule_id, Some((declaration, (name.to_owned(), expression))))
+    }
+
+    fn try_parse_variable_declaration_line(&mut self) -> Option<ParsedNode> {
+        let rule_id = self.parser.begin_rule();
+        self.whitespace();
+        if self.parser.parse_string("VAR").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        self.whitespace();
+        let name = self.parse_identifier()?;
+        self.whitespace();
+        if self.parser.parse_string("=").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        self.whitespace();
+        let expression = self.expression_until_top_level_terminators("\n\r")?;
+        let _ = self.end_of_line();
+
+        self.parser.succeed_rule(
+            rule_id,
+            Some(
+                ParsedNode::new(ParsedNodeKind::Assignment)
+                    .with_name(format!("GlobalDecl:{name}"))
+                    .with_expression(expression),
+            ),
+        )
     }
 
     pub fn return_statement(&mut self) -> Option<ParsedReturn> {
@@ -1118,12 +1205,10 @@ impl InkParser {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Story-level parsing
+    // Statement parsing
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// The nesting level inside which statements are being parsed.
-    /// Mirrors the `StatementLevel` enum in the C# reference parser.
-    fn parse_at_level(&mut self, level: InkParseLevel) -> ParseSection {
+    fn statements_at_level(&mut self, level: StatementLevel) -> ParseSection {
         let mut parsed = ParseSection::default();
 
         loop {
@@ -1132,90 +1217,11 @@ impl InkParser {
                 break;
             }
 
-            // ── Break conditions and sub-flow definitions ──────────────────
-            match level {
-                InkParseLevel::Stitch => {
-                    if self.peek_knot_start() || self.peek_stitch_start() {
-                        break;
-                    }
-                }
-                InkParseLevel::Knot => {
-                    if self.peek_knot_start() {
-                        break;
-                    }
-                    if let Some(stitch) = self.try_parse_stitch() {
-                        parsed.flows.push(stitch);
-                        continue;
-                    }
-                }
-                InkParseLevel::Top => {
-                    if let Some(external) = self.try_parse_external_declaration_line() {
-                        parsed.external_declarations.push(external);
-                        continue;
-                    }
-                    if let Some(definition) = self.try_parse_list_statement() {
-                        parsed.list_definitions.push(definition);
-                        continue;
-                    }
-                    if let Some((declaration, initializer)) = self.try_parse_global_declaration_statement() {
-                        parsed.global_declarations.push(declaration);
-                        parsed.global_initializers.push(initializer);
-                        continue;
-                    }
-                    if let Some(knot) = self.try_parse_knot() {
-                        parsed.flows.push(knot);
-                        continue;
-                    }
-                    if let Some(stitch) = self.try_parse_stitch() {
-                        parsed.flows.push(stitch);
-                        continue;
-                    }
-                }
+            if self.statements_break_for_level(level) {
+                break;
             }
 
-            // ── Statement rules (shared at all levels) ─────────────────────
-            if let Some(choice) = self.try_parse_choice() {
-                parsed.nodes.push(choice);
-                continue;
-            }
-
-            if let Some(gather) = self.try_parse_gather() {
-                parsed.nodes.push(gather);
-                continue;
-            }
-
-            if let Some(assignment) = self.try_parse_assignment_line() {
-                parsed.nodes.push(assignment);
-                continue;
-            }
-
-            if let Some(logic) = self.try_parse_logic_line() {
-                parsed.nodes.push(logic);
-                continue;
-            }
-
-            if let Some(divert) = self.try_parse_conditional_divert_line() {
-                parsed.nodes.push(divert);
-                continue;
-            }
-
-            if let Some(mut line) = self.try_parse_divert_line() {
-                parsed.nodes.append(&mut line);
-                continue;
-            }
-
-            if let Some(seq_node) = self.try_parse_multiline_sequence() {
-                parsed.nodes.push(seq_node);
-                continue;
-            }
-
-            if let Some(conditional) = self.try_parse_multiline_conditional() {
-                parsed.nodes.push(conditional);
-                continue;
-            }
-
-            if let Some(mut line) = self.try_parse_mixed_line() {
-                parsed.nodes.append(&mut line);
+            if self.statement_at_level(level, &mut parsed) {
                 continue;
             }
 
@@ -1224,6 +1230,117 @@ impl InkParser {
         }
 
         parsed
+    }
+
+    fn statement_at_level(&mut self, level: StatementLevel, parsed: &mut ParseSection) -> bool {
+        if let Some(mut line) = self.try_parse_divert_line() {
+            parsed.nodes.append(&mut line);
+            return true;
+        }
+
+        if level >= StatementLevel::Top && let Some(knot) = self.try_parse_knot() {
+            parsed.flows.push(knot);
+            return true;
+        }
+
+        if let Some(choice) = self.try_parse_choice() {
+            parsed.nodes.push(choice);
+            return true;
+        }
+
+        if let Some(author_warning) = self.try_parse_author_warning_line() {
+            parsed.nodes.push(author_warning);
+            return true;
+        }
+
+        if level > StatementLevel::InnerBlock && let Some(gather) = self.try_parse_gather() {
+            parsed.nodes.push(gather);
+            return true;
+        }
+
+        if level >= StatementLevel::Knot && let Some(stitch) = self.try_parse_stitch() {
+            parsed.flows.push(stitch);
+            return true;
+        }
+
+        if let Some(definition) = self.try_parse_list_statement() {
+            parsed.list_definitions.push(definition);
+            return true;
+        }
+
+        if let Some((declaration, initializer)) = self.try_parse_global_declaration_statement() {
+            parsed.global_declarations.push(declaration);
+            parsed.global_initializers.push(initializer);
+            return true;
+        }
+
+        if let Some(external) = self.try_parse_external_declaration_line() {
+            parsed.external_declarations.push(external);
+            return true;
+        }
+
+        if let Some(included) = self.try_parse_include_statement_line() {
+            merge_parse_section(parsed, included);
+            return true;
+        }
+
+        if let Some(logic) = self.try_parse_logic_line() {
+            parsed.nodes.push(logic);
+            return true;
+        }
+
+        if let Some(mut line) = self.try_parse_mixed_line() {
+            parsed.nodes.append(&mut line);
+            return true;
+        }
+
+        false
+    }
+
+    fn statements_break_for_level(&mut self, level: StatementLevel) -> bool {
+        self.parser
+            .peek(|parser| {
+                let mut parser = Self {
+                    source_name: self.source_name.clone(),
+                    parser: parser.clone(),
+                    parsing_string_expression: self.parsing_string_expression,
+                    parsing_choice: self.parsing_choice,
+                    tag_active: self.tag_active,
+                    file_handler: self.file_handler.clone(),
+                    open_filenames: self.open_filenames.clone(),
+                };
+                let _ = parser.whitespace();
+
+                if level <= StatementLevel::Knot && parser.peek_knot_start() {
+                    return Some(ParseSuccess);
+                }
+
+                if level <= StatementLevel::Stitch && parser.peek_stitch_start() {
+                    return Some(ParseSuccess);
+                }
+
+                if level <= StatementLevel::InnerBlock {
+                    if parser.parse_dash_not_arrow().is_some() {
+                        return Some(ParseSuccess);
+                    }
+                    if parser.parser.parse_string("}").is_some() {
+                        return Some(ParseSuccess);
+                    }
+                }
+
+                None
+            })
+            .is_some()
+    }
+
+    fn parse_dash_not_arrow(&mut self) -> Option<ParseSuccess> {
+        let rule_id = self.parser.begin_rule();
+
+        if self.parser.parse_string("->").is_none() && self.parser.parse_single_character() == Some('-') {
+            return self.parser.succeed_rule(rule_id, Some(ParseSuccess));
+        }
+
+        self.parser.fail_rule(rule_id)
     }
 
     // ── Peek helpers ──────────────────────────────────────────────────────────
@@ -1295,7 +1412,7 @@ impl InkParser {
         self.parser.succeed_rule(rule_id, Some(()));
 
         // Parse the knot body
-        let parsed = self.parse_at_level(InkParseLevel::Knot);
+        let parsed = self.statements_at_level(StatementLevel::Knot);
 
         Some(ParsedFlow::new(
             name,
@@ -1355,7 +1472,7 @@ impl InkParser {
 
         self.parser.succeed_rule(rule_id, Some(()));
 
-        let parsed = self.parse_at_level(InkParseLevel::Stitch);
+        let parsed = self.statements_at_level(StatementLevel::Stitch);
 
         Some(ParsedFlow::new(
             name,
@@ -1414,31 +1531,65 @@ impl InkParser {
         self.parser.succeed_rule(rule_id, Some(nodes))
     }
 
-    fn try_parse_assignment_line(&mut self) -> Option<ParsedNode> {
+    fn try_parse_logic_line(&mut self) -> Option<ParsedNode> {
         let rule_id = self.parser.begin_rule();
-
+        self.whitespace();
+        if self.parser.parse_string("~").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
         self.whitespace();
 
-        let default_mode = if self.parser.parse_string("~").is_some() {
-            self.whitespace();
-            if self
+        if let Some(return_node) = self.try_parse_return_after_tilde() {
+            let _ = self.end_of_line();
+            return self.parser.succeed_rule(rule_id, Some(return_node));
+        }
+
+        if let Some(assignment_node) = self.temp_declaration_or_assignment() {
+            let _ = self.end_of_line();
+            return self.parser.succeed_rule(rule_id, Some(assignment_node));
+        }
+
+        let expression = self.expression_until_top_level_terminators("\n\r")?;
+        let _ = self.end_of_line();
+        match expression {
+            crate::parsed_hierarchy::ParsedExpression::FunctionCall { .. } => self
                 .parser
-                .parse_object(|parser| {
-                    parser.parse_string("temp")?;
-                    let _ = parser.parse_characters_from_string(" \t", true, -1);
-                    Some(())
-                })
-                .is_some()
-            {
-                "TempSet"
-            } else {
-                "Set"
-            }
-        } else if self.parser.parse_string("VAR").is_some() {
+                .succeed_rule(rule_id, Some(ParsedNode::new(ParsedNodeKind::VoidCall).with_expression(expression))),
+            _ => self.parser.fail_rule(rule_id),
+        }
+    }
+
+    fn try_parse_return_after_tilde(&mut self) -> Option<ParsedNode> {
+        let rule_id = self.parser.begin_rule();
+        if let Some(keyword) = self.parse_identifier()
+            && keyword == "return"
+        {
             self.whitespace();
-            "GlobalDecl"
+            let expression = self.expression_until_top_level_terminators("\n\r");
+            return if expression.is_none() {
+                self.parser
+                    .succeed_rule(rule_id, Some(ParsedNode::new(ParsedNodeKind::ReturnVoid)))
+            } else {
+                self.parser.succeed_rule(
+                    rule_id,
+                    Some(
+                        ParsedNode::new(ParsedNodeKind::ReturnExpression)
+                        .with_expression(expression?),
+                    ),
+                )
+            };
+        }
+
+        self.parser.fail_rule(rule_id)
+    }
+
+    fn temp_declaration_or_assignment(&mut self) -> Option<ParsedNode> {
+        let rule_id = self.parser.begin_rule();
+        let default_mode = if self.parse_temp_keyword() {
+            self.whitespace();
+            "TempSet"
         } else {
-            return self.parser.fail_rule(rule_id);
+            "Set"
         };
 
         let name = self.parse_identifier()?;
@@ -1461,107 +1612,481 @@ impl InkParser {
             return self.parser.fail_rule(rule_id);
         };
 
+        self.whitespace();
+
         let expression = if let Some(expression) = expression_override {
-            let _ = self.end_of_line();
             expression
         } else {
             self.whitespace();
-            let expression_text = self
-                .parser
-                .parse_until_characters_from_string("\n\r", -1)?;
-            let _ = self.end_of_line();
-            parse_expression_text(expression_text.trim())?
+            self.expression_until_top_level_terminators("\n\r")?
         };
-        self.parser.succeed_rule(rule_id, Some(()));
 
-        Some(
-            ParsedNode::new(ParsedNodeKind::Assignment)
-                .with_name(format!("{mode}:{name}"))
-                .with_expression(expression),
+        self.parser.succeed_rule(
+            rule_id,
+            Some(
+                ParsedNode::new(ParsedNodeKind::Assignment)
+                    .with_name(format!("{mode}:{name}"))
+                    .with_expression(expression),
+            ),
         )
     }
 
-    fn try_parse_conditional_divert_line(&mut self) -> Option<ParsedNode> {
+    fn parse_temp_keyword(&mut self) -> bool {
         let rule_id = self.parser.begin_rule();
-        self.whitespace();
-
-        // Use a closure so we can properly call fail_rule on any early return
-        let result = (|| {
-            self.parser.parse_string("{")?;
-            // Only read single-line content — multi-line blocks are NOT conditional diverts
-            let content = self.parser.parse_until_characters_from_string("}\n\r", -1)?;
-            // Must close on same line (no newline before `}`)
-            self.parser.parse_string("}")?;
-            let _ = self.end_of_line();
-
-            let (condition_text, branch_text) = content.split_once(':')?;
-            let branch_text = branch_text.trim();
-            let target = branch_text.strip_prefix("->")?.trim();
-            let condition = parse_expression_text(condition_text.trim())?;
-            Some((condition, target.to_owned()))
-        })();
-
-        match result {
-            Some((condition, target)) => {
-                self.parser.succeed_rule(rule_id, Some(()));
-                Some(
-                    ParsedNode::new(ParsedNodeKind::Divert)
-                        .with_target(target)
-                        .with_condition(condition),
-                )
-            }
-            None => self.parser.fail_rule(rule_id),
+        if self.parse_identifier().as_deref() == Some("temp") {
+            self.parser.succeed_rule(rule_id, Some(ParseSuccess)).is_some()
+        } else {
+            let _ = self.parser.fail_rule::<ParseSuccess>(rule_id);
+            false
         }
     }
 
-    fn try_parse_logic_line(&mut self) -> Option<ParsedNode> {
-        let rule_id = self.parser.begin_rule();
-        self.whitespace();
-        if self.parser.parse_string("~").is_none() {
-            return self.parser.fail_rule(rule_id);
+    fn expression_until_top_level_terminators(
+        &mut self,
+        terminators: &str,
+    ) -> Option<crate::parsed_hierarchy::ParsedExpression> {
+        let text = self.parse_until_top_level_terminator_set(terminators)?;
+        let mut parser = InkParser::new(text.trim(), None);
+        let expression = parser.expression()?;
+        let _ = parser.whitespace();
+        if !parser.parser.end_of_input() {
+            return None;
         }
+        Some(expression)
+    }
+
+    fn expression(&mut self) -> Option<crate::parsed_hierarchy::ParsedExpression> {
+        self.expression_with_min_precedence(0)
+    }
+
+    fn expression_with_min_precedence(
+        &mut self,
+        minimum_precedence: i32,
+    ) -> Option<crate::parsed_hierarchy::ParsedExpression> {
         self.whitespace();
 
-        if let Some(keyword) = self.parse_identifier()
-            && keyword == "return"
-        {
-            self.whitespace();
-            let expression_text = self
-                .parser
-                .parse_until_characters_from_string("\n\r", -1)
-                .unwrap_or_default();
-            let _ = self.end_of_line();
-            self.parser.succeed_rule(rule_id, Some(()));
+        let mut expr = self.expression_unary()?;
+        self.whitespace();
 
-            let trimmed = expression_text.trim();
-            return if trimmed.is_empty() {
-                Some(ParsedNode::new(ParsedNodeKind::ReturnVoid))
-            } else {
-                Some(
-                    ParsedNode::new(ParsedNodeKind::ReturnExpression)
-                        .with_expression(parse_expression_text(trimmed)?),
-                )
+        loop {
+            let rule_id = self.parser.begin_rule();
+            let Some(op) = self.parse_infix_operator() else {
+                let _ = self.parser.fail_rule::<ParseSuccess>(rule_id);
+                break;
+            };
+
+            if op.precedence <= minimum_precedence {
+                let _ = self.parser.fail_rule::<ParseSuccess>(rule_id);
+                break;
+            }
+
+            self.whitespace();
+            let Some(right) = self.expression_with_min_precedence(op.precedence) else {
+                let _ = self.parser.fail_rule::<ParseSuccess>(rule_id);
+                return None;
+            };
+
+            expr = crate::parsed_hierarchy::ParsedExpression::Binary {
+                left: Box::new(expr),
+                operator: op.kind.to_owned(),
+                right: Box::new(right),
+            };
+            let _ = self.parser.succeed_rule(rule_id, Some(ParseSuccess));
+            self.whitespace();
+        }
+
+        Some(expr)
+    }
+
+    fn expression_unary(&mut self) -> Option<crate::parsed_hierarchy::ParsedExpression> {
+        let rule_id = self.parser.begin_rule();
+
+        if let Some(divert_target) = self.expression_divert_target() {
+            return self.parser.succeed_rule(rule_id, Some(divert_target));
+        }
+
+        let prefix_op: Option<String> = if self.parser.parse_string("-").is_some() {
+            Some("-".to_owned())
+        } else if self.parser.parse_string("!").is_some() {
+            Some("!".to_owned())
+        } else {
+            self.expression_not_keyword()
+        };
+
+        self.whitespace();
+
+        let mut expr = self
+            .expression_list()
+            .or_else(|| self.expression_paren())
+            .or_else(|| self.expression_function_call())
+            .or_else(|| self.expression_variable_name())
+            .or_else(|| self.expression_literal());
+
+        if expr.is_none() && prefix_op.is_some() {
+            expr = self.expression_unary();
+        }
+
+        let Some(mut expr) = expr else {
+            return self.parser.fail_rule(rule_id);
+        };
+
+        if let Some(prefix_op) = prefix_op {
+            expr = crate::parsed_hierarchy::ParsedExpression::Unary {
+                operator: prefix_op,
+                expression: Box::new(expr),
             };
         }
 
-        self.parser.fail_rule::<()>(rule_id);
+        self.parser.succeed_rule(rule_id, Some(expr))
+    }
+
+    fn parse_infix_operator(&mut self) -> Option<InfixOperator> {
+        for op in infix_operators() {
+            let rule_id = self.parser.begin_rule();
+            if self.parser.parse_string(op.token).is_some() {
+                if op.require_whitespace_after && self.whitespace().is_none() {
+                    let _ = self.parser.fail_rule::<InfixOperator>(rule_id);
+                    continue;
+                }
+                return self.parser.succeed_rule(rule_id, Some(*op));
+            }
+            let _ = self.parser.fail_rule::<InfixOperator>(rule_id);
+        }
+
+        None
+    }
+
+    fn expression_not_keyword(&mut self) -> Option<String> {
         let rule_id = self.parser.begin_rule();
-        self.whitespace();
-        if self.parser.parse_string("~").is_none() {
+        if self.parse_identifier().as_deref() == Some("not") {
+            self.parser.succeed_rule(rule_id, Some("!".to_owned()))
+        } else {
+            self.parser.fail_rule(rule_id)
+        }
+    }
+
+    fn expression_paren(&mut self) -> Option<crate::parsed_hierarchy::ParsedExpression> {
+        let rule_id = self.parser.begin_rule();
+        if self.parser.parse_string("(").is_none() {
             return self.parser.fail_rule(rule_id);
         }
+
+        let Some(expression) = self.expression_until_top_level_terminators(")") else {
+            return self.parser.fail_rule(rule_id);
+        };
         self.whitespace();
-        let expression_text = self
-            .parser
-            .parse_until_characters_from_string("\n\r", -1)?;
-        let _ = self.end_of_line();
-        let expression = parse_expression_text(expression_text.trim())?;
-        match expression {
-            crate::parsed_hierarchy::ParsedExpression::FunctionCall { .. } => self
-                .parser
-                .succeed_rule(rule_id, Some(ParsedNode::new(ParsedNodeKind::VoidCall).with_expression(expression))),
-            _ => self.parser.fail_rule(rule_id),
+        if self.parser.parse_string(")").is_none() {
+            return self.parser.fail_rule(rule_id);
         }
+
+        self.parser.succeed_rule(rule_id, Some(expression))
+    }
+
+    fn expression_list(&mut self) -> Option<crate::parsed_hierarchy::ParsedExpression> {
+        let rule_id = self.parser.begin_rule();
+        self.whitespace();
+        if self.parser.parse_string("(").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        self.whitespace();
+
+        let mut members = Vec::new();
+        if self.parser.parse_string(")").is_some() {
+            return self
+                .parser
+                .succeed_rule(rule_id, Some(crate::parsed_hierarchy::ParsedExpression::EmptyList));
+        }
+
+        loop {
+            let Some(member) = self.list_member() else {
+                return self.parser.fail_rule(rule_id);
+            };
+            members.push(member);
+
+            self.whitespace();
+            if self.parser.parse_string(")").is_some() {
+                break;
+            }
+
+            if self.parser.parse_string(",").is_none() {
+                return self.parser.fail_rule(rule_id);
+            }
+            self.whitespace();
+        }
+
+        self.parser.succeed_rule(
+            rule_id,
+            Some(crate::parsed_hierarchy::ParsedExpression::ListItems(members)),
+        )
+    }
+
+    fn list_member(&mut self) -> Option<String> {
+        let rule_id = self.parser.begin_rule();
+        self.whitespace();
+
+        let Some(first) = self.parse_identifier() else {
+            return self.parser.fail_rule(rule_id);
+        };
+
+        let mut name = first;
+        let checkpoint = self.parser.begin_rule();
+        if self.parser.parse_string(".").is_some() {
+            let Some(second) = self.parse_identifier() else {
+                return self.parser.fail_rule(rule_id);
+            };
+            let _ = self.parser.succeed_rule(checkpoint, Some(ParseSuccess));
+            name.push('.');
+            name.push_str(&second);
+        } else {
+            let _ = self.parser.fail_rule::<ParseSuccess>(checkpoint);
+        }
+
+        self.whitespace();
+        self.parser.succeed_rule(rule_id, Some(name))
+    }
+
+    fn expression_divert_target(&mut self) -> Option<crate::parsed_hierarchy::ParsedExpression> {
+        let rule_id = self.parser.begin_rule();
+        self.whitespace();
+
+        let Some(node) = self.single_divert_node() else {
+            return self.parser.fail_rule(rule_id);
+        };
+        self.whitespace();
+        let Some(target) = node.target() else {
+            return self.parser.fail_rule(rule_id);
+        };
+        self.parser.succeed_rule(
+            rule_id,
+            Some(crate::parsed_hierarchy::ParsedExpression::DivertTarget(target.to_owned())),
+        )
+    }
+
+    fn expression_literal(&mut self) -> Option<crate::parsed_hierarchy::ParsedExpression> {
+        let rule_id = self.parser.begin_rule();
+        let expr = self
+            .expression_int()
+            .or_else(|| self.expression_float())
+            .or_else(|| self.expression_bool())
+            .or_else(|| self.expression_string());
+        let Some(expr) = expr else {
+            return self.parser.fail_rule(rule_id);
+        };
+        self.parser.succeed_rule(rule_id, Some(expr))
+    }
+
+    fn expression_int(&mut self) -> Option<crate::parsed_hierarchy::ParsedExpression> {
+        let rule_id = self.parser.begin_rule();
+        let Some(value) = self.parser.parse_int() else {
+            return self.parser.fail_rule(rule_id);
+        };
+        self.parser.succeed_rule(
+            rule_id,
+            Some(crate::parsed_hierarchy::ParsedExpression::Int(value)),
+        )
+    }
+
+    fn expression_float(&mut self) -> Option<crate::parsed_hierarchy::ParsedExpression> {
+        let rule_id = self.parser.begin_rule();
+        let Some(value) = self.parser.parse_float() else {
+            return self.parser.fail_rule(rule_id);
+        };
+        self.parser.succeed_rule(
+            rule_id,
+            Some(crate::parsed_hierarchy::ParsedExpression::Float(value)),
+        )
+    }
+
+    fn expression_bool(&mut self) -> Option<crate::parsed_hierarchy::ParsedExpression> {
+        let rule_id = self.parser.begin_rule();
+        let Some(identifier) = self.parse_identifier() else {
+            return self.parser.fail_rule(rule_id);
+        };
+        let expr = match identifier.as_str() {
+            "true" => crate::parsed_hierarchy::ParsedExpression::Bool(true),
+            "false" => crate::parsed_hierarchy::ParsedExpression::Bool(false),
+            _ => return self.parser.fail_rule(rule_id),
+        };
+        self.parser.succeed_rule(rule_id, Some(expr))
+    }
+
+    fn expression_string(&mut self) -> Option<crate::parsed_hierarchy::ParsedExpression> {
+        let rule_id = self.parser.begin_rule();
+        if self.parser.parse_string("\"").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        if self.parser.peek(|parser| parser.parse_string("\"")).is_some() {
+            self.parser.parse_string("\"")?;
+            return self.parser.succeed_rule(
+                rule_id,
+                Some(crate::parsed_hierarchy::ParsedExpression::String(String::new())),
+            );
+        }
+
+        let was_parsing_string = self.parsing_string_expression;
+        self.parsing_string_expression = true;
+        let text_and_logic = self.string_text_and_logic();
+        self.parsing_string_expression = was_parsing_string;
+
+        if self.parser.parse_string("\"").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        if text_and_logic.iter().any(|node| {
+            matches!(
+                node.kind(),
+                ParsedNodeKind::Divert
+                    | ParsedNodeKind::TunnelDivert
+                    | ParsedNodeKind::TunnelReturn
+                    | ParsedNodeKind::TunnelOnwardsWithTarget
+            )
+        }) {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        self.parser.succeed_rule(
+            rule_id,
+            Some(crate::parsed_hierarchy::ParsedExpression::StringExpression(text_and_logic)),
+        )
+    }
+
+    fn string_text_and_logic(&mut self) -> Vec<ParsedNode> {
+        let mut nodes = Vec::new();
+
+        loop {
+            if self.parser.peek(|parser| parser.parse_string("\"")).is_some() {
+                break;
+            }
+
+            if self.parser.peek(|parser| parser.parse_string("{")).is_some() {
+                self.parser.parse_string("{");
+                let Some(content) = self.parse_balanced_brace_body() else {
+                    break;
+                };
+                if let Some(mut expression_nodes) = parse_inner_logic_string(
+                    &content,
+                    "\"",
+                    self.parsing_choice,
+                    false,
+                ) {
+                    nodes.append(&mut expression_nodes);
+                    continue;
+                }
+                break;
+            }
+
+            if self.parser.parse_string("<>").is_some() {
+                nodes.push(ParsedNode::new(ParsedNodeKind::Glue));
+                continue;
+            }
+
+            let Some(text) = self.content_text_allowing_escape_char() else {
+                break;
+            };
+            if !text.is_empty() {
+                nodes.push(ParsedNode::new(ParsedNodeKind::Text).with_text(text));
+            }
+        }
+
+        nodes
+    }
+
+    fn expression_function_call(&mut self) -> Option<crate::parsed_hierarchy::ParsedExpression> {
+        let rule_id = self.parser.begin_rule();
+        let Some(name) = self.parse_identifier() else {
+            return self.parser.fail_rule(rule_id);
+        };
+        self.whitespace();
+        let Some(arguments) = self.expression_function_call_arguments_parsed() else {
+            return self.parser.fail_rule(rule_id);
+        };
+        self.parser.succeed_rule(
+            rule_id,
+            Some(crate::parsed_hierarchy::ParsedExpression::FunctionCall { name, arguments }),
+        )
+    }
+
+    fn expression_function_call_arguments_parsed(
+        &mut self,
+    ) -> Option<Vec<crate::parsed_hierarchy::ParsedExpression>> {
+        let rule_id = self.parser.begin_rule();
+        if self.parser.parse_string("(").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        let mut arguments = Vec::new();
+        loop {
+            let _ = self.whitespace();
+            if self.parser.parse_string(")").is_some() {
+                break;
+            }
+
+            let Some(argument) = self.expression_until_top_level_terminators(",)") else {
+                return self.parser.fail_rule(rule_id);
+            };
+            arguments.push(argument);
+            let _ = self.whitespace();
+            if self.parser.parse_string(")").is_some() {
+                break;
+            }
+            if self.parser.parse_string(",").is_none() {
+                return self.parser.fail_rule(rule_id);
+            }
+        }
+
+        self.parser.succeed_rule(rule_id, Some(arguments))
+    }
+
+    fn expression_variable_name(&mut self) -> Option<crate::parsed_hierarchy::ParsedExpression> {
+        let rule_id = self.parser.begin_rule();
+        let Some(first) = self.parse_identifier() else {
+            return self.parser.fail_rule(rule_id);
+        };
+        if is_reserved_keyword(&first) || is_number_only_identifier(&first) {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        let mut path = vec![first];
+        loop {
+            let checkpoint = self.parser.begin_rule();
+            let _ = self.whitespace();
+            if self.parser.parse_string(".").is_none() {
+                let _ = self.parser.fail_rule::<ParseSuccess>(checkpoint);
+                break;
+            }
+            let _ = self.whitespace();
+            let Some(next) = self.parse_identifier() else {
+                return self.parser.fail_rule(rule_id);
+            };
+            self.parser.succeed_rule(checkpoint, Some(ParseSuccess));
+            path.push(next);
+        }
+
+        self.parser.succeed_rule(
+            rule_id,
+            Some(crate::parsed_hierarchy::ParsedExpression::Variable(path.join("."))),
+        )
+    }
+
+    fn single_divert_node(&mut self) -> Option<ParsedNode> {
+        let rule_id = self.parser.begin_rule();
+        let Some(node) = self.try_parse_inline_divert() else {
+            return self.parser.fail_rule(rule_id);
+        };
+
+        if matches!(
+            node.kind(),
+            ParsedNodeKind::ThreadDivert
+                | ParsedNodeKind::TunnelDivert
+                | ParsedNodeKind::TunnelReturn
+                | ParsedNodeKind::TunnelOnwardsWithTarget
+        ) {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        self.parser.succeed_rule(rule_id, Some(node))
     }
 
     /// Parse a line of mixed content: text, `<>` glue, optional trailing divert.
@@ -1571,8 +2096,27 @@ impl InkParser {
     fn try_parse_mixed_line(&mut self) -> Option<Vec<ParsedNode>> {
         self.whitespace();
 
+        let mut nodes = self.mixed_text_and_logic()?;
+        let line_ends_with_divert = nodes.last().is_some_and(|node| {
+            matches!(
+                node.kind(),
+                ParsedNodeKind::Divert
+                    | ParsedNodeKind::TunnelDivert
+                    | ParsedNodeKind::TunnelReturn
+                    | ParsedNodeKind::TunnelOnwardsWithTarget
+            )
+        });
+        if !line_ends_with_divert {
+            Self::trim_trailing_whitespace_nodes(&mut nodes);
+        }
+        nodes.push(ParsedNode::new(ParsedNodeKind::Newline));
+        let _ = self.end_of_line();
+
+        Some(nodes)
+    }
+
+    fn mixed_text_and_logic(&mut self) -> Option<Vec<ParsedNode>> {
         let mut nodes: Vec<ParsedNode> = Vec::new();
-        let mut had_content = false;
 
         // Interleave: text … inline-expressions … glue …
         loop {
@@ -1580,45 +2124,29 @@ impl InkParser {
                 if !text.is_empty() {
                     nodes.push(ParsedNode::new(ParsedNodeKind::Text).with_text(text));
                 }
-                had_content = true;
             }
 
             // Handle inline {…} expressions/sequences
             if self.parser.peek(|parser| parser.parse_string("{")).is_some() {
-                let mut expr_nodes = self.parse_braced_inline_content("\n\r")
-                    .unwrap_or_default();
-                if !expr_nodes.is_empty() {
-                    had_content = true;
-                }
+                let mut expr_nodes = self.parse_braced_inline_content("\n\r")?;
                 nodes.append(&mut expr_nodes);
                 continue;
             }
 
             if self.parser.parse_string("<>").is_some() {
                 nodes.push(ParsedNode::new(ParsedNodeKind::Glue));
-                had_content = true;
                 continue; // look for more text after glue
             }
 
             break;
         }
 
-        // Optional trailing divert (`-> target`)
-        if let Some(divert) = self.try_parse_inline_divert() {
+        if !self.parsing_choice && let Some(divert) = self.try_parse_inline_divert() {
             Self::append_trailing_space(&mut nodes);
             nodes.push(divert);
-            had_content = true;
-        } else if !had_content {
-            return None;
-        } else {
-            Self::trim_trailing_whitespace_nodes(&mut nodes);
         }
 
-        // Newline at the end of every non-pure-tag line (mirrors C# behaviour)
-        nodes.push(ParsedNode::new(ParsedNodeKind::Newline));
-        let _ = self.end_of_line();
-
-        Some(nodes)
+        (!nodes.is_empty()).then_some(nodes)
     }
 
     /// Try to parse an inline `-> target` (does not consume a trailing newline).
@@ -1735,12 +2263,19 @@ impl InkParser {
         // Optional label `(identifier)` before the content
         let label = self.try_parse_inline_label();
 
-        // Optional additional whitespace
-        let _ = self.parser.parse_characters_from_string(" \t", true, -1);
+        let _ = self.whitespace();
+
+        // Reference parser allows an optional newline immediately after a label.
+        if label.is_some() {
+            let _ = self.newline();
+        }
 
         let choice_condition = self.parse_choice_condition();
 
         let _ = self.parser.parse_characters_from_string(" \t", true, -1);
+
+        let was_parsing_choice = self.parsing_choice;
+        self.parsing_choice = true;
 
         // Start content: text before `[` or end-of-line
         let start_nodes = self.parse_choice_start_content();
@@ -1754,6 +2289,8 @@ impl InkParser {
         if should_close_quoted_choice(&start_nodes, &choice_only_nodes, &inner_nodes) {
             append_text_suffix(&mut choice_only_nodes, "'");
         }
+
+        self.parsing_choice = was_parsing_choice;
 
         // Consume the rest of the line
         let _ = self.end_of_line();
@@ -1816,28 +2353,20 @@ impl InkParser {
     }
 
     fn parse_choice_condition(&mut self) -> Option<crate::parsed_hierarchy::ParsedExpression> {
-        let mut conditions = Vec::new();
+        let first = self.choice_single_condition()?;
+        let mut conditions = vec![first];
 
         loop {
             let rule_id = self.parser.begin_rule();
-            let _ = self.parser.parse_characters_from_string(" \t", true, -1);
-            if self.parser.parse_string("{").is_none() {
+            if self.choice_conditions_space().is_none() {
                 self.parser.cancel_rule(rule_id);
                 break;
             }
 
-            let Some(condition_text) = self.parser.parse_until_characters_from_string("}", -1) else {
-                return None;
+            let Some(condition) = self.choice_single_condition() else {
+                return self.parser.fail_rule(rule_id);
             };
-            if self.parser.parse_string("}").is_none() {
-                return None;
-            }
-
             self.parser.succeed_rule(rule_id, Some(()));
-
-            let Some(condition) = parse_expression_text(condition_text.trim()) else {
-                return None;
-            };
             conditions.push(condition);
         }
 
@@ -1850,9 +2379,49 @@ impl InkParser {
         }))
     }
 
+    fn choice_conditions_space(&mut self) -> Option<ParseSuccess> {
+        let rule_id = self.parser.begin_rule();
+        let mut found = false;
+        if self.newline().is_some() {
+            found = true;
+        }
+        if self.whitespace().is_some() {
+            found = true;
+        }
+
+        if found {
+            self.parser.succeed_rule(rule_id, Some(ParseSuccess))
+        } else {
+            self.parser.fail_rule(rule_id)
+        }
+    }
+
+    fn choice_single_condition(&mut self) -> Option<crate::parsed_hierarchy::ParsedExpression> {
+        let rule_id = self.parser.begin_rule();
+        if self.parser.parse_string("{").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        let Some(condition_text) = self.parser.parse_until_characters_from_string("}", -1) else {
+            return None;
+        };
+        if self.parser.parse_string("}").is_none() {
+            return None;
+        }
+
+        let mut parser = InkParser::new(condition_text.trim(), None);
+        let Some(condition) = parser.expression() else {
+            return self.parser.fail_rule(rule_id);
+        };
+        let _ = parser.whitespace();
+        if !parser.parser.end_of_input() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        self.parser.succeed_rule(rule_id, Some(condition))
+    }
+
     fn parse_inline_content_until(&mut self, terminators: &str) -> Vec<ParsedNode> {
-        let was_parsing_choice = self.parsing_choice;
-        self.parsing_choice = true;
         let mut nodes = Vec::new();
 
         loop {
@@ -1870,8 +2439,9 @@ impl InkParser {
             }
 
             if self.parser.peek(|parser| parser.parse_string("{")).is_some() {
-                let mut expression_nodes = self.parse_braced_inline_content(terminators)
-                    .unwrap_or_default();
+                let Some(mut expression_nodes) = self.parse_braced_inline_content(terminators) else {
+                    break;
+                };
                 nodes.append(&mut expression_nodes);
                 continue;
             }
@@ -1888,8 +2458,6 @@ impl InkParser {
                 nodes.push(ParsedNode::new(ParsedNodeKind::Text).with_text(text));
             }
         }
-
-        self.parsing_choice = was_parsing_choice;
         nodes
     }
 
@@ -1899,65 +2467,12 @@ impl InkParser {
         let content = self.parse_balanced_brace_body()?;
         self.parser.succeed_rule(rule_id, Some(()));
 
-        let trimmed = content.trim();
-
-        // ── Sequence: contains | separators ──────────────────────────────────
-        // A sequence looks like {a|b|c} or {stopping: a|b|c} or {cycle: a|b}
-        // Detect a sequence type annotation first, then split on | (not nested).
-        if trimmed.contains('|') {
-            // Check for optional type annotation prefix "word:" or "symbol"
-            let (seq_type_flags, elements_str) =
-                parse_sequence_type_and_elements(trimmed);
-            let elements: Vec<Vec<ParsedNode>> = elements_str
-                .iter()
-                .map(|s| parse_inline_content_string(s, terminators))
-                .collect();
-            let mut seq_node = ParsedNode::new(ParsedNodeKind::Sequence);
-            seq_node.sequence_type = seq_type_flags;
-            // Store each element as a child container node (kind=Text acts as
-            // a plain wrapper; we reuse children Vec<ParsedNode> of a
-            // "container" node via a Sequence element node).
-            let element_children: Vec<ParsedNode> = elements
-                .into_iter()
-                .map(|nodes| {
-                    ParsedNode::new(ParsedNodeKind::Text)
-                        .with_text("")
-                        .with_children(nodes)
-                })
-                .collect();
-            seq_node = seq_node.with_children(element_children);
-            return Some(vec![seq_node]);
-        }
-
-        // ── Conditional inline: {cond: branch} ───────────────────────────────
-        if let Some((condition_text, branch_text)) = trimmed.split_once(':') {
-            // Only treat as conditional if condition_text looks like an expression
-            // (not a sequence type keyword followed by no '|').
-            if let Some(condition) = parse_expression_text(condition_text.trim()) {
-                let branch_text = branch_text.trim_start();
-                if let Some(target) = branch_text.strip_prefix("->") {
-                    return Some(vec![ParsedNode::new(ParsedNodeKind::Divert)
-                        .with_target(target.trim())
-                        .with_condition(condition)]);
-                }
-                return match condition {
-                    crate::parsed_hierarchy::ParsedExpression::Bool(true) => {
-                        Some(parse_inline_content_string(branch_text, terminators))
-                    }
-                    crate::parsed_hierarchy::ParsedExpression::Bool(false) => Some(Vec::new()),
-                    _ => Some(vec![build_inline_conditional_node(condition, branch_text, terminators)]),
-                };
-            }
-        }
-
-        // ── Plain expression: {expr} ──────────────────────────────────────────
-        if let Some(expr) = parse_expression_text(trimmed) {
-            return Some(vec![ParsedNode::new(ParsedNodeKind::OutputExpression)
-                .with_expression(expr)]);
-        }
-
-        // Unknown content — return empty so the outer loop continues past it.
-        Some(Vec::new())
+        parse_inner_logic_string(
+            &content,
+            terminators,
+            self.parsing_choice,
+            self.parsing_string_expression,
+        )
     }
 
     /// Try to parse a gather line: `-` (not `->`) optionally followed by content.
@@ -1974,61 +2489,6 @@ impl InkParser {
     ///   }
     ///
     /// Returns a `Sequence` ParsedNode.
-    fn try_parse_multiline_sequence(&mut self) -> Option<ParsedNode> {
-        let rule_id = self.parser.begin_rule();
-        self.whitespace();
-
-        let result = (|| {
-            self.parser.parse_string("{")?;
-            let content = self.parse_balanced_brace_body()?;
-            self.end_of_line();
-            parse_multiline_sequence_block(&content)
-        })();
-
-        match result {
-            Some(parsed) => self.parser.succeed_rule(rule_id, Some(parsed)),
-            None => self.parser.fail_rule(rule_id),
-        }
-    }
-
-    fn try_parse_multiline_conditional(&mut self) -> Option<ParsedNode> {
-        let rule_id = self.parser.begin_rule();
-        self.whitespace();
-
-        let result = (|| {
-            self.parser.parse_string("{")?;
-            let content = self.parse_balanced_brace_body()?;
-            self.end_of_line();
-
-            if !content.contains('\n') {
-                return None;
-            }
-
-            let first_nonempty = content
-                .lines()
-                .find(|line| !line.trim().is_empty())
-                .unwrap_or("")
-                .trim();
-            if let Some((header, _)) = first_nonempty.split_once(':') {
-                let header = header.trim();
-                if matches!(header, "cycle" | "once" | "shuffle" | "stopping")
-                    || header
-                        .split_whitespace()
-                        .all(|word| matches!(word, "cycle" | "once" | "shuffle" | "stopping"))
-                {
-                    return None;
-                }
-            }
-
-            parse_multiline_conditional_block(&content)
-        })();
-
-        match result {
-            Some(parsed) => self.parser.succeed_rule(rule_id, Some(parsed)),
-            None => self.parser.fail_rule(rule_id),
-        }
-    }
-
     fn parse_balanced_brace_body(&mut self) -> Option<String> {
         let mut depth = 1usize;
         let mut string_open = false;
@@ -2058,81 +2518,362 @@ impl InkParser {
         None
     }
 
-    /// Parse a sequence type annotation (word or symbol form) and return the flags.
-    /// Leaves the parser position after the annotation (but before `:` if word form).
-    fn sequence_type_annotation_flags(&mut self) -> u8 {
-        // Try word form first: one or more words like "stopping", "shuffle once"
-        if let Some(flags) = self.parser.peek(|p| {
-            let mut combined: u8 = 0;
-            let word_map = [
-                ("stopping", SequenceType::Stopping as u8),
-                ("cycle",    SequenceType::Cycle    as u8),
-                ("shuffle",  SequenceType::Shuffle  as u8),
-                ("once",     SequenceType::Once     as u8),
-            ];
-            loop {
-                p.parse_characters_from_string(" \t", true, -1);
-                let mut matched = false;
-                for (kw, flag) in &word_map {
-                    if p.parse_string(kw).is_some() {
-                        combined |= flag;
-                        matched = true;
-                        break;
-                    }
-                }
-                if !matched { break; }
-            }
-            if combined != 0 { Some(combined) } else { None }
-        }) {
-            // Consume the word(s)
-            let mut combined: u8 = 0;
-            let word_map = [
-                ("stopping", SequenceType::Stopping as u8),
-                ("cycle",    SequenceType::Cycle    as u8),
-                ("shuffle",  SequenceType::Shuffle  as u8),
-                ("once",     SequenceType::Once     as u8),
-            ];
-            loop {
-                self.parser.parse_characters_from_string(" \t", true, -1);
-                let mut matched = false;
-                for (kw, flag) in &word_map {
-                    if self.parser.parse_string(kw).is_some() {
-                        combined |= flag;
-                        matched = true;
-                        break;
-                    }
-                }
-                if !matched { break; }
-            }
-            let _ = flags; // suppress unused warning
-            return combined;
+    fn inner_logic_nodes(&mut self, terminators: &str) -> Option<Vec<ParsedNode>> {
+        let _ = self.whitespace();
+
+        if let Some(explicit_seq_type) = self.try_parse_sequence_type_annotation() {
+            let elements = self.inner_sequence_objects(terminators)?;
+            return Some(vec![build_sequence_node(explicit_seq_type, elements)]);
         }
 
-        // Try symbol form
-        let symbol_map = [
-            ('!', SequenceType::Once     as u8),
-            ('&', SequenceType::Cycle    as u8),
-            ('~', SequenceType::Shuffle  as u8),
-            ('$', SequenceType::Stopping as u8),
-        ];
-        let mut combined: u8 = 0;
-        loop {
-            let ch = match self.parser.peek(|p| p.parse_single_character()) {
-                Some(c) => c,
-                None => break,
+        if let Some(initial_query_expression) = self.condition_expression_text() {
+            return self.inner_conditional_nodes(Some(initial_query_expression), terminators);
+        }
+
+        for rule in [
+            InnerLogicRule::Conditional,
+            InnerLogicRule::Sequence,
+            InnerLogicRule::Expression,
+        ] {
+            let rule_id = self.parser.begin_rule();
+            let result = match rule {
+                InnerLogicRule::Conditional => self.inner_conditional_nodes(None, terminators),
+                InnerLogicRule::Sequence => self.inner_sequence_nodes(terminators, SequenceType::Stopping as u8),
+                InnerLogicRule::Expression => self.inner_expression_nodes(),
             };
-            let mut found = false;
-            for (sym, flag) in &symbol_map {
-                if ch == *sym {
-                    self.parser.parse_single_character();
-                    combined |= flag;
-                    found = true;
-                    break;
+
+            if let Some(nodes) = result {
+                let _ = self.whitespace();
+                if self.parser.end_of_input() {
+                    return self.parser.succeed_rule(rule_id, Some(nodes));
                 }
             }
-            if !found { break; }
+
+            let _ = self.parser.fail_rule::<Vec<ParsedNode>>(rule_id);
         }
-        combined
+
+        None
+    }
+
+    fn inner_expression_nodes(&mut self) -> Option<Vec<ParsedNode>> {
+        let expr = self.expression_until_top_level_terminators("")?;
+        Some(vec![ParsedNode::new(ParsedNodeKind::OutputExpression).with_expression(expr)])
+    }
+
+    fn inner_sequence_nodes(&mut self, terminators: &str, default_flags: u8) -> Option<Vec<ParsedNode>> {
+        let elements = self.inner_sequence_objects(terminators)?;
+        if elements.len() <= 1 {
+            return None;
+        }
+        Some(vec![build_sequence_node(default_flags, elements)])
+    }
+
+    fn inner_sequence_objects(&mut self, terminators: &str) -> Option<Vec<Vec<ParsedNode>>> {
+        let multiline = self.newline().is_some();
+        if multiline {
+            self.inner_multiline_sequence_objects()
+        } else {
+            self.inner_inline_sequence_objects(terminators)
+        }
+    }
+
+    fn inner_inline_sequence_objects(&mut self, terminators: &str) -> Option<Vec<Vec<ParsedNode>>> {
+        let mut result = Vec::new();
+        let mut just_had_content = false;
+
+        loop {
+            let content = self.parse_inline_content_until_with_brace_break(&format!("|}}{terminators}"));
+            if !content.is_empty() {
+                result.push(content);
+                just_had_content = true;
+            }
+
+            if self.parser.parse_string("|").is_some() {
+                if !just_had_content {
+                    result.push(Vec::new());
+                }
+                just_had_content = false;
+                continue;
+            }
+
+            break;
+        }
+
+        if !just_had_content {
+            result.push(Vec::new());
+        }
+
+        (!result.is_empty()).then_some(result)
+    }
+
+    fn inner_multiline_sequence_objects(&mut self) -> Option<Vec<Vec<ParsedNode>>> {
+        self.multiline_whitespace();
+
+        let mut result = Vec::new();
+        while let Some(content) = self.single_multiline_sequence_element() {
+            result.push(content);
+        }
+
+        (!result.is_empty()).then_some(result)
+    }
+
+    fn single_multiline_sequence_element(&mut self) -> Option<Vec<ParsedNode>> {
+        let rule_id = self.parser.begin_rule();
+        self.whitespace();
+
+        if self.parser.peek(|parser| parser.parse_string("->")).is_some() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        if self.parser.parse_string("-").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        self.whitespace();
+        let mut content = self.statements_at_level(StatementLevel::InnerBlock).nodes;
+        if content.is_empty() {
+            self.multiline_whitespace();
+        } else {
+            content.insert(0, ParsedNode::new(ParsedNodeKind::Newline));
+        }
+
+        self.parser.succeed_rule(rule_id, Some(content))
+    }
+
+    fn inner_conditional_nodes(
+        &mut self,
+        initial_query_expression: Option<crate::parsed_hierarchy::ParsedExpression>,
+        terminators: &str,
+    ) -> Option<Vec<ParsedNode>> {
+        let can_be_inline = initial_query_expression.is_some();
+        let is_inline = self.newline().is_none();
+        if is_inline && !can_be_inline {
+            return None;
+        }
+
+        let mut alternatives = if is_inline {
+            self.inline_conditional_branches(terminators)?
+        } else {
+            self.multiline_conditional_branches()?
+        };
+
+        for branch in &mut alternatives {
+            branch.is_inline = is_inline;
+        }
+
+        Some(vec![build_conditional_node(initial_query_expression, alternatives)])
+    }
+
+    fn inline_conditional_branches(&mut self, terminators: &str) -> Option<Vec<ConditionalBranchSpec>> {
+        let branches = self.inner_inline_sequence_objects(terminators)?;
+        if branches.is_empty() || branches.len() > 2 {
+            return None;
+        }
+
+        let mut result = Vec::new();
+        let mut true_branch = ConditionalBranchSpec::from_nodes(branches[0].clone());
+        true_branch.is_true_branch = true;
+        result.push(true_branch);
+
+        if branches.len() > 1 {
+            let mut else_branch = ConditionalBranchSpec::from_nodes(branches[1].clone());
+            else_branch.is_else = true;
+            result.push(else_branch);
+        }
+
+        Some(result)
+    }
+
+    fn multiline_conditional_branches(&mut self) -> Option<Vec<ConditionalBranchSpec>> {
+        self.multiline_whitespace();
+
+        let mut branches = Vec::new();
+        while let Some(branch) = self.single_multiline_condition() {
+            branches.push(branch);
+        }
+
+        self.multiline_whitespace();
+        (!branches.is_empty()).then_some(branches)
+    }
+
+    fn single_multiline_condition(&mut self) -> Option<ConditionalBranchSpec> {
+        let rule_id = self.parser.begin_rule();
+        self.whitespace();
+
+        if self.parser.peek(|parser| parser.parse_string("->")).is_some() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        if self.parser.parse_string("-").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+
+        self.whitespace();
+
+        let is_else = self.else_expression();
+        let condition = if is_else {
+            None
+        } else {
+            self.condition_expression_text()
+        };
+
+        let mut content = self.statements_at_level(StatementLevel::InnerBlock).nodes;
+        if condition.is_none() && content.is_empty() {
+            content.push(ParsedNode::new(ParsedNodeKind::Text).with_text(""));
+        }
+
+        self.multiline_whitespace();
+
+        self.parser.succeed_rule(
+            rule_id,
+            Some(ConditionalBranchSpec {
+                condition,
+                content: nodes_to_block_text(&content),
+                is_else,
+                is_inline: false,
+                is_true_branch: false,
+                matching_equality: false,
+            }),
+        )
+    }
+
+    fn condition_expression_text(&mut self) -> Option<crate::parsed_hierarchy::ParsedExpression> {
+        let rule_id = self.parser.begin_rule();
+        let Some(expr) = self.expression_until_top_level_terminators(":") else {
+            return self.parser.fail_rule(rule_id);
+        };
+        self.whitespace();
+        if self.parser.parse_string(":").is_none() {
+            return self.parser.fail_rule(rule_id);
+        }
+        self.parser.succeed_rule(rule_id, Some(expr))
+    }
+
+    fn else_expression(&mut self) -> bool {
+        let rule_id = self.parser.begin_rule();
+        if self.parse_identifier().as_deref() != Some("else") {
+            let _ = self.parser.fail_rule::<ParseSuccess>(rule_id);
+            return false;
+        }
+
+        self.whitespace();
+        if self.parser.parse_string(":").is_none() {
+            let _ = self.parser.fail_rule::<ParseSuccess>(rule_id);
+            return false;
+        }
+
+        self.parser.succeed_rule(rule_id, Some(ParseSuccess)).is_some()
+    }
+
+    fn parse_inline_content_until_with_brace_break(&mut self, terminators: &str) -> Vec<ParsedNode> {
+        self.parse_inline_content_until(terminators)
+    }
+
+    fn parse_until_top_level_terminator_set(&mut self, terminators: &str) -> Option<String> {
+        let mut result = String::new();
+        let mut paren_depth = 0usize;
+        let mut brace_depth = 0usize;
+        let mut bracket_depth = 0usize;
+        let mut string_open = false;
+
+        while let Some(ch) = self.parser.peek(|parser| parser.parse_single_character()) {
+            if terminators.contains(ch)
+                && !string_open
+                && paren_depth == 0
+                && brace_depth == 0
+                && bracket_depth == 0
+            {
+                return Some(result);
+            }
+
+            let ch = self.parser.parse_single_character()?;
+            match ch {
+                '"' => string_open = !string_open,
+                '(' if !string_open => paren_depth += 1,
+                ')' if !string_open => paren_depth = paren_depth.saturating_sub(1),
+                '{' if !string_open => brace_depth += 1,
+                '}' if !string_open => brace_depth = brace_depth.saturating_sub(1),
+                '[' if !string_open => bracket_depth += 1,
+                ']' if !string_open => bracket_depth = bracket_depth.saturating_sub(1),
+                _ => {}
+            }
+            result.push(ch);
+        }
+
+        if terminators.is_empty() {
+            Some(result)
+        } else {
+            None
+        }
+    }
+
+    fn try_parse_sequence_type_annotation(&mut self) -> Option<u8> {
+        let rule_id = self.parser.begin_rule();
+        let mut combined = 0u8;
+        let mut matched_any = false;
+        loop {
+            self.whitespace();
+            let matched = if self.parser.parse_string("stopping").is_some() {
+                combined |= SequenceType::Stopping as u8;
+                true
+            } else if self.parser.parse_string("cycle").is_some() {
+                combined |= SequenceType::Cycle as u8;
+                true
+            } else if self.parser.parse_string("shuffle").is_some() {
+                combined |= SequenceType::Shuffle as u8;
+                true
+            } else if self.parser.parse_string("once").is_some() {
+                combined |= SequenceType::Once as u8;
+                true
+            } else {
+                false
+            };
+
+            if !matched {
+                break;
+            }
+            matched_any = true;
+        }
+
+        if matched_any {
+            self.whitespace();
+            if self.parser.parse_string(":").is_some() {
+                return self.parser.succeed_rule(rule_id, Some(combined));
+            }
+        }
+        let _ = self.parser.fail_rule::<u8>(rule_id);
+
+        let rule_id = self.parser.begin_rule();
+
+        let mut symbol_combined = 0u8;
+        let mut saw_symbol = false;
+        loop {
+            let matched = if self.parser.parse_string("!").is_some() {
+                symbol_combined |= SequenceType::Once as u8;
+                true
+            } else if self.parser.parse_string("&").is_some() {
+                symbol_combined |= SequenceType::Cycle as u8;
+                true
+            } else if self.parser.parse_string("~").is_some() {
+                symbol_combined |= SequenceType::Shuffle as u8;
+                true
+            } else if self.parser.parse_string("$").is_some() {
+                symbol_combined |= SequenceType::Stopping as u8;
+                true
+            } else {
+                false
+            };
+            if !matched {
+                break;
+            }
+            saw_symbol = true;
+        }
+
+        if saw_symbol {
+            self.parser.succeed_rule(rule_id, Some(symbol_combined))
+        } else {
+            self.parser.fail_rule(rule_id)
+        }
     }
 
     fn try_parse_gather(&mut self) -> Option<ParsedNode> {        let rule_id = self.parser.begin_rule();
@@ -2257,303 +2998,85 @@ fn append_text_suffix(nodes: &mut [ParsedNode], suffix: &str) {
     }
 }
 
-fn parse_inline_content_string(input: &str, terminators: &str) -> Vec<ParsedNode> {
+fn parse_inner_logic_string(
+    input: &str,
+    terminators: &str,
+    parsing_choice: bool,
+    parsing_string_expression: bool,
+) -> Option<Vec<ParsedNode>> {
     let mut parser = InkParser::new(input, None);
-    parser.parsing_choice = terminators.contains('[') || terminators.contains(']');
-    parser.parse_inline_content_until(terminators)
-}
-
-/// Parse an optional sequence type annotation and return (flags, elements).
-///
-/// Input is the trimmed interior of `{...}`.  The type annotation may be:
-/// - a word keyword followed by `:`, e.g. `stopping: a|b|c`
-/// - a symbol prefix, e.g. `!a|b|c` (once), `&a|b|c` (cycle),
-///   `~a|b|c` (shuffle), `$a|b|c` (stopping)
-///
-/// Default (no annotation) is Stopping (flags = 1).
-fn parse_sequence_type_and_elements(input: &str) -> (u8, Vec<String>) {
-    use crate::parsed_hierarchy::SequenceType;
-
-    // Word annotation: "word: rest"
-    let word_keywords = [
-        ("stopping", SequenceType::Stopping as u8),
-        ("cycle",    SequenceType::Cycle    as u8),
-        ("shuffle",  SequenceType::Shuffle  as u8),
-        ("once",     SequenceType::Once     as u8),
-    ];
-    for (kw, flags) in &word_keywords {
-        if let Some(rest) = input.strip_prefix(kw) {
-            if let Some(rest2) = rest.trim_start().strip_prefix(':') {
-                return (*flags, split_sequence_elements(rest2));
-            }
-        }
-    }
-
-    // Symbol annotation prefix
-    let symbol_map = [
-        ('!', SequenceType::Once     as u8),
-        ('&', SequenceType::Cycle    as u8),
-        ('~', SequenceType::Shuffle  as u8),
-        ('$', SequenceType::Stopping as u8),
-    ];
-    if let Some(ch) = input.chars().next() {
-        for (sym, flags) in &symbol_map {
-            if ch == *sym {
-                return (*flags, split_sequence_elements(&input[ch.len_utf8()..]));
-            }
-        }
-    }
-
-    // Default: Stopping
-    (SequenceType::Stopping as u8, split_sequence_elements(input))
-}
-
-/// Split sequence content on top-level `|` characters (not nested in `{}`).
-fn split_sequence_elements(input: &str) -> Vec<String> {
-    let mut elements = Vec::new();
-    let mut depth = 0usize;
-    let mut current = String::new();
-    for ch in input.chars() {
-        match ch {
-            '{' => { depth += 1; current.push(ch); }
-            '}' => { depth = depth.saturating_sub(1); current.push(ch); }
-            '|' if depth == 0 => {
-                elements.push(current.clone());
-                current.clear();
-            }
-            _ => current.push(ch),
-        }
-    }
-    elements.push(current);
-    elements
-}
-
-fn parse_expression_text(input: &str) -> Option<crate::parsed_hierarchy::ParsedExpression> {
-    use crate::parsed_hierarchy::ParsedExpression;
-
-    let input = input.trim();
-    if input.is_empty() {
+    parser.parsing_choice = parsing_choice;
+    parser.parsing_string_expression = parsing_string_expression;
+    let nodes = parser.inner_logic_nodes(terminators)?;
+    let _ = parser.whitespace();
+    if !parser.parser.end_of_input() {
         return None;
     }
-
-    if let Some(inner) = strip_wrapping_parentheses(input) {
-        return parse_expression_text(inner);
-    }
-
-    if let Some(target) = input.strip_prefix("->") {
-        return Some(ParsedExpression::DivertTarget(target.trim().to_owned()));
-    }
-
-    for (token, operator) in [
-        ("&&", "And"),
-        ("||", "Or"),
-        (" and ", "And"),
-        (" or ", "Or"),
-        (">=", "GreaterEqual"),
-        ("<=", "LessEqual"),
-        ("==", "Equal"),
-        ("!=", "NotEqual"),
-        (">", "Greater"),
-        ("<", "Less"),
-        ("+", "Add"),
-        ("-", "Subtract"),
-        (" mod ", "Modulo"),
-        ("*", "Multiply"),
-        ("/", "Divide"),
-        ("%", "Modulo"),
-    ] {
-        if let Some((left, right)) = split_expression_once(input, token) {
-            return Some(ParsedExpression::Binary {
-                left: Box::new(parse_expression_text(left)?),
-                operator: operator.to_owned(),
-                right: Box::new(parse_expression_text(right)?),
-            });
-        }
-    }
-
-    if let Some(rest) = input.strip_prefix("not ") {
-        return Some(ParsedExpression::Unary {
-            operator: "!".to_owned(),
-            expression: Box::new(parse_expression_text(rest)?),
-        });
-    }
-
-    if let Some(rest) = input.strip_prefix('!') {
-        return Some(ParsedExpression::Unary {
-            operator: "!".to_owned(),
-            expression: Box::new(parse_expression_text(rest)?),
-        });
-    }
-
-    if input.starts_with('"') && input.ends_with('"') && input.len() >= 2 {
-        return Some(ParsedExpression::String(input[1..input.len() - 1].to_owned()));
-    }
-
-    if input == "true" {
-        return Some(ParsedExpression::Bool(true));
-    }
-    if input == "false" {
-        return Some(ParsedExpression::Bool(false));
-    }
-
-    if let Ok(value) = input.parse::<i32>() {
-        return Some(ParsedExpression::Int(value));
-    }
-    if let Ok(value) = input.parse::<f32>() {
-        return Some(ParsedExpression::Float(value));
-    }
-
-    if let Some(name) = input.strip_suffix(')')
-        && let Some((name, args)) = name.split_once('(')
-    {
-        let arguments = split_arguments(args)
-            .into_iter()
-            .map(|arg| parse_expression_text(&arg))
-            .collect::<Option<Vec<_>>>()?;
-        return Some(ParsedExpression::FunctionCall {
-            name: name.trim().to_owned(),
-            arguments,
-        });
-    }
-
-    Some(ParsedExpression::Variable(input.to_owned()))
+    Some(nodes)
 }
 
-fn split_expression_once<'a>(input: &'a str, token: &str) -> Option<(&'a str, &'a str)> {
-    let mut depth = 0usize;
-    let mut string_open = false;
-    let chars: Vec<(usize, char)> = input.char_indices().collect();
-
-    let mut i = 0usize;
-    while i < chars.len() {
-        let (byte_index, ch) = chars[i];
-        match ch {
-            '"' => string_open = !string_open,
-            '(' | '{' | '[' if !string_open => depth += 1,
-            ')' | '}' | ']' if !string_open && depth > 0 => depth -= 1,
-            _ => {}
-        }
-
-        if !string_open && depth == 0 && input[byte_index..].starts_with(token) {
-            if (token == "+" || token == "-")
-                && (byte_index == 0
-                    || matches!(input[..byte_index].chars().last(), Some('(' | '[' | '{' | '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' | '!')))
-            {
-                i += 1;
-                continue;
-            }
-            return Some((&input[..byte_index], &input[byte_index + token.len()..]));
-        }
-
-        i += 1;
-    }
-
-    None
+#[derive(Clone, Copy)]
+enum InnerLogicRule {
+    Conditional,
+    Sequence,
+    Expression,
 }
 
-fn strip_wrapping_parentheses(input: &str) -> Option<&str> {
-    if !input.starts_with('(') || !input.ends_with(')') {
-        return None;
-    }
-
-    let mut depth = 0usize;
-    let mut string_open = false;
-    for (idx, ch) in input.char_indices() {
-        match ch {
-            '"' => string_open = !string_open,
-            '(' if !string_open => depth += 1,
-            ')' if !string_open => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 && idx != input.len() - 1 {
-                    return None;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    Some(&input[1..input.len() - 1])
+#[derive(Clone, Copy)]
+struct InfixOperator {
+    token: &'static str,
+    kind: &'static str,
+    precedence: i32,
+    require_whitespace_after: bool,
 }
 
-fn split_arguments(input: &str) -> Vec<String> {
-    let mut args = Vec::new();
-    let mut current = String::new();
-    let mut depth = 0usize;
-    let mut string_open = false;
-
-    for ch in input.chars() {
-        match ch {
-            '"' => {
-                string_open = !string_open;
-                current.push(ch);
-            }
-            '(' | '{' | '[' if !string_open => {
-                depth += 1;
-                current.push(ch);
-            }
-            ')' | '}' | ']' if !string_open && depth > 0 => {
-                depth -= 1;
-                current.push(ch);
-            }
-            ',' if !string_open && depth == 0 => {
-                let trimmed = current.trim();
-                if !trimmed.is_empty() {
-                    args.push(trimmed.to_owned());
-                }
-                current.clear();
-            }
-            _ => current.push(ch),
-        }
-    }
-
-    let trimmed = current.trim();
-    if !trimmed.is_empty() {
-        args.push(trimmed.to_owned());
-    }
-
-    args
+#[derive(Clone)]
+struct ConditionalBranchSpec {
+    condition: Option<crate::parsed_hierarchy::ParsedExpression>,
+    content: String,
+    is_else: bool,
+    is_inline: bool,
+    is_true_branch: bool,
+    matching_equality: bool,
 }
 
-fn parse_multiline_conditional_block(content: &str) -> Option<ParsedNode> {
-    let lines: Vec<&str> = content.lines().collect();
-    let first_idx = lines.iter().position(|line| !line.trim().is_empty())?;
-    let first = lines[first_idx].trim();
-
-    let mut initial_condition = None;
-    let branch_specs = if first.starts_with('-') {
-        parse_conditional_branches(&lines[first_idx..], false)?
-    } else {
-        let (header, inline_after) = first.split_once(':')?;
-        initial_condition = parse_expression_text(header.trim());
-        let mut body_lines: Vec<String> = Vec::new();
-        if !inline_after.trim().is_empty() {
-            body_lines.push(inline_after.trim_start().to_owned());
+impl ConditionalBranchSpec {
+    fn from_nodes(nodes: Vec<ParsedNode>) -> Self {
+        Self {
+            condition: None,
+            content: nodes_to_block_text(&nodes),
+            is_else: false,
+            is_inline: true,
+            is_true_branch: false,
+            matching_equality: false,
         }
-        body_lines.extend(lines[(first_idx + 1)..].iter().map(|line| (*line).to_owned()));
+    }
+}
 
-        let has_branch_markers = has_top_level_conditional_branches(
-            &body_lines.iter().map(|line| line.as_str()).collect::<Vec<_>>(),
-        );
-        if has_branch_markers {
-            parse_conditional_branches(
-                &body_lines.iter().map(|line| line.as_str()).collect::<Vec<_>>(),
-                true,
-            )?
-        } else {
-            vec![ConditionalBranchSpec {
-                condition: None,
-                content: body_lines.join("\n"),
-                is_else: false,
-            }]
-        }
-    };
+fn build_sequence_node(sequence_type: u8, elements: Vec<Vec<ParsedNode>>) -> ParsedNode {
+    let element_children = elements
+        .into_iter()
+        .map(|nodes| ParsedNode::new(ParsedNodeKind::Text).with_text("").with_children(nodes))
+        .collect();
+    let mut seq_node = ParsedNode::new(ParsedNodeKind::Sequence);
+    seq_node.sequence_type = sequence_type;
+    seq_node.set_children(element_children);
+    seq_node
+}
 
+fn build_conditional_node(
+    initial_condition: Option<crate::parsed_hierarchy::ParsedExpression>,
+    mut branches: Vec<ConditionalBranchSpec>,
+) -> ParsedNode {
     let mut saw_branch_condition = false;
     let mut children = Vec::new();
-    for (idx, branch) in branch_specs.into_iter().enumerate() {
+
+    for (idx, branch) in branches.iter_mut().enumerate() {
         let mut branch_node = ParsedNode::new(ParsedNodeKind::Conditional);
-        branch_node.is_inline = false;
+        branch_node.is_inline = branch.is_inline;
         branch_node.is_else = branch.is_else;
+        branch_node.is_true_branch = branch.is_true_branch;
+        branch_node.matching_equality = branch.matching_equality;
         if let Some(condition) = branch.condition.clone() {
             branch_node = branch_node.with_condition(condition);
         }
@@ -2586,204 +3109,95 @@ fn parse_multiline_conditional_block(content: &str) -> Option<ParsedNode> {
         node = node.with_condition(condition);
     }
     node.set_children(children);
-    Some(node)
+    node
 }
 
-fn parse_multiline_sequence_block(content: &str) -> Option<ParsedNode> {
-    let mut lines = content.lines();
-    let header = lines.find(|line| !line.trim().is_empty())?.trim();
-    let (seq_type_text, _rest) = header.split_once(':')?;
-    let seq_type_flags = parse_sequence_flags_text(seq_type_text.trim())?;
-
-    let remaining: Vec<&str> = content.lines().skip_while(|line| line.trim() != header).skip(1).collect();
-    let mut elements = Vec::new();
-    let mut current = String::new();
-    let mut brace_depth = 0isize;
-
-    for line in remaining {
-        let trimmed = line.trim_start();
-        let is_new_element = brace_depth == 0 && trimmed.starts_with('-') && !trimmed.starts_with("->");
-        if is_new_element {
-            if !current.is_empty() {
-                elements.push(current.clone());
-                current.clear();
-            }
-            current.push_str(trimmed[1..].trim_start());
-            current.push('\n');
-        } else {
-            current.push_str(line);
-            current.push('\n');
-        }
-        brace_depth += net_brace_delta(line);
-    }
-    if !current.is_empty() {
-        elements.push(current);
-    }
-    if elements.is_empty() {
-        return None;
-    }
-
-    let element_children: Vec<ParsedNode> = elements
-        .into_iter()
-        .map(|element| {
-            let mut nodes = parse_nested_statement_block(&element);
-            if !nodes.is_empty() {
-                nodes.insert(0, ParsedNode::new(ParsedNodeKind::Newline));
-            }
-            ParsedNode::new(ParsedNodeKind::Text)
-                .with_text("")
-                .with_children(nodes)
-        })
-        .collect();
-
-    let mut seq_node = ParsedNode::new(ParsedNodeKind::Sequence);
-    seq_node.sequence_type = seq_type_flags;
-    seq_node.set_children(element_children);
-    Some(seq_node)
-}
-
-fn parse_sequence_flags_text(text: &str) -> Option<u8> {
-    let mut flags = 0u8;
-    for word in text.split_whitespace() {
-        flags |= match word {
-            "stopping" => SequenceType::Stopping as u8,
-            "cycle" => SequenceType::Cycle as u8,
-            "shuffle" => SequenceType::Shuffle as u8,
-            "once" => SequenceType::Once as u8,
-            _ => return None,
-        };
-    }
-    (flags != 0).then_some(flags)
-}
-
-#[derive(Clone)]
-struct ConditionalBranchSpec {
-    condition: Option<crate::parsed_hierarchy::ParsedExpression>,
-    content: String,
-    is_else: bool,
-}
-
-fn parse_conditional_branches(lines: &[&str], allow_bare_else: bool) -> Option<Vec<ConditionalBranchSpec>> {
-    let mut branches = Vec::new();
-    let mut current_header: Option<(Option<crate::parsed_hierarchy::ParsedExpression>, bool)> = None;
-    let mut current_content = String::new();
-    let mut brace_depth = 0isize;
-
-    for line in lines {
-        let trimmed = line.trim_start();
-        let is_top_level_branch = brace_depth == 0 && trimmed.starts_with('-');
-        if is_top_level_branch {
-            if let Some((condition, is_else)) = current_header.take() {
-                branches.push(ConditionalBranchSpec {
-                    condition,
-                    content: current_content.clone(),
-                    is_else,
-                });
-                current_content.clear();
-            }
-
-            let header = trimmed[1..].trim_start();
-            if let Some(rest) = header.strip_prefix("else:") {
-                current_header = Some((None, true));
-                if !rest.trim().is_empty() {
-                    current_content.push_str(rest.trim_start());
-                    current_content.push('\n');
-                }
-                continue;
-            }
-
-            let (condition_text, rest) = header.split_once(':')?;
-            current_header = Some((parse_expression_text(condition_text.trim()), false));
-            if !rest.trim().is_empty() {
-                current_content.push_str(rest.trim_start());
-                current_content.push('\n');
-            }
-        } else {
-            if current_header.is_none() {
-                if !allow_bare_else {
-                    return None;
-                }
-                current_header = Some((None, false));
-            }
-            current_content.push_str(line);
-            current_content.push('\n');
-        }
-
-        brace_depth += net_brace_delta(line);
-    }
-
-    if let Some((condition, is_else)) = current_header.take() {
-        branches.push(ConditionalBranchSpec {
-            condition,
-            content: current_content,
-            is_else,
-        });
-    }
-
-    (!branches.is_empty()).then_some(branches)
-}
-
-fn has_top_level_conditional_branches(lines: &[&str]) -> bool {
-    let mut brace_depth = 0isize;
-    for line in lines {
-        if brace_depth == 0 && line.trim_start().starts_with('-') {
-            return true;
-        }
-        brace_depth += net_brace_delta(line);
-    }
-    false
-}
-
-fn net_brace_delta(line: &str) -> isize {
-    let mut delta = 0isize;
-    let mut string_open = false;
-    for ch in line.chars() {
-        match ch {
-            '"' => string_open = !string_open,
-            '{' if !string_open => delta += 1,
-            '}' if !string_open => delta -= 1,
+fn nodes_to_block_text(nodes: &[ParsedNode]) -> String {
+    let mut text = String::new();
+    for node in nodes {
+        match node.kind() {
+            ParsedNodeKind::Text => text.push_str(node.text().unwrap_or("")),
+            ParsedNodeKind::Newline => text.push('\n'),
             _ => {}
         }
     }
-    delta
+    text
+}
+
+fn is_reserved_keyword(name: &str) -> bool {
+    matches!(
+        name,
+        "true" | "false" | "not" | "return" | "else" | "VAR" | "CONST" | "temp" | "LIST" | "function"
+    )
+}
+
+fn is_number_only_identifier(name: &str) -> bool {
+    !name.is_empty() && name.chars().all(|ch| ch.is_ascii_digit())
+}
+
+fn infix_operators() -> &'static [InfixOperator] {
+    &[
+        InfixOperator { token: "&&", kind: "And", precedence: 1, require_whitespace_after: false },
+        InfixOperator { token: "||", kind: "Or", precedence: 1, require_whitespace_after: false },
+        InfixOperator { token: "and", kind: "And", precedence: 1, require_whitespace_after: true },
+        InfixOperator { token: "or", kind: "Or", precedence: 1, require_whitespace_after: true },
+        InfixOperator { token: "==", kind: "Equal", precedence: 2, require_whitespace_after: false },
+        InfixOperator { token: ">=", kind: "GreaterEqual", precedence: 2, require_whitespace_after: false },
+        InfixOperator { token: "<=", kind: "LessEqual", precedence: 2, require_whitespace_after: false },
+        InfixOperator { token: "<", kind: "Less", precedence: 2, require_whitespace_after: false },
+        InfixOperator { token: ">", kind: "Greater", precedence: 2, require_whitespace_after: false },
+        InfixOperator { token: "!=", kind: "NotEqual", precedence: 2, require_whitespace_after: false },
+        InfixOperator { token: "!?", kind: "Hasnt", precedence: 3, require_whitespace_after: false },
+        InfixOperator { token: "?", kind: "Has", precedence: 3, require_whitespace_after: false },
+        InfixOperator { token: "has", kind: "Has", precedence: 3, require_whitespace_after: true },
+        InfixOperator { token: "hasnt", kind: "Hasnt", precedence: 3, require_whitespace_after: true },
+        InfixOperator { token: "^", kind: "Intersect", precedence: 3, require_whitespace_after: false },
+        InfixOperator { token: "+", kind: "Add", precedence: 4, require_whitespace_after: false },
+        InfixOperator { token: "-", kind: "Subtract", precedence: 5, require_whitespace_after: false },
+        InfixOperator { token: "*", kind: "Multiply", precedence: 6, require_whitespace_after: false },
+        InfixOperator { token: "/", kind: "Divide", precedence: 7, require_whitespace_after: false },
+        InfixOperator { token: "%", kind: "Modulo", precedence: 8, require_whitespace_after: false },
+        InfixOperator { token: "mod", kind: "Modulo", precedence: 8, require_whitespace_after: true },
+    ]
 }
 
 fn parse_nested_statement_block(content: &str) -> Vec<ParsedNode> {
     let mut parser = InkParser::new(content, None);
-    let parsed = parser.parse_at_level(InkParseLevel::Stitch);
+    let parsed = parser.statements_at_level(StatementLevel::InnerBlock);
     parsed.nodes
 }
 
-fn build_inline_conditional_node(
-    condition: crate::parsed_hierarchy::ParsedExpression,
-    branch_text: &str,
-    terminators: &str,
-) -> ParsedNode {
-    let mut branch = ParsedNode::new(ParsedNodeKind::Conditional)
-        .with_children(parse_inline_content_string(branch_text, terminators));
-    branch.is_true_branch = true;
-    branch.is_inline = true;
-
-    let mut conditional = ParsedNode::new(ParsedNodeKind::Conditional).with_condition(condition);
-    conditional.set_children(vec![branch]);
-    conditional
-}
-
-fn merge_story(into: &mut Story, mut other: Story) {
+fn merge_parse_section(into: &mut ParseSection, mut other: ParseSection) {
+    into.nodes.append(&mut other.nodes);
+    into.flows.append(&mut other.flows);
     into.global_declarations.append(&mut other.global_declarations);
     into.global_initializers.append(&mut other.global_initializers);
     into.list_definitions.append(&mut other.list_definitions);
     into.external_declarations.append(&mut other.external_declarations);
-    into.const_declarations.append(&mut other.const_declarations);
-    into.root_nodes.append(&mut other.root_nodes);
-    into.flows.append(&mut other.flows);
+}
+
+fn build_story_from_section(
+    source: String,
+    source_name: Option<String>,
+    count_all_visits: bool,
+    parsed: ParseSection,
+) -> Story {
+    let mut story = Story::new(&source, source_name, count_all_visits);
+    story.root_nodes = parsed.nodes;
+    story.flows = parsed.flows;
+    story.global_declarations = parsed.global_declarations;
+    story.global_initializers = parsed.global_initializers;
+    story.list_definitions = parsed.list_definitions;
+    story.external_declarations = parsed.external_declarations;
+    story.rebuild_parse_tree_refs();
+    story
 }
 
 #[cfg(test)]
 mod tests {
     use super::InkParser;
     use crate::{
-        parsed_hierarchy::{Content, NumberValue},
+        parsed_hierarchy::{Content, NumberValue, ParsedNodeKind},
         string_parser::{ParseSuccess, StringParserStateElement},
     };
 
@@ -3038,5 +3452,60 @@ mod tests {
                 .expect("debug path")
                 .debug_path_lookup
         );
+    }
+
+    #[test]
+    fn expression_parser_honours_binary_precedence() {
+        let mut parser = InkParser::new("1 + 2 * 3", None);
+        let expr = parser.expression().expect("expression");
+
+        match expr {
+            crate::parsed_hierarchy::ParsedExpression::Binary { left, operator, right } => {
+                assert_eq!("Add", operator);
+                assert!(matches!(*left, crate::parsed_hierarchy::ParsedExpression::Int(1)));
+                match *right {
+                    crate::parsed_hierarchy::ParsedExpression::Binary { left, operator, right } => {
+                        assert_eq!("Multiply", operator);
+                        assert!(matches!(*left, crate::parsed_hierarchy::ParsedExpression::Int(2)));
+                        assert!(matches!(*right, crate::parsed_hierarchy::ParsedExpression::Int(3)));
+                    }
+                    other => panic!("unexpected rhs: {other:?}"),
+                }
+            }
+            other => panic!("unexpected expression: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn expression_parser_parses_list_items() {
+        let mut parser = InkParser::new("(apples, basket.oranges)", None);
+        let expr = parser.expression().expect("list expression");
+        match expr {
+            crate::parsed_hierarchy::ParsedExpression::ListItems(items) => {
+                assert_eq!(vec!["apples".to_owned(), "basket.oranges".to_owned()], items);
+            }
+            other => panic!("unexpected expression: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn expression_parser_parses_string_expression_nodes() {
+        let mut parser = InkParser::new(r#""hello {name}""#, None);
+        let expr = parser.expression().expect("string expression");
+        match expr {
+            crate::parsed_hierarchy::ParsedExpression::StringExpression(nodes) => {
+                assert!(nodes.iter().any(|node| node.kind() == ParsedNodeKind::Text));
+                assert!(nodes.iter().any(|node| node.kind() == ParsedNodeKind::OutputExpression));
+            }
+            other => panic!("unexpected expression: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn author_warning_line_parses_todo_statement() {
+        let mut parser = InkParser::new("TODO: fix this\n", None);
+        let node = parser.try_parse_author_warning_line().expect("todo statement");
+        assert_eq!(ParsedNodeKind::AuthorWarning, node.kind());
+        assert_eq!(Some("fix this"), node.text());
     }
 }

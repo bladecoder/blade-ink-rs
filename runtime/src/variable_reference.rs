@@ -44,6 +44,11 @@ impl VariableReference {
             .as_ref()
             .map(|path_for_count| Object::compact_path_string(self.clone(), path_for_count))
     }
+
+    pub fn set_path_for_count(&mut self, path_for_count: Path) {
+        self.name.clear();
+        self.path_for_count = Some(path_for_count);
+    }
 }
 
 impl RTObject for VariableReference {

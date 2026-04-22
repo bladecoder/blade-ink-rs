@@ -96,8 +96,9 @@ impl Compiler {
 
         let parser = InkParser::new(source, self.options.source_filename.clone());
         if let Some(file_handler) = &self.options.file_handler {
+            let file_handler = file_handler.clone();
             return parser
-                .parse_story_with_file_handler(self.options.count_all_visits, |filename| {
+                .parse_story_with_file_handler(self.options.count_all_visits, move |filename| {
                     file_handler.load_ink_file_contents(filename)
                 });
         }
@@ -122,7 +123,7 @@ impl Compiler {
         file_handler: F,
     ) -> Result<RuntimeStory, CompilerError>
     where
-        F: Fn(&str) -> Result<String, CompilerError>,
+        F: Fn(&str) -> Result<String, CompilerError> + 'static,
     {
         let json = self.compile_json_with_file_handler(source, file_handler)?;
         RuntimeStory::new(&json).map_err(|err| CompilerError::invalid_source(err.to_string()))
@@ -148,7 +149,7 @@ impl Compiler {
         file_handler: F,
     ) -> Result<stats::Stats, CompilerError>
     where
-        F: Fn(&str) -> Result<String, CompilerError>,
+        F: Fn(&str) -> Result<String, CompilerError> + 'static,
     {
         let parsed = InkParser::new(source, self.options.source_filename.clone())
             .parse_story_with_file_handler(self.options.count_all_visits, file_handler)?;
@@ -161,7 +162,7 @@ impl Compiler {
         file_handler: F,
     ) -> Result<String, CompilerError>
     where
-        F: Fn(&str) -> Result<String, CompilerError>,
+        F: Fn(&str) -> Result<String, CompilerError> + 'static,
     {
         self.compile_json_with_file_handler(source, file_handler)
     }
@@ -172,7 +173,7 @@ impl Compiler {
         file_handler: F,
     ) -> Result<String, CompilerError>
     where
-        F: Fn(&str) -> Result<String, CompilerError>,
+        F: Fn(&str) -> Result<String, CompilerError> + 'static,
     {
         let parsed = InkParser::new(source, self.options.source_filename.clone())
             .parse_story_with_file_handler(self.options.count_all_visits, file_handler)?;
@@ -184,8 +185,9 @@ impl Compiler {
 
     fn compile_internal(&self, source: &str) -> Result<String, CompilerError> {
         if let Some(file_handler) = &self.options.file_handler {
+            let file_handler = file_handler.clone();
             let parsed = InkParser::new(source, self.options.source_filename.clone())
-                .parse_story_with_file_handler(self.options.count_all_visits, |filename| {
+                .parse_story_with_file_handler(self.options.count_all_visits, move |filename| {
                     file_handler.load_ink_file_contents(filename)
                 })?;
             let story = runtime_export::export_story(&parsed)?;
@@ -326,6 +328,47 @@ Stitch text
     #[test]
     fn tmp_dump_condopt_json() {
         let ink = include_str!("../../conformance-tests/inkfiles/conditional/condopt.ink");
+        let json = Compiler::new().compile(ink).expect("compile to json");
+        println!("{json}");
+    }
+
+    #[test]
+    fn tmp_dump_condtext_json() {
+        let ink = include_str!("../../conformance-tests/inkfiles/conditional/condtext.ink");
+        let json = Compiler::new().compile(ink).expect("compile to json");
+        println!("{json}");
+    }
+
+    #[test]
+    fn tmp_dump_conditionals_json() {
+        let ink = r#"
+{false:not true|true}
+{
+   - 4 > 5: not true
+   - 5 > 4: true
+}
+{ 2*2 > 3:
+   - true
+   - not true
+}
+{
+   - 1 > 3: not true
+   - { 2+2 == 4:
+        - true
+        - not true
+   }
+}
+{ 2*3:
+   - 1+7: not true
+   - 9: not true
+   - 1+1+1+3: true
+   - 9-3: also true but not printed
+}
+{ true:
+    great
+    right?
+}
+"#;
         let json = Compiler::new().compile(ink).expect("compile to json");
         println!("{json}");
     }

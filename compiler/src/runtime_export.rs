@@ -1,8 +1,8 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::{Cell, RefCell}, collections::HashMap, rc::Rc};
 
 use bladeink::{
     ChoicePoint, CommandType, Container, ControlCommand, Divert, Glue, InkList, InkListItem,
-    ListDefinition, NativeFunctionCall, NativeOp, Path, PushPopType, RTObject, Value, Void,
+    ListDefinition, NativeFunctionCall, NativeOp, Path, PushPopType, RTObject, Value, Void, path_of,
     VariableAssignment, VariableReference, story::Story as RuntimeStory,
 };
 
@@ -14,20 +14,116 @@ use crate::{
     },
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct PendingContainerId(usize);
+
+#[derive(Clone)]
+enum PathFixupSource {
+    Divert(Rc<Divert>),
+    ChoicePoint(Rc<ChoicePoint>),
+}
+
+#[derive(Clone, Copy)]
+enum PathFixupTarget {
+    PendingContainer(PendingContainerId),
+    RuntimeObject(*const dyn RTObject),
+}
+
+#[derive(Clone)]
+struct PathFixup {
+    source: PathFixupSource,
+    target: PathFixupTarget,
+}
+
+struct ExportState {
+    next_pending_container_id: Cell<usize>,
+    pending_containers: RefCell<HashMap<PendingContainerId, Rc<Container>>>,
+    runtime_objects: RefCell<HashMap<*const dyn RTObject, Rc<dyn RTObject>>>,
+    path_fixups: RefCell<Vec<PathFixup>>,
+}
+
+impl ExportState {
+    fn new() -> Self {
+        Self {
+            next_pending_container_id: Cell::new(0),
+            pending_containers: RefCell::new(HashMap::new()),
+            runtime_objects: RefCell::new(HashMap::new()),
+            path_fixups: RefCell::new(Vec::new()),
+        }
+    }
+
+    fn next_pending_container_id(&self) -> PendingContainerId {
+        let id = PendingContainerId(self.next_pending_container_id.get());
+        self.next_pending_container_id.set(id.0 + 1);
+        id
+    }
+
+    fn register_pending_container(&self, id: PendingContainerId, container: Rc<Container>) {
+        self.pending_containers.borrow_mut().insert(id, container);
+    }
+
+    fn register_runtime_object(&self, object: Rc<dyn RTObject>) -> *const dyn RTObject {
+        let key = Rc::as_ptr(&object);
+        self.runtime_objects.borrow_mut().insert(key, object);
+        key
+    }
+
+    fn add_pending_target_fixup(&self, source: PathFixupSource, target: PendingContainerId) {
+        self.path_fixups.borrow_mut().push(PathFixup {
+            source,
+            target: PathFixupTarget::PendingContainer(target),
+        });
+    }
+
+    fn add_runtime_target_fixup(&self, source: PathFixupSource, target: Rc<dyn RTObject>) {
+        let key = self.register_runtime_object(target);
+        self.path_fixups.borrow_mut().push(PathFixup {
+            source,
+            target: PathFixupTarget::RuntimeObject(key),
+        });
+    }
+
+    fn apply_path_fixups(&self) {
+        for fixup in self.path_fixups.borrow().iter() {
+            let target: Rc<dyn RTObject> = match fixup.target {
+                PathFixupTarget::PendingContainer(id) => self
+                    .pending_containers
+                    .borrow()
+                    .get(&id)
+                    .cloned()
+                    .expect("registered pending container") as Rc<dyn RTObject>,
+                PathFixupTarget::RuntimeObject(key) => self
+                    .runtime_objects
+                    .borrow()
+                    .get(&key)
+                    .cloned()
+                    .expect("registered runtime object"),
+            };
+            let path = path_of(target.as_ref());
+            match &fixup.source {
+                PathFixupSource::Divert(divert) => divert.set_target_path(path),
+                PathFixupSource::ChoicePoint(choice_point) => choice_point.set_path_on_choice(path),
+            }
+        }
+    }
+}
+
 pub(crate) fn export_story(story: &Story) -> Result<RuntimeStory, CompilerError> {
+    let state = ExportState::new();
     let list_defs = export_list_defs(story.list_definitions());
     let mut named_content = HashMap::new();
 
     for flow in story.parsed_flows() {
         let name = flow.flow().identifier().unwrap_or_default().to_owned();
-        named_content.insert(name.clone(), export_flow(flow, story, &name)?);
+        named_content.insert(name.clone(), export_flow(&state, flow, story, &name)?);
     }
 
-    if let Some(global_decl) = export_global_decl(story)? {
+    if let Some(global_decl) = export_global_decl(&state, story)? {
         named_content.insert("global decl".to_owned(), global_decl);
     }
 
     let inner_root = export_weave(
+        &state,
         "0",
         story.root_nodes(),
         Scope::Root,
@@ -41,6 +137,8 @@ pub(crate) fn export_story(story: &Story) -> Result<RuntimeStory, CompilerError>
         vec![inner_root, command(CommandType::Done)],
         named_content,
     );
+
+    state.apply_path_fixups();
 
     RuntimeStory::from_compiled(root, list_defs)
         .map_err(|error| CompilerError::invalid_source(error.to_string()))
@@ -61,7 +159,7 @@ fn export_list_defs(list_definitions: &[ParsedListDefinition]) -> Vec<ListDefini
         .collect()
 }
 
-fn export_global_decl(story: &Story) -> Result<Option<Rc<Container>>, CompilerError> {
+fn export_global_decl(_state: &ExportState, story: &Story) -> Result<Option<Rc<Container>>, CompilerError> {
     if story.global_initializers().is_empty() && story.list_definitions().is_empty() {
         return Ok(None);
     }
@@ -107,6 +205,7 @@ fn list_value_from_definition(definition: &ParsedListDefinition) -> Rc<dyn RTObj
 }
 
 fn export_flow(
+    state: &ExportState,
     flow: &ParsedFlow,
     story: &Story,
     full_path: &str,
@@ -129,6 +228,7 @@ fn export_flow(
         ))]
     } else if has_weave_content(flow.content()) {
         vec![export_weave(
+            state,
             &format!("{full_path}.0"),
             flow.content(),
             Scope::Flow(flow),
@@ -137,7 +237,7 @@ fn export_flow(
             &flow_named_paths,
         )? as Rc<dyn RTObject>]
     } else {
-        export_nodes_with_paths(flow.content(), Scope::Flow(flow), story, Some(&flow_named_paths))?
+        export_nodes_with_paths(state, flow.content(), Scope::Flow(flow), story, Some(&flow_named_paths))?
     };
 
     if flow.flow().has_parameters() {
@@ -160,7 +260,7 @@ fn export_flow(
         let child_name = child.flow().identifier().unwrap_or_default().to_owned();
         named.insert(
             child_name.clone(),
-            export_flow(child, story, &format!("{full_path}.{child_name}"))?,
+            export_flow(state, child, story, &format!("{full_path}.{child_name}"))?,
         );
     }
 
@@ -179,14 +279,16 @@ enum Scope<'a> {
 }
 
 fn export_nodes(
+    state: &ExportState,
     nodes: &[ParsedNode],
     scope: Scope<'_>,
     story: &Story,
 ) -> Result<Vec<Rc<dyn RTObject>>, CompilerError> {
-    export_nodes_with_paths(nodes, scope, story, None)
+    export_nodes_with_paths(state, nodes, scope, story, None)
 }
 
 fn export_nodes_with_paths(
+    state: &ExportState,
     nodes: &[ParsedNode],
     scope: Scope<'_>,
     story: &Story,
@@ -274,12 +376,10 @@ fn export_nodes_with_paths(
                 content.push(rt_value("\n"));
             }
             ParsedNodeKind::Conditional | ParsedNodeKind::SwitchConditional => {
-                let conditional = export_conditional(node, scope, story, named_paths)?;
                 if conditional_is_simple(node) {
-                    for item in &conditional.content {
-                        content.push(item.clone());
-                    }
+                    append_simple_conditional(state, node, scope, story, named_paths, &mut content)?;
                 } else {
+                    let conditional = export_conditional(state, node, scope, story, named_paths)?;
                     content.push(conditional);
                 }
             }
@@ -300,8 +400,9 @@ fn export_nodes_with_paths(
                     "runtime export does not support tags yet",
                 ));
             }
+            ParsedNodeKind::AuthorWarning => {}
             ParsedNodeKind::Sequence => {
-                content.push(export_sequence(node, scope, story, named_paths)?);
+                content.push(export_sequence(state, node, scope, story, named_paths)?);
             }
             ParsedNodeKind::Choice
             | ParsedNodeKind::GatherPoint
@@ -326,6 +427,7 @@ enum PendingItem {
 }
 
 struct PendingContainer {
+    id: PendingContainerId,
     path: String,
     name: Option<String>,
     count_flags: i32,
@@ -334,8 +436,14 @@ struct PendingContainer {
 }
 
 impl PendingContainer {
-    fn new(path: impl Into<String>, name: Option<String>, count_flags: i32) -> Rc<Self> {
+    fn new(
+        state: &ExportState,
+        path: impl Into<String>,
+        name: Option<String>,
+        count_flags: i32,
+    ) -> Rc<Self> {
         Rc::new(Self {
+            id: state.next_pending_container_id(),
             path: path.into(),
             name,
             count_flags,
@@ -360,25 +468,28 @@ impl PendingContainer {
         self.content.borrow().len()
     }
 
-    fn finalize(&self) -> Rc<Container> {
+    fn finalize(&self, state: &ExportState) -> Rc<Container> {
         let mut content = Vec::new();
         for item in self.content.borrow().iter() {
             match item {
                 PendingItem::Object(object) => content.push(object.clone()),
-                PendingItem::Container(container) => content.push(container.finalize()),
+                PendingItem::Container(container) => content.push(container.finalize(state)),
             }
         }
 
         let mut named = HashMap::new();
         for (key, container) in self.named.borrow().iter() {
-            named.insert(key.clone(), container.finalize());
+            named.insert(key.clone(), container.finalize(state));
         }
 
-        Container::new(self.name.clone(), self.count_flags, content, named)
+        let finalized = Container::new(self.name.clone(), self.count_flags, content, named);
+        state.register_pending_container(self.id, finalized.clone());
+        finalized
     }
 }
 
 fn export_weave(
+    state: &ExportState,
     path_prefix: &str,
     nodes: &[ParsedNode],
     scope: Scope<'_>,
@@ -386,13 +497,34 @@ fn export_weave(
     is_root: bool,
     inherited_named_paths: &HashMap<String, String>,
 ) -> Result<Rc<Container>, CompilerError> {
+    Ok(build_weave_pending(
+        state,
+        path_prefix,
+        nodes,
+        scope,
+        story,
+        is_root,
+        inherited_named_paths,
+    )?
+    .finalize(state))
+}
+
+fn build_weave_pending(
+    state: &ExportState,
+    path_prefix: &str,
+    nodes: &[ParsedNode],
+    scope: Scope<'_>,
+    story: &Story,
+    is_root: bool,
+    inherited_named_paths: &HashMap<String, String>,
+) -> Result<Rc<PendingContainer>, CompilerError> {
     let base_depth = nodes
         .iter()
         .filter_map(weave_depth)
         .min()
         .unwrap_or(1);
 
-    let root = PendingContainer::new(path_prefix, None, 0);
+    let root = PendingContainer::new(state, path_prefix, None, 0);
     let mut current = root.clone();
     let mut loose_ends: Vec<Rc<PendingContainer>> = Vec::new();
     let mut previous_choice: Option<Rc<PendingContainer>> = None;
@@ -427,7 +559,8 @@ fn export_weave(
                 current.clone()
             };
             let nested_path = format!("{}.{}", target.path, target.next_content_index());
-            let nested = export_weave(
+            let nested_pending = build_weave_pending(
+                state,
                 &nested_path,
                 &nodes[nested_start..index],
                 scope,
@@ -435,22 +568,6 @@ fn export_weave(
                 false,
                 &named_paths,
             )?;
-            let nested_pending = PendingContainer::new(nested_path, None, 0);
-            for (content_index, item) in nested.content.iter().enumerate() {
-                if let Ok(container) = item.clone().into_any().downcast::<Container>() {
-                    let child_path = if container.has_valid_name() {
-                        format!("{}.{}", nested_pending.path, container.name.as_deref().unwrap_or_default())
-                    } else {
-                        format!("{}.{}", nested_pending.path, content_index)
-                    };
-                    nested_pending.push_container(pending_from_container(&container, &child_path));
-                } else {
-                    nested_pending.push_object(item.clone());
-                }
-            }
-            for (key, value) in &nested.named_content {
-                nested_pending.add_named(key.clone(), pending_from_container(value, &format!("{}.{}", nested_pending.path, key)));
-            }
             let bubbled_loose_ends = collect_loose_choice_ends(&nested_pending);
             target.push_container(nested_pending);
 
@@ -469,10 +586,11 @@ fn export_weave(
             ParsedNodeKind::Choice => {
                 let choice_key = format!("c-{choice_count}");
                 let choice_path = format!("{}.{}", current.path, choice_key);
-                let choice_container = PendingContainer::new(&choice_path, Some(choice_key.clone()), 5);
+                let choice_container = PendingContainer::new(state, &choice_path, Some(choice_key.clone()), 5);
                 current.add_named(choice_key.clone(), choice_container.clone());
 
                 export_choice(
+                    state,
                     node,
                     choice_count,
                     &current.path,
@@ -489,6 +607,7 @@ fn export_weave(
 
                 if !node.children().is_empty() {
                     let child_content = export_nodes_with_paths(
+                        state,
                         node.children(),
                         scope,
                         story,
@@ -534,7 +653,7 @@ fn export_weave(
                 has_seen_choice_in_section = false;
                 add_to_previous_choice = false;
                 previous_choice = None;
-                let gather_container = PendingContainer::new(&gather_path, Some(gather_name.clone()), 5);
+                let gather_container = PendingContainer::new(state, &gather_path, Some(gather_name.clone()), 5);
 
                 if auto_enter {
                     current.push_container(gather_container.clone());
@@ -544,6 +663,7 @@ fn export_weave(
 
                 if !node.children().is_empty() {
                     let child_content = export_nodes_with_paths(
+                        state,
                         node.children(),
                         scope,
                         story,
@@ -569,6 +689,7 @@ fn export_weave(
                     current.clone()
                 };
                 let content = export_nodes_with_paths(
+                    state,
                     std::slice::from_ref(node),
                     scope,
                     story,
@@ -597,6 +718,7 @@ fn export_weave(
         }
 
         let final_gather = PendingContainer::new(
+            state,
             final_gather_path,
             Some(final_gather_name.clone()),
             5,
@@ -609,10 +731,11 @@ fn export_weave(
         }
     }
 
-    Ok(root.finalize())
+    Ok(root)
 }
 
 fn export_choice(
+    state: &ExportState,
     node: &ParsedNode,
     choice_index: usize,
     path_prefix: &str,
@@ -624,11 +747,6 @@ fn export_choice(
 ) -> Result<(), CompilerError> {
     let choice_key = format!("c-{choice_index}");
     let relative_start_choice = !node.start_content.is_empty() && current.path.starts_with('.') ;
-    let choice_path = if relative_start_choice {
-        format!(".^.^.{choice_key}")
-    } else {
-        choice_container.path.clone()
-    };
     let has_start = !node.start_content.is_empty();
     let has_choice_only = !node.choice_only_content.is_empty();
     let has_condition = node.condition().is_some();
@@ -638,9 +756,7 @@ fn export_choice(
         + ((node.is_invisible_default as i32) * 8)
         + ((node.once_only as i32) * 16);
 
-    if node.is_invisible_default {
-        current.push_object(Rc::new(ChoicePoint::new(flags, &choice_path)));
-    } else if has_start {
+    if has_start {
         let sub_index = current.next_content_index();
         let (outer_path, r1_path, r2_path) = if relative_start_choice {
             let outer = format!(".^.^.{sub_index}");
@@ -654,21 +770,30 @@ fn export_choice(
             (
                 outer.clone(),
                 format!("{outer}.$r1"),
-                format!("{choice_path}.$r2"),
+                format!("{}.{}.$r2", path_prefix, choice_key),
             )
         };
-        let outer = PendingContainer::new(&outer_path, None, 0);
+        let outer = PendingContainer::new(state, &outer_path, None, 0);
         outer.push_object(command(CommandType::EvalStart));
         outer.push_object(rt_value(Path::new_with_components_string(Some(&r1_path))));
         outer.push_object(variable_assignment("$r", false, true));
         outer.push_object(command(CommandType::BeginString));
-        outer.push_object(divert_object(&format!("{outer_path}.s")));
-        outer.push_container(PendingContainer::new(r1_path.clone(), Some("$r1".to_owned()), 0));
+        let divert_to_start_outer = Rc::new(Divert::new(
+            false,
+            PushPopType::Tunnel,
+            false,
+            0,
+            false,
+            None,
+            None,
+        ));
+        outer.push_object(divert_to_start_outer.clone());
+        outer.push_container(PendingContainer::new(state, r1_path.clone(), Some("$r1".to_owned()), 0));
         outer.push_object(command(CommandType::EndString));
 
         if has_choice_only {
             outer.push_object(command(CommandType::BeginString));
-            for item in export_nodes(&node.choice_only_content, scope, story)? {
+            for item in export_nodes(state, &node.choice_only_content, scope, story)? {
                 outer.push_object(item);
             }
             outer.push_object(command(CommandType::EndString));
@@ -679,18 +804,25 @@ fn export_choice(
         }
 
         outer.push_object(command(CommandType::EvalEnd));
-        outer.push_object(Rc::new(ChoicePoint::new(flags, &choice_path)));
+        let choice_point = Rc::new(ChoicePoint::new(flags, ""));
+        state.add_pending_target_fixup(PathFixupSource::ChoicePoint(choice_point.clone()), choice_container.id);
+        outer.push_object(choice_point);
 
         let start_container = PendingContainer::new(
+            state,
             format!("{outer_path}.s"),
             Some("s".to_owned()),
             0,
         );
-        for item in export_nodes(&node.start_content, scope, story)? {
+        state.add_pending_target_fixup(
+            PathFixupSource::Divert(divert_to_start_outer),
+            start_container.id,
+        );
+        for item in export_nodes(state, &node.start_content, scope, story)? {
             start_container.push_object(item);
         }
         start_container.push_object(variable_divert("$r"));
-        outer.add_named("s", start_container);
+        outer.add_named("s", start_container.clone());
 
         current.push_container(outer);
 
@@ -698,8 +830,22 @@ fn export_choice(
         choice_container.push_object(rt_value(Path::new_with_components_string(Some(&r2_path))));
         choice_container.push_object(command(CommandType::EvalEnd));
         choice_container.push_object(variable_assignment("$r", false, true));
-        choice_container.push_object(divert_object(&format!("{outer_path}.s")));
+        let divert_to_start_inner = Rc::new(Divert::new(
+            false,
+            PushPopType::Tunnel,
+            false,
+            0,
+            false,
+            None,
+            None,
+        ));
+        state.add_pending_target_fixup(
+            PathFixupSource::Divert(divert_to_start_inner.clone()),
+            start_container.id,
+        );
+        choice_container.push_object(divert_to_start_inner);
         choice_container.push_container(PendingContainer::new(
+            state,
             r2_path,
             Some("$r2".to_owned()),
             0,
@@ -708,7 +854,7 @@ fn export_choice(
         current.push_object(command(CommandType::EvalStart));
         if has_choice_only {
             current.push_object(command(CommandType::BeginString));
-            for item in export_nodes(&node.choice_only_content, scope, story)? {
+            for item in export_nodes(state, &node.choice_only_content, scope, story)? {
                 current.push_object(item);
             }
             current.push_object(command(CommandType::EndString));
@@ -717,30 +863,12 @@ fn export_choice(
             export_condition_expression(condition, story, named_paths, &mut current.content.borrow_mut())?;
         }
         current.push_object(command(CommandType::EvalEnd));
-        current.push_object(Rc::new(ChoicePoint::new(flags, &choice_path)));
+        let choice_point = Rc::new(ChoicePoint::new(flags, ""));
+        state.add_pending_target_fixup(PathFixupSource::ChoicePoint(choice_point.clone()), choice_container.id);
+        current.push_object(choice_point);
     }
 
     Ok(())
-}
-
-fn pending_from_container(container: &Rc<Container>, path: &str) -> Rc<PendingContainer> {
-    let pending = PendingContainer::new(path, container.name.clone(), container.get_count_flags());
-    for (content_index, item) in container.content.iter().enumerate() {
-        if let Ok(child_container) = item.clone().into_any().downcast::<Container>() {
-            let child_path = if child_container.has_valid_name() {
-                format!("{}.{}", path, child_container.name.as_deref().unwrap_or_default())
-            } else {
-                format!("{}.{}", path, content_index)
-            };
-            pending.push_container(pending_from_container(&child_container, &child_path));
-        } else {
-            pending.push_object(item.clone());
-        }
-    }
-    for (key, value) in container.get_named_only_content() {
-        pending.add_named(key.clone(), pending_from_container(&value, &format!("{path}.{key}")));
-    }
-    pending
 }
 
 fn export_condition_expression(
@@ -1147,6 +1275,7 @@ fn resolve_target(
 }
 
 fn export_sequence(
+    state: &ExportState,
     node: &ParsedNode,
     scope: Scope<'_>,
     story: &Story,
@@ -1185,6 +1314,8 @@ fn export_sequence(
         seq_items.push(Rc::new(NativeFunctionCall::new(NativeOp::Mod)));
     }
 
+    let mut post_shuffle_no_op: Option<Rc<dyn RTObject>> = None;
+
     if shuffle {
         if once || stopping {
             let last_idx = if stopping {
@@ -1192,19 +1323,25 @@ fn export_sequence(
             } else {
                 num_elements as i32
             };
-            let post_shuffle_index = seq_items.len() + 6;
-            seq_items.push(command(CommandType::Duplicate));
-            seq_items.push(rt_int(last_idx));
-            seq_items.push(native(NativeOp::Equal));
-            seq_items.push(Rc::new(Divert::new(
+            let skip_shuffle_divert = Rc::new(Divert::new(
                 false,
                 PushPopType::Tunnel,
                 false,
                 0,
                 true,
                 None,
-                Some(&format!(".^.{post_shuffle_index}")),
-            )));
+                None,
+            ));
+            let post_shuffle_nop = command(CommandType::NoOp);
+            state.add_runtime_target_fixup(
+                PathFixupSource::Divert(skip_shuffle_divert.clone()),
+                post_shuffle_nop.clone(),
+            );
+            seq_items.push(command(CommandType::Duplicate));
+            seq_items.push(rt_int(last_idx));
+            seq_items.push(native(NativeOp::Equal));
+            seq_items.push(skip_shuffle_divert);
+            post_shuffle_no_op = Some(post_shuffle_nop);
         }
 
         let element_count_to_shuffle = if stopping {
@@ -1214,14 +1351,15 @@ fn export_sequence(
         };
         seq_items.push(rt_int(element_count_to_shuffle as i32));
         seq_items.push(command(CommandType::SequenceShuffleIndex));
-        if once || stopping {
-            seq_items.push(command(CommandType::NoOp));
+        if let Some(post_shuffle_nop) = post_shuffle_no_op.clone() {
+            seq_items.push(post_shuffle_nop);
         }
     }
 
     seq_items.push(command(CommandType::EvalEnd));
 
-    // For each branch: ev, du, index, ==, /ev, conditional divert to .^.sN
+    let mut branch_diverts = Vec::new();
+
     for el_index in 0..seq_branch_count {
         seq_items.push(command(CommandType::EvalStart));
         seq_items.push(command(CommandType::Duplicate));
@@ -1229,31 +1367,29 @@ fn export_sequence(
         seq_items.push(Rc::new(NativeFunctionCall::new(NativeOp::Equal)));
         seq_items.push(command(CommandType::EvalEnd));
 
-        // Conditional divert to .^.sN (sibling named container)
-        let branch_path = format!(".^.s{}", el_index);
-        seq_items.push(Rc::new(Divert::new(
+        let branch_divert = Rc::new(Divert::new(
             false,
             PushPopType::Function,
             false,
             0,
-            true, // is_conditional
+            true,
             None,
-            Some(&branch_path),
-        )));
+            None,
+        ));
+        branch_diverts.push(branch_divert.clone());
+        seq_items.push(branch_divert);
     }
 
-    // The nop sits at seq_items.len()
-    let nop_index = seq_items.len();
-    let nop_path = format!(".^.{}", nop_index);
-    seq_items.push(command(CommandType::NoOp));
+    let post_sequence_nop = command(CommandType::NoOp);
+    seq_items.push(post_sequence_nop.clone());
 
-    // Build named branch containers with correct back-divert path
     let mut named_branches: HashMap<String, Rc<Container>> = HashMap::new();
     for el_index in 0..seq_branch_count {
         let (branch_content, branch_named, branch_flags): (Vec<Rc<dyn RTObject>>, HashMap<String, Rc<Container>>, i32) = if el_index < num_elements {
             let element_nodes = elements[el_index].children();
             if has_weave_content(element_nodes) {
                 let weave = unwrap_weave_root_container(&export_weave(
+                    state,
                     ".^",
                     element_nodes,
                     scope,
@@ -1264,7 +1400,7 @@ fn export_sequence(
                 (weave.content.clone(), weave.named_content.clone(), weave.get_count_flags())
             } else {
                 (
-                    export_nodes_with_paths(element_nodes, scope, story, Some(named_paths))?,
+                    export_nodes_with_paths(state, element_nodes, scope, story, Some(named_paths))?,
                     HashMap::new(),
                     0,
                 )
@@ -1274,9 +1410,12 @@ fn export_sequence(
         };
 
         let back_divert = Rc::new(Divert::new(
-            false, PushPopType::Function, false, 0, false, None,
-            Some(&nop_path),
+            false, PushPopType::Function, false, 0, false, None, None,
         ));
+        state.add_runtime_target_fixup(
+            PathFixupSource::Divert(back_divert.clone()),
+            post_sequence_nop.clone(),
+        );
 
         let mut branch_items: Vec<Rc<dyn RTObject>> = Vec::new();
         branch_items.push(command(CommandType::PopEvaluatedValue));
@@ -1284,10 +1423,12 @@ fn export_sequence(
         branch_items.push(back_divert);
 
         let branch_name = format!("s{}", el_index);
-        named_branches.insert(
-            branch_name.clone(),
-            Container::new(Some(branch_name), branch_flags, branch_items, branch_named),
+        let branch_container = Container::new(Some(branch_name.clone()), branch_flags, branch_items, branch_named);
+        state.add_runtime_target_fixup(
+            PathFixupSource::Divert(branch_diverts[el_index].clone()),
+            branch_container.clone(),
         );
+        named_branches.insert(branch_name, branch_container);
     }
 
     Ok(Container::new(
@@ -1320,7 +1461,99 @@ fn conditional_is_simple(node: &ParsedNode) -> bool {
     })
 }
 
+fn append_simple_conditional(
+    state: &ExportState,
+    node: &ParsedNode,
+    scope: Scope<'_>,
+    story: &Story,
+    named_paths: Option<&HashMap<String, String>>,
+    content: &mut Vec<Rc<dyn RTObject>>,
+) -> Result<(), CompilerError> {
+    let empty_named_paths = HashMap::new();
+    let named_paths = named_paths.unwrap_or(&empty_named_paths);
+    let is_switch = node.kind() == ParsedNodeKind::SwitchConditional;
+
+    if let Some(initial) = node.condition() {
+        content.push(command(CommandType::EvalStart));
+        export_condition_expression_runtime(initial, scope, story, named_paths, content)?;
+        content.push(command(CommandType::EvalEnd));
+    }
+
+    let needs_final_pop = is_switch
+        && node.children().first().is_some_and(|branch| branch.condition().is_some())
+        && !node.children().last().is_some_and(|branch| branch.is_else);
+    let rejoin_nop = command(CommandType::NoOp);
+
+    for branch in node.children() {
+        let duplicates_stack_value = branch.matching_equality && !branch.is_else;
+        let mut branch_control: Vec<Rc<dyn RTObject>> = Vec::new();
+        if duplicates_stack_value {
+            branch_control.push(command(CommandType::Duplicate));
+        }
+        if !branch.is_true_branch && !branch.is_else {
+            if branch.condition().is_some() {
+                branch_control.push(command(CommandType::EvalStart));
+            }
+            if let Some(condition) = branch.condition() {
+                export_condition_expression_runtime(condition, scope, story, named_paths, &mut branch_control)?;
+            }
+            if branch.matching_equality {
+                branch_control.push(native(NativeOp::Equal));
+            }
+            if branch.condition().is_some() {
+                branch_control.push(command(CommandType::EvalEnd));
+            }
+        }
+        let branch_divert = Rc::new(Divert::new(
+            false,
+            PushPopType::Tunnel,
+            false,
+            0,
+            !branch.is_else,
+            None,
+            None,
+        ));
+        branch_control.push(branch_divert.clone());
+
+        let mut branch_content = export_nodes_with_paths(state, branch.children(), scope, story, Some(named_paths))?;
+        branch_content.insert(0, rt_value("\n"));
+        if duplicates_stack_value || (branch.is_else && branch.matching_equality) {
+            branch_content.insert(0, command(CommandType::PopEvaluatedValue));
+        }
+        let return_divert = Rc::new(Divert::new(
+            false,
+            PushPopType::Tunnel,
+            false,
+            0,
+            false,
+            None,
+            None,
+        ));
+        state.add_runtime_target_fixup(
+            PathFixupSource::Divert(return_divert.clone()),
+            rejoin_nop.clone(),
+        );
+        branch_content.push(return_divert);
+
+        let branch_b = Container::new(Some("b".to_owned()), 0, branch_content, HashMap::new());
+        state.add_runtime_target_fixup(
+            PathFixupSource::Divert(branch_divert),
+            branch_b.clone(),
+        );
+        let mut branch_named = HashMap::new();
+        branch_named.insert("b".to_owned(), branch_b);
+        content.push(Container::new(None, 0, branch_control, branch_named) as Rc<dyn RTObject>);
+    }
+
+    if needs_final_pop {
+        content.push(command(CommandType::PopEvaluatedValue));
+    }
+    content.push(rejoin_nop);
+    Ok(())
+}
+
 fn export_conditional(
+    state: &ExportState,
     node: &ParsedNode,
     scope: Scope<'_>,
     story: &Story,
@@ -1357,6 +1590,7 @@ fn export_conditional(
                 ".^"
             };
             let weave = unwrap_weave_root_container(&export_weave(
+                state,
                 branch_path_prefix,
                 &branch_nodes,
                 scope,
@@ -1367,7 +1601,7 @@ fn export_conditional(
             (weave.content.clone(), weave.named_content.clone(), weave.get_count_flags())
         } else {
             (
-                export_nodes_with_paths(&branch_nodes, scope, story, Some(named_paths))?,
+                export_nodes_with_paths(state, &branch_nodes, scope, story, Some(named_paths))?,
                 HashMap::new(),
                 0,
             )
@@ -1385,12 +1619,10 @@ fn export_conditional(
         ));
     }
 
-    let branch_container_count = branch_specs.len();
     let needs_final_pop = is_switch
         && node.children().first().is_some_and(|branch| branch.condition().is_some())
         && !node.children().last().is_some_and(|branch| branch.is_else);
-    let rejoin_index = content.len() + branch_container_count + usize::from(needs_final_pop);
-    let rejoin_path = format!(".^.^.^.{rejoin_index}");
+    let rejoin_nop = command(CommandType::NoOp);
 
     for (idx, branch) in node.children().iter().enumerate() {
         let (is_conditional, duplicates_stack_value, mut branch_content, branch_named, branch_flags) = branch_specs[idx].clone();
@@ -1415,27 +1647,37 @@ fn export_conditional(
             }
         }
 
-        branch_control.push(Rc::new(Divert::new(
+        let branch_divert = Rc::new(Divert::new(
             false,
             PushPopType::Tunnel,
             false,
             0,
             is_conditional,
             None,
-            Some(".^.b"),
-        )));
+            None,
+        ));
+        branch_control.push(branch_divert.clone());
 
-        branch_content.push(Rc::new(Divert::new(
+        let return_divert = Rc::new(Divert::new(
             false,
             PushPopType::Tunnel,
             false,
             0,
             false,
             None,
-            Some(&rejoin_path),
-        )));
+            None,
+        ));
+        state.add_runtime_target_fixup(
+            PathFixupSource::Divert(return_divert.clone()),
+            rejoin_nop.clone(),
+        );
+        branch_content.push(return_divert);
 
         let branch_b = Container::new(Some("b".to_owned()), branch_flags, branch_content, branch_named);
+        state.add_runtime_target_fixup(
+            PathFixupSource::Divert(branch_divert),
+            branch_b.clone(),
+        );
         let mut branch_named_content = HashMap::new();
         branch_named_content.insert("b".to_owned(), branch_b);
         let branch_container = Container::new(None, 0, branch_control, branch_named_content);
@@ -1446,7 +1688,7 @@ fn export_conditional(
         content.push(command(CommandType::PopEvaluatedValue));
     }
 
-    content.push(command(CommandType::NoOp));
+    content.push(rejoin_nop);
     Ok(Container::new(None, 0, content, HashMap::new()))
 }
 
@@ -1655,6 +1897,11 @@ fn export_expression(
             content.push(rt_value(value.as_str()));
             content.push(command(CommandType::EndString));
         }
+        ParsedExpression::StringExpression(nodes) => {
+            content.push(command(CommandType::BeginString));
+            export_string_expression(nodes, story, content)?;
+            content.push(command(CommandType::EndString));
+        }
         ParsedExpression::Variable(name) => {
             if let Some(constant) = story.const_declaration(name) {
                 export_expression_node(constant.expression(), story, content)?;
@@ -1779,6 +2026,43 @@ fn export_expression(
                 return Err(CompilerError::unsupported_feature(format!(
                     "runtime export does not support function call '{name}'"
                 )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn export_string_expression(
+    nodes: &[ParsedNode],
+    story: &Story,
+    content: &mut Vec<Rc<dyn RTObject>>,
+) -> Result<(), CompilerError> {
+    for node in nodes {
+        match node.kind() {
+            ParsedNodeKind::Text => {
+                if let Some(text) = node.text() {
+                    content.push(rt_value(text));
+                }
+            }
+            ParsedNodeKind::Newline => content.push(rt_value("\n")),
+            ParsedNodeKind::Glue => content.push(Rc::new(Glue::new())),
+            ParsedNodeKind::OutputExpression => {
+                let expression = node.expression().ok_or_else(|| {
+                    CompilerError::unsupported_feature(
+                        "runtime export string expression missing expression",
+                    )
+                })?;
+                content.push(command(CommandType::EvalStart));
+                export_expression(expression, story, content)?;
+                content.push(command(CommandType::EvalOutput));
+                content.push(command(CommandType::EvalEnd));
+            }
+            other => {
+                return Err(CompilerError::unsupported_feature(format!(
+                    "runtime export does not support {:?} inside string expressions yet",
+                    other
+                )))
             }
         }
     }

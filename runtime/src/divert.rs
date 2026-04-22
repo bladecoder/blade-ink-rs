@@ -122,20 +122,9 @@ impl Divert {
         match current_target {
             Some(target_path) => {
                 if target_path.is_relative() {
-                    let pointer = self.get_target_pointer();
+                    let target_obj = self.get_target_pointer().resolve();
 
-                    if target_path
-                        .get_last_component()
-                        .is_some_and(|component| !component.is_index())
-                    {
-                        if let Some(container) = pointer.container.clone() {
-                            let resolved = Object::get_path(container.as_ref());
-                            self.target_path.replace(Some(resolved.clone()));
-                            return Some(resolved);
-                        }
-                    }
-
-                    if let Some(target_obj) = pointer.resolve() {
+                    if let Some(target_obj) = target_obj {
                         let resolved = Object::get_path(target_obj.as_ref());
                         self.target_path.replace(Some(resolved.clone()));
                         return Some(resolved);
@@ -146,6 +135,11 @@ impl Divert {
             }
             None => None,
         }
+    }
+
+    pub fn set_target_path(&self, path: Path) {
+        self.target_pointer.replace(pointer::NULL.clone());
+        self.target_path.replace(Some(path));
     }
 
     fn convert_path_to_relative(&self, global_path: &Path) -> Path {
