@@ -317,19 +317,15 @@ Stitch text
     }
 
     #[test]
-    fn tmp_dump_conditional_choice_in_weave_json() {
-        let ink = r#"
-- start
- {
-    - true: * [go to a stitch] -> a_stitch
- }
-- gather should be seen
--> DONE
+    fn tmp_dump_ifelse_ext_text1_json() {
+        let ink = include_str!("../../conformance-tests/inkfiles/conditional/ifelse-ext-text1.ink");
+        let json = Compiler::new().compile(ink).expect("compile to json");
+        println!("{json}");
+    }
 
-= a_stitch
-    result
-    -> END
-"#;
+    #[test]
+    fn tmp_dump_condopt_json() {
+        let ink = include_str!("../../conformance-tests/inkfiles/conditional/condopt.ink");
         let json = Compiler::new().compile(ink).expect("compile to json");
         println!("{json}");
     }

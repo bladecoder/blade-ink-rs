@@ -52,7 +52,41 @@ impl Story {
                     .get_variable_with_name(var_name.as_ref().unwrap(), -1)
                 {
                     if let Some(target) = Value::get_value::<&Path>(var_contents.as_ref()) {
-                        let p = Self::pointer_at_path(&self.main_content_container, target)?;
+                        if let Some(label) = target.get_last_component().and_then(|c| c.name.as_deref())
+                            && label.starts_with('$')
+                        {
+                            let mut ancestor = current_divert.get_object().get_parent();
+                            while let Some(container) = ancestor {
+                                if let Some(found) = container.named_content.get(label) {
+                                    self.get_state_mut()
+                                        .set_diverted_pointer(crate::pointer::Pointer::start_of(found.clone()));
+                                    return Ok(true);
+                                }
+                                if let Some(found) = find_named_descendant(&container, label) {
+                                    self.get_state_mut()
+                                        .set_diverted_pointer(crate::pointer::Pointer::start_of(found));
+                                    return Ok(true);
+                                }
+                                ancestor = container.get_object().get_parent();
+                            }
+                        }
+
+                        let p = if target.is_relative() {
+                            let base: Rc<dyn RTObject> = current_divert
+                                .get_object()
+                                .get_parent()
+                                .map(|c| c as Rc<dyn RTObject>)
+                                .unwrap_or_else(|| current_divert.clone() as Rc<dyn RTObject>);
+                            if let Some(container) = crate::object::Object::resolve_path(base, target)
+                                .container()
+                            {
+                                crate::pointer::Pointer::start_of(container)
+                            } else {
+                                Self::pointer_at_path(&self.main_content_container, target)?
+                            }
+                        } else {
+                            Self::pointer_at_path(&self.main_content_container, target)?
+                        };
                         self.get_state_mut().set_diverted_pointer(p);
                     } else {
                         let error_message = format!(
@@ -700,4 +734,28 @@ impl Story {
 
         Ok(false)
     }
+}
+
+fn find_named_descendant(container: &crate::container::Container, label: &str) -> Option<Rc<crate::container::Container>> {
+    for item in &container.content {
+        if let Ok(child) = item.clone().into_any().downcast::<crate::container::Container>() {
+            if child.name.as_deref() == Some(label) {
+                return Some(child.clone());
+            }
+            if let Some(found) = find_named_descendant(child.as_ref(), label) {
+                return Some(found);
+            }
+        }
+    }
+
+    for child in container.named_content.values() {
+        if child.name.as_deref() == Some(label) {
+            return Some(child.clone());
+        }
+        if let Some(found) = find_named_descendant(child.as_ref(), label) {
+            return Some(found);
+        }
+    }
+
+    None
 }

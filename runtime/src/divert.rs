@@ -122,9 +122,20 @@ impl Divert {
         match current_target {
             Some(target_path) => {
                 if target_path.is_relative() {
-                    let target_obj = self.get_target_pointer().resolve();
+                    let pointer = self.get_target_pointer();
 
-                    if let Some(target_obj) = target_obj {
+                    if target_path
+                        .get_last_component()
+                        .is_some_and(|component| !component.is_index())
+                    {
+                        if let Some(container) = pointer.container.clone() {
+                            let resolved = Object::get_path(container.as_ref());
+                            self.target_path.replace(Some(resolved.clone()));
+                            return Some(resolved);
+                        }
+                    }
+
+                    if let Some(target_obj) = pointer.resolve() {
                         let resolved = Object::get_path(target_obj.as_ref());
                         self.target_path.replace(Some(resolved.clone()));
                         return Some(resolved);

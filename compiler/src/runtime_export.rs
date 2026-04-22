@@ -274,7 +274,14 @@ fn export_nodes_with_paths(
                 content.push(rt_value("\n"));
             }
             ParsedNodeKind::Conditional | ParsedNodeKind::SwitchConditional => {
-                content.push(export_conditional(node, scope, story, named_paths)?);
+                let conditional = export_conditional(node, scope, story, named_paths)?;
+                if conditional_is_simple(node) {
+                    for item in &conditional.content {
+                        content.push(item.clone());
+                    }
+                } else {
+                    content.push(conditional);
+                }
             }
             ParsedNodeKind::OutputExpression => {
                 let expression = node.expression().ok_or_else(|| {
@@ -616,10 +623,11 @@ fn export_choice(
     named_paths: &HashMap<String, String>,
 ) -> Result<(), CompilerError> {
     let choice_key = format!("c-{choice_index}");
-    let choice_path = if !node.start_content.is_empty() && path_prefix.starts_with('.') {
+    let relative_start_choice = !node.start_content.is_empty() && current.path.starts_with('.') ;
+    let choice_path = if relative_start_choice {
         format!(".^.^.{choice_key}")
     } else {
-        format!("{path_prefix}.{choice_key}")
+        choice_container.path.clone()
     };
     let has_start = !node.start_content.is_empty();
     let has_choice_only = !node.choice_only_content.is_empty();
@@ -634,16 +642,28 @@ fn export_choice(
         current.push_object(Rc::new(ChoicePoint::new(flags, &choice_path)));
     } else if has_start {
         let sub_index = current.next_content_index();
-        let outer_path = format!("{path_prefix}.{sub_index}");
+        let (outer_path, r1_path, r2_path) = if relative_start_choice {
+            let outer = format!(".^.^.{sub_index}");
+            (
+                outer.clone(),
+                format!("{}.{}.$r1", current.path, sub_index),
+                format!("{}.$r2", choice_container.path),
+            )
+        } else {
+            let outer = format!("{}.{}", current.path, sub_index);
+            (
+                outer.clone(),
+                format!("{outer}.$r1"),
+                format!("{choice_path}.$r2"),
+            )
+        };
         let outer = PendingContainer::new(&outer_path, None, 0);
         outer.push_object(command(CommandType::EvalStart));
-        outer.push_object(rt_value(Path::new_with_components_string(Some(&format!(
-            "{outer_path}.$r1"
-        )))));
+        outer.push_object(rt_value(Path::new_with_components_string(Some(&r1_path))));
         outer.push_object(variable_assignment("$r", false, true));
         outer.push_object(command(CommandType::BeginString));
         outer.push_object(divert_object(&format!("{outer_path}.s")));
-        outer.push_container(PendingContainer::new(format!("{outer_path}.$r1"), Some("$r1".to_owned()), 0));
+        outer.push_container(PendingContainer::new(r1_path.clone(), Some("$r1".to_owned()), 0));
         outer.push_object(command(CommandType::EndString));
 
         if has_choice_only {
@@ -675,14 +695,12 @@ fn export_choice(
         current.push_container(outer);
 
         choice_container.push_object(command(CommandType::EvalStart));
-        choice_container.push_object(rt_value(Path::new_with_components_string(Some(&format!(
-            "{choice_path}.$r2"
-        )))));
+        choice_container.push_object(rt_value(Path::new_with_components_string(Some(&r2_path))));
         choice_container.push_object(command(CommandType::EvalEnd));
         choice_container.push_object(variable_assignment("$r", false, true));
         choice_container.push_object(divert_object(&format!("{outer_path}.s")));
         choice_container.push_container(PendingContainer::new(
-            format!("{choice_path}.$r2"),
+            r2_path,
             Some("$r2".to_owned()),
             0,
         ));
@@ -1174,6 +1192,7 @@ fn export_sequence(
             } else {
                 num_elements as i32
             };
+            let post_shuffle_index = seq_items.len() + 6;
             seq_items.push(command(CommandType::Duplicate));
             seq_items.push(rt_int(last_idx));
             seq_items.push(native(NativeOp::Equal));
@@ -1184,7 +1203,7 @@ fn export_sequence(
                 0,
                 true,
                 None,
-                Some(".^.postshuffle"),
+                Some(&format!(".^.{post_shuffle_index}")),
             )));
         }
 
@@ -1195,6 +1214,9 @@ fn export_sequence(
         };
         seq_items.push(rt_int(element_count_to_shuffle as i32));
         seq_items.push(command(CommandType::SequenceShuffleIndex));
+        if once || stopping {
+            seq_items.push(command(CommandType::NoOp));
+        }
     }
 
     seq_items.push(command(CommandType::EvalEnd));
@@ -1227,12 +1249,6 @@ fn export_sequence(
 
     // Build named branch containers with correct back-divert path
     let mut named_branches: HashMap<String, Rc<Container>> = HashMap::new();
-    if shuffle && (once || stopping) {
-        named_branches.insert(
-            "postshuffle".to_owned(),
-            Container::new(Some("postshuffle".to_owned()), 0, Vec::new(), HashMap::new()),
-        );
-    }
     for el_index in 0..seq_branch_count {
         let (branch_content, branch_named, branch_flags): (Vec<Rc<dyn RTObject>>, HashMap<String, Rc<Container>>, i32) = if el_index < num_elements {
             let element_nodes = elements[el_index].children();
@@ -1295,12 +1311,21 @@ fn unwrap_weave_root_container(container: &Rc<Container>) -> Rc<Container> {
     container.clone()
 }
 
+fn conditional_is_simple(node: &ParsedNode) -> bool {
+    node.children().iter().all(|branch| {
+        branch.children().iter().all(|child| {
+            !matches!(child.kind(), ParsedNodeKind::Choice | ParsedNodeKind::GatherPoint | ParsedNodeKind::GatherLabel)
+                && !matches!(child.kind(), ParsedNodeKind::Conditional | ParsedNodeKind::SwitchConditional)
+        })
+    })
+}
+
 fn export_conditional(
     node: &ParsedNode,
     scope: Scope<'_>,
     story: &Story,
     named_paths: Option<&HashMap<String, String>>,
-) -> Result<Rc<dyn RTObject>, CompilerError> {
+) -> Result<Rc<Container>, CompilerError> {
     let mut content: Vec<Rc<dyn RTObject>> = Vec::new();
     let is_switch = node.kind() == ParsedNodeKind::SwitchConditional;
     let empty_named_paths = HashMap::new();
@@ -1316,8 +1341,12 @@ fn export_conditional(
 
     for branch in node.children() {
         let duplicates_stack_value = branch.matching_equality && !branch.is_else;
+        let mut branch_nodes = branch.children().to_vec();
+        if !branch.is_inline {
+            branch_nodes.insert(0, ParsedNode::new(ParsedNodeKind::Newline));
+        }
 
-        let (mut branch_content, branch_named, branch_flags) = if has_weave_content(branch.children()) {
+        let (mut branch_content, branch_named, branch_flags) = if has_weave_content(&branch_nodes) {
             let branch_path_prefix = if branch
                 .children()
                 .iter()
@@ -1329,7 +1358,7 @@ fn export_conditional(
             };
             let weave = unwrap_weave_root_container(&export_weave(
                 branch_path_prefix,
-                branch.children(),
+                &branch_nodes,
                 scope,
                 story,
                 false,
@@ -1338,15 +1367,11 @@ fn export_conditional(
             (weave.content.clone(), weave.named_content.clone(), weave.get_count_flags())
         } else {
             (
-                export_nodes_with_paths(branch.children(), scope, story, Some(named_paths))?,
+                export_nodes_with_paths(&branch_nodes, scope, story, Some(named_paths))?,
                 HashMap::new(),
                 0,
             )
         };
-
-        if !branch.is_inline {
-            branch_content.insert(0, rt_value("\n"));
-        }
         if duplicates_stack_value || (branch.is_else && branch.matching_equality) {
             branch_content.insert(0, command(CommandType::PopEvaluatedValue));
         }
@@ -1365,7 +1390,7 @@ fn export_conditional(
         && node.children().first().is_some_and(|branch| branch.condition().is_some())
         && !node.children().last().is_some_and(|branch| branch.is_else);
     let rejoin_index = content.len() + branch_container_count + usize::from(needs_final_pop);
-    let rejoin_path = format!(".^.^.{rejoin_index}");
+    let rejoin_path = format!(".^.^.^.{rejoin_index}");
 
     for (idx, branch) in node.children().iter().enumerate() {
         let (is_conditional, duplicates_stack_value, mut branch_content, branch_named, branch_flags) = branch_specs[idx].clone();
