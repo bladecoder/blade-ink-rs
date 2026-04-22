@@ -7,7 +7,7 @@ use crate::{
     file_handler::FileHandler,
     ink_parser::InkParser,
     parsed_hierarchy::Story,
-    runtime_export, stats,
+    stats,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,14 +109,14 @@ impl Compiler {
     pub fn compile_story(&self) -> Result<RuntimeStory, CompilerError> {
         let mut parsed = self.parse()?;
         parsed.resolve_references()?;
-        runtime_export::export_story(&parsed)
+        parsed.export_runtime()
     }
 
     pub fn compile_story_from_source(&self, source: &str) -> Result<RuntimeStory, CompilerError> {
         let mut parsed = InkParser::new(source, self.options.source_filename.clone())
             .parse_story(self.options.count_all_visits)?;
         parsed.resolve_references()?;
-        runtime_export::export_story(&parsed)
+        parsed.export_runtime()
     }
 
     pub fn compile_story_with_file_handler<F>(
@@ -182,7 +182,7 @@ impl Compiler {
         let mut parsed = InkParser::new(source, self.options.source_filename.clone())
             .parse_story_with_file_handler(self.options.count_all_visits, file_handler)?;
         parsed.resolve_references()?;
-        let story = runtime_export::export_story(&parsed)?;
+        let story = parsed.export_runtime()?;
         story
             .to_compiled_json()
             .map_err(|err| CompilerError::invalid_source(err.to_string()))
@@ -196,7 +196,7 @@ impl Compiler {
                     file_handler.load_ink_file_contents(filename)
                 })?;
             parsed.resolve_references()?;
-            let story = runtime_export::export_story(&parsed)?;
+            let story = parsed.export_runtime()?;
             return story
                 .to_compiled_json()
                 .map_err(|err| CompilerError::invalid_source(err.to_string()));
@@ -205,7 +205,7 @@ impl Compiler {
         let mut parsed = InkParser::new(source, self.options.source_filename.clone())
             .parse_story(self.options.count_all_visits)?;
         parsed.resolve_references()?;
-        let story = runtime_export::export_story(&parsed)?;
+        let story = parsed.export_runtime()?;
         story
             .to_compiled_json()
             .map_err(|err| CompilerError::invalid_source(err.to_string()))

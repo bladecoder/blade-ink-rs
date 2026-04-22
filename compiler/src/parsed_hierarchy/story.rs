@@ -1,8 +1,14 @@
 use super::{
     Content, ContentList, ExternalDeclaration, FlowArgument, FlowBase, FlowLevel, ListDefinition,
-    ParsedExpression, ParsedFlow, ParsedNode, ParsedObject, ParsedObjectIndex, VariableAssignment,
-    ConstDeclaration,
+    ParsedExpression, ParsedFlow, ParsedNode, ParsedObject, ParsedObjectIndex,
+    ValidationScope, VariableAssignment, ConstDeclaration,
 };
+use crate::error::CompilerError;
+use bladeink::{
+    story::Story as RuntimeStory, CommandType, InkList, InkListItem, ListDefinition as RuntimeListDefinition,
+    RTObject, Container,
+};
+use std::{collections::HashMap, collections::HashSet, rc::Rc};
 
 #[derive(Debug, Clone)]
 pub struct Story {
@@ -127,6 +133,280 @@ impl Story {
         &self.flows
     }
 
+    pub fn resolve_references(&mut self) -> Result<(), CompilerError> {
+        self.rebuild_parse_tree_refs();
+        for node in &mut self.root_nodes {
+            node.resolve_references();
+        }
+        for flow in &mut self.flows {
+            flow.resolve_references();
+        }
+
+        self.validate_empty_diverts()?;
+
+        let global_vars = self.collect_declared_variable_names();
+        let const_names = self.collect_const_names();
+        let flow_names = self.collect_all_flow_names();
+        let top_level_flow_names = self.collect_top_level_flow_names();
+
+        for flow in self.parsed_flows() {
+            flow.validate(
+                &top_level_flow_names,
+                &top_level_flow_names,
+                &flow_names,
+                &global_vars,
+                &const_names,
+                self,
+            )?;
+        }
+
+        let root_scope = self.root_validation_scope(
+            &global_vars,
+            &const_names,
+            &flow_names,
+            &top_level_flow_names,
+        )?;
+        self.validate_root_scope(&flow_names, &root_scope)?;
+
+        Ok(())
+    }
+
+    pub fn export_runtime(&self) -> Result<RuntimeStory, CompilerError> {
+        let state = crate::runtime_export::ExportState::new();
+        let list_defs = self.export_runtime_list_defs();
+        let mut named_content = HashMap::new();
+
+        for flow in self.parsed_flows() {
+            let name = flow.flow().identifier().unwrap_or_default().to_owned();
+            named_content.insert(name.clone(), flow.export_runtime(&state, self, &name)?);
+        }
+
+        if let Some(global_decl) = self.export_global_decl_runtime()? {
+            named_content.insert("global decl".to_owned(), global_decl);
+        }
+
+        let inner_root = crate::runtime_export::export_weave(
+            &state,
+            "0",
+            self.root_nodes(),
+            crate::runtime_export::Scope::Root,
+            self,
+            true,
+            &HashMap::new(),
+        )?;
+        let root = Container::new(
+            None,
+            self.flow_count_flags(),
+            vec![inner_root, crate::runtime_export::command(CommandType::Done)],
+            named_content,
+        );
+
+        state.apply_path_fixups();
+
+        RuntimeStory::from_compiled(root, list_defs)
+            .map_err(|error| CompilerError::invalid_source(error.to_string()))
+    }
+
+    pub(crate) fn flow_count_flags(&self) -> i32 {
+        if !self.count_all_visits {
+            0
+        } else if self.uses_turn_or_read_count() {
+            3
+        } else {
+            1
+        }
+    }
+
+    pub(crate) fn weave_count_flags(&self) -> i32 {
+        if self.uses_turn_or_read_count() {
+            7
+        } else {
+            5
+        }
+    }
+
+    pub(crate) fn uses_turn_or_read_count(&self) -> bool {
+        self.root_nodes().iter().any(ParsedNode::uses_turn_or_read_count)
+            || self.parsed_flows().iter().any(ParsedFlow::uses_turn_or_read_count)
+    }
+
+    pub(crate) fn find_flow_by_name(&self, name: &str) -> Option<&ParsedFlow> {
+        Self::find_flow_by_name_in(&self.flows, name)
+    }
+
+    fn find_flow_by_name_in<'a>(flows: &'a [ParsedFlow], name: &str) -> Option<&'a ParsedFlow> {
+        for flow in flows {
+            if flow.flow().identifier() == Some(name) {
+                return Some(flow);
+            }
+            if let Some(found) = Self::find_flow_by_name_in(flow.children(), name) {
+                return Some(found);
+            }
+        }
+
+        None
+    }
+
+    pub(crate) fn has_flow_path(&self, target: &str) -> bool {
+        let mut parts = target.split('.');
+        let Some(first) = parts.next() else {
+            return false;
+        };
+        let Some(mut current) = self.flows.iter().find(|flow| flow.flow().identifier() == Some(first)) else {
+            return false;
+        };
+
+        for part in parts {
+            let Some(next) = current
+                .children()
+                .iter()
+                .find(|flow| flow.flow().identifier() == Some(part))
+            else {
+                return false;
+            };
+            current = next;
+        }
+
+        true
+    }
+
+    pub(crate) fn has_named_label(&self, target: &str) -> bool {
+        self.root_nodes.iter().any(|node| Self::node_has_named_label(node, target))
+            || self
+                .flows
+                .iter()
+                .any(|flow| Self::flow_has_named_label(flow, target))
+    }
+
+    fn flow_has_named_label(flow: &ParsedFlow, target: &str) -> bool {
+        flow.content().iter().any(|node| Self::node_has_named_label(node, target))
+            || flow.children().iter().any(|child| Self::flow_has_named_label(child, target))
+    }
+
+    fn node_has_named_label(node: &ParsedNode, target: &str) -> bool {
+        node.name() == Some(target)
+            || node
+                .start_content()
+                .iter()
+                .any(|child| Self::node_has_named_label(child, target))
+            || node
+                .choice_only_content()
+                .iter()
+                .any(|child| Self::node_has_named_label(child, target))
+            || node.children().iter().any(|child| Self::node_has_named_label(child, target))
+    }
+
+    pub(crate) fn collect_const_names(&self) -> HashSet<String> {
+        self.const_declarations
+            .iter()
+            .map(|declaration| declaration.name().to_owned())
+            .collect()
+    }
+
+    pub(crate) fn collect_declared_variable_names(&self) -> HashSet<String> {
+        let mut names: HashSet<String> = self
+            .global_initializers
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect();
+        for node in &self.root_nodes {
+            node.collect_global_declared_vars(&mut names);
+        }
+        for flow in &self.flows {
+            collect_global_declared_vars_in_flow(flow, &mut names);
+        }
+        names
+    }
+
+    pub(crate) fn collect_top_level_flow_names(&self) -> HashSet<String> {
+        self.flows
+            .iter()
+            .filter_map(|flow| flow.flow().identifier().map(ToOwned::to_owned))
+            .collect()
+    }
+
+    pub(crate) fn collect_all_flow_names(&self) -> HashSet<String> {
+        let mut names = HashSet::new();
+        collect_all_flow_names_into(&self.flows, &mut names);
+        names
+    }
+
+    pub(crate) fn root_validation_scope(
+        &self,
+        global_vars: &HashSet<String>,
+        const_names: &HashSet<String>,
+        flow_names: &HashSet<String>,
+        top_level_flow_names: &HashSet<String>,
+    ) -> Result<ValidationScope, CompilerError> {
+        let root_temp_vars = self.collect_root_temp_vars();
+        let mut visible_vars = global_vars.clone();
+        visible_vars.extend(const_names.iter().cloned());
+        visible_vars.extend(root_temp_vars.iter().cloned());
+
+        Ok(ValidationScope {
+            visible_vars,
+            divert_target_vars: global_vars.clone(),
+            top_level_flow_names: top_level_flow_names.clone(),
+            sibling_flow_names: top_level_flow_names.clone(),
+            local_labels: self.collect_root_named_labels()?,
+            all_flow_names: flow_names.clone(),
+        })
+    }
+
+    pub(crate) fn collect_root_temp_vars(&self) -> HashSet<String> {
+        let mut names = HashSet::new();
+        for node in &self.root_nodes {
+            node.collect_temp_vars(&mut names);
+        }
+        names
+    }
+
+    pub(crate) fn collect_root_named_labels(&self) -> Result<HashSet<String>, CompilerError> {
+        let mut names = HashSet::new();
+        for node in &self.root_nodes {
+            node.collect_named_labels(&mut names)?;
+        }
+        Ok(names)
+    }
+
+    pub(crate) fn validate_root_scope(
+        &self,
+        flow_names: &HashSet<String>,
+        root_scope: &ValidationScope,
+    ) -> Result<(), CompilerError> {
+        let root_temp_vars = self.collect_root_temp_vars();
+        for temp in &root_temp_vars {
+            if flow_names.contains(temp) {
+                return Err(CompilerError::invalid_source(format!(
+                    "Variable '{}' already exists as a flow or function name",
+                    temp
+                )));
+            }
+        }
+
+        if !self.root_nodes.iter().any(|node| {
+            matches!(
+                node.kind(),
+                super::ParsedNodeKind::Choice
+                    | super::ParsedNodeKind::GatherPoint
+                    | super::ParsedNodeKind::GatherLabel
+            )
+        }) {
+            for node in self.root_nodes() {
+                if node
+                    .as_conditional()
+                    .is_some_and(|conditional| conditional.requires_weave_context())
+                {
+                    return Err(CompilerError::invalid_source(
+                        "Nested choice inside a top-level conditional requires a weave context",
+                    ));
+                }
+            }
+        }
+
+        ParsedNode::validate_list(self.root_nodes(), root_scope, self)
+    }
+
     pub fn object_index(&self) -> ParsedObjectIndex {
         let mut index = ParsedObjectIndex::new();
         index.register(self.object());
@@ -167,10 +447,10 @@ impl Story {
 
     fn register_parsed_node(&self, index: &mut ParsedObjectIndex, node: &ParsedNode) {
         index.register(node.object());
-        for child in &node.start_content {
+        for child in node.start_content() {
             self.register_parsed_node(index, child);
         }
-        for child in &node.choice_only_content {
+        for child in node.choice_only_content() {
             self.register_parsed_node(index, child);
         }
         for child in node.children() {
@@ -186,6 +466,97 @@ impl Story {
         for child in flow.children() {
             self.register_parsed_flow(index, child);
         }
+    }
+
+    fn validate_empty_diverts(&self) -> Result<(), CompilerError> {
+        for (index, line) in self.source().lines().enumerate() {
+            if line.trim() == "->" {
+                return Err(CompilerError::invalid_source(
+                    "Empty diverts (->) are only valid on choices",
+                )
+                .with_line(index + 1));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn export_runtime_list_defs(&self) -> Vec<RuntimeListDefinition> {
+        self.list_definitions()
+            .iter()
+            .filter_map(|definition| {
+                let name = definition.identifier()?.to_owned();
+                let items = definition
+                    .item_definitions()
+                    .iter()
+                    .map(|item| (item.name().to_owned(), item.series_value()))
+                    .collect();
+                Some(RuntimeListDefinition::new(name, items))
+            })
+            .collect()
+    }
+
+    fn export_global_decl_runtime(&self) -> Result<Option<Rc<Container>>, CompilerError> {
+        if self.global_initializers().is_empty() && self.list_definitions().is_empty() {
+            return Ok(None);
+        }
+
+        let mut content: Vec<Rc<dyn RTObject>> = vec![crate::runtime_export::command(CommandType::EvalStart)];
+
+        for list in self.list_definitions() {
+            content.push(list_value_from_definition(list));
+            if let Some(name) = list.identifier() {
+                content.push(crate::runtime_export::variable_assignment(name, true, true));
+            }
+        }
+
+        for (name, expression) in self.global_initializers() {
+            crate::runtime_export::export_expression(expression, self, &mut content)?;
+            content.push(crate::runtime_export::variable_assignment(name, true, true));
+        }
+
+        content.push(crate::runtime_export::command(CommandType::EvalEnd));
+        content.push(crate::runtime_export::command(CommandType::End));
+        Ok(Some(Container::new(
+            Some("global decl".to_owned()),
+            0,
+            content,
+            HashMap::new(),
+        )))
+    }
+}
+
+fn list_value_from_definition(definition: &ListDefinition) -> Rc<dyn RTObject> {
+    let mut list = InkList::new();
+    if let Some(name) = definition.identifier() {
+        list.set_initial_origin_names(vec![name.to_owned()]);
+        for item in definition.item_definitions() {
+            if item.in_initial_list() {
+                list.items.insert(
+                    InkListItem::new(Some(name.to_owned()), item.name().to_owned()),
+                    item.series_value(),
+                );
+            }
+        }
+    }
+    crate::runtime_export::rt_value(list)
+}
+
+fn collect_all_flow_names_into(flows: &[ParsedFlow], names: &mut HashSet<String>) {
+    for flow in flows {
+        if let Some(name) = flow.flow().identifier() {
+            names.insert(name.to_owned());
+        }
+        collect_all_flow_names_into(flow.children(), names);
+    }
+}
+
+fn collect_global_declared_vars_in_flow(flow: &ParsedFlow, names: &mut HashSet<String>) {
+    for node in flow.content() {
+        node.collect_global_declared_vars(names);
+    }
+    for child in flow.children() {
+        collect_global_declared_vars_in_flow(child, names);
     }
 }
 

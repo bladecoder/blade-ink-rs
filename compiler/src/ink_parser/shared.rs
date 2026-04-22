@@ -1,4 +1,4 @@
-use super::{InkParser, StatementLevel};
+use super::InkParser;
 use crate::parsed_hierarchy::{
     ConstDeclaration, ContentList, ExternalDeclaration, List, ListDefinition, Number,
     NumberValue, ParsedFlow, ParsedNode, Story, VariableAssignment,
@@ -85,12 +85,6 @@ pub(super) fn parsed_expression_to_expression_node(
         }
         _ => None,
     }
-}
-
-pub(super) fn parse_nested_statement_block(content: &str) -> Vec<ParsedNode> {
-    let mut parser = InkParser::new(content, None);
-    let parsed = parser.statements_at_level(StatementLevel::InnerBlock);
-    parsed.nodes
 }
 
 pub(super) fn merge_parse_section(into: &mut ParseSection, mut other: ParseSection) {

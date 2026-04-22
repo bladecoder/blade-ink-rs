@@ -1,5 +1,5 @@
 use super::{DivertPrototype, InkParser, parse_divert_argument_expressions};
-use crate::parsed_hierarchy::{ParsedNode, ParsedNodeKind};
+use crate::parsed_hierarchy::{DivertNodeKind, ParsedNode, ParsedNodeKind};
 
 impl<'fh> InkParser<'fh> {
     pub(super) fn try_parse_divert_line(&mut self) -> Option<Vec<ParsedNode>> {
@@ -10,9 +10,11 @@ impl<'fh> InkParser<'fh> {
         if let Some(thread) = self.start_thread() {
             let _ = self.end_of_line();
             let arguments = parse_divert_argument_expressions(&thread.arguments)?;
-            let node = ParsedNode::new(ParsedNodeKind::ThreadDivert)
-                .with_target(thread.target.join("."))
-                .with_arguments(arguments);
+            let node = ParsedNode::new_divert(
+                DivertNodeKind::Thread,
+                thread.target.join("."),
+                arguments,
+            );
             return self.parser.succeed_rule(rule_id, Some(vec![node]));
         }
 
@@ -44,9 +46,11 @@ impl<'fh> InkParser<'fh> {
                     if let Some(divert) = diverts.get(divert_index) {
                         let arguments = parse_divert_argument_expressions(&divert.arguments)?;
                         nodes.push(
-                            ParsedNode::new(ParsedNodeKind::TunnelOnwardsWithTarget)
-                                .with_target(divert.target.join("."))
-                                .with_arguments(arguments),
+                            ParsedNode::new_divert(
+                                DivertNodeKind::TunnelOnwards,
+                                divert.target.join("."),
+                                arguments,
+                            ),
                         );
                     } else {
                         nodes.push(ParsedNode::new(ParsedNodeKind::TunnelReturn));
@@ -59,16 +63,12 @@ impl<'fh> InkParser<'fh> {
                     };
                     divert_index += 1;
                     let kind = if arrow_index < arrows.len() - 1 {
-                        ParsedNodeKind::TunnelDivert
+                        DivertNodeKind::Tunnel
                     } else {
-                        ParsedNodeKind::Divert
+                        DivertNodeKind::Normal
                     };
                     let arguments = parse_divert_argument_expressions(&divert.arguments)?;
-                    nodes.push(
-                        ParsedNode::new(kind)
-                            .with_target(divert.target.join("."))
-                            .with_arguments(arguments),
-                    );
+                    nodes.push(ParsedNode::new_divert(kind, divert.target.join("."), arguments));
                 }
                 _ => return self.parser.fail_rule(rule_id),
             }

@@ -1,5 +1,8 @@
 use super::InkParser;
-use crate::{parsed_hierarchy::{ParsedNode, ParsedNodeKind}, string_parser::ParseSuccess};
+use crate::{
+    parsed_hierarchy::{ChoiceNodeSpec, ParsedNode, ParsedNodeKind},
+    string_parser::ParseSuccess,
+};
 
 impl<'fh> InkParser<'fh> {
     pub(super) fn try_parse_choice(&mut self) -> Option<ParsedNode> {
@@ -36,31 +39,30 @@ impl<'fh> InkParser<'fh> {
             append_text_suffix(&mut choice_only_nodes, "'");
         }
 
+        let is_invisible_default = start_nodes.is_empty() && choice_only_nodes.is_empty();
+
         self.parsing_choice = was_parsing_choice;
         let _ = self.end_of_line();
 
         self.parser.succeed_rule(rule_id, Some(()));
 
-        let mut node = ParsedNode::new(ParsedNodeKind::Choice);
-        node.indentation_depth = depth;
-        node.once_only = once_only;
-        node.is_invisible_default = start_nodes.is_empty() && choice_only_nodes.is_empty();
-        node.start_content = if choice_only_nodes.is_empty() {
-            trim_end_whitespace_nodes(start_nodes)
-        } else {
-            start_nodes
-        };
-        node.choice_only_content = choice_only_nodes;
-        if let Some(condition) = choice_condition {
-            node = node.with_condition(condition);
-        }
-        if let Some(label_name) = label {
-            node = node.with_name(label_name);
-        }
-        if !inner_nodes.is_empty() {
-            node = node.with_children(inner_nodes);
-        }
-        Some(node)
+        Some(
+            ChoiceNodeSpec {
+                indentation_depth: depth,
+                once_only,
+                identifier: label,
+                condition: choice_condition,
+                start_content: if choice_only_nodes.is_empty() {
+                    trim_end_whitespace_nodes(start_nodes)
+                } else {
+                    start_nodes
+                },
+                choice_only_content: choice_only_nodes,
+                inner_content: inner_nodes,
+                is_invisible_default,
+            }
+            .build(),
+        )
     }
 
     fn parse_choice_start_content(&mut self) -> Vec<ParsedNode> {

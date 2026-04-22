@@ -1,5 +1,5 @@
 use super::InkParser;
-use crate::parsed_hierarchy::{ParsedNode, ParsedNodeKind};
+use crate::parsed_hierarchy::{GatherNodeSpec, ParsedNode, ParsedNodeKind};
 
 impl<'fh> InkParser<'fh> {
     pub(super) fn try_parse_gather(&mut self) -> Option<ParsedNode> {
@@ -27,19 +27,14 @@ impl<'fh> InkParser<'fh> {
 
         self.parser.succeed_rule(rule_id, Some(()));
 
-        let mut node = ParsedNode::new(if label.is_some() {
-            ParsedNodeKind::GatherLabel
-        } else {
-            ParsedNodeKind::GatherPoint
-        });
-        node.indentation_depth = depth;
-        if let Some(label_name) = label {
-            node = node.with_name(label_name);
-        }
-        if !content_nodes.is_empty() {
-            node = node.with_children(content_nodes);
-        }
-        Some(node)
+        Some(
+            GatherNodeSpec {
+                indentation_depth: depth,
+                identifier: label,
+                content: content_nodes,
+            }
+            .build(),
+        )
     }
 
     pub(super) fn try_parse_inline_label(&mut self) -> Option<String> {

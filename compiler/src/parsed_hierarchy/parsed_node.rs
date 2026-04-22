@@ -1,4 +1,13 @@
-use super::{FlowArgument, FlowBase, FlowLevel, ObjectKind, ParsedObject, ParsedObjectRef};
+use crate::error::CompilerError;
+use bladeink::{CommandType, Glue, RTObject, Void};
+use std::collections::HashSet;
+use std::{collections::HashMap, rc::Rc};
+
+use super::{
+    AssignmentNode, ChoiceNode, ConditionalNode, DivertNode, DivertTarget, FlowArgument,
+    FlowBase, FlowLevel, FunctionCall, GatherNode, ObjectKind, ParsedObject, ParsedObjectRef,
+    Story, ValidationScope, VariableReference,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParsedNodeKind {
@@ -74,12 +83,23 @@ pub enum ParsedExpression {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParsedAssignmentMode {
+    Set,
+    GlobalDecl,
+    TempSet,
+    AddAssign,
+    SubtractAssign,
+}
+
 #[derive(Debug, Clone)]
 pub struct ParsedNode {
     object: ParsedObject,
     kind: ParsedNodeKind,
     text: Option<String>,
     name: Option<String>,
+    assignment_mode: Option<ParsedAssignmentMode>,
+    assignment_target: Option<String>,
     target: Option<String>,
     arguments: Vec<ParsedExpression>,
     expression: Option<ParsedExpression>,
@@ -107,6 +127,8 @@ impl ParsedNode {
             kind,
             text: None,
             name: None,
+            assignment_mode: None,
+            assignment_target: None,
             target: None,
             arguments: Vec::new(),
             expression: None,
@@ -145,6 +167,14 @@ impl ParsedNode {
         self.name.as_deref()
     }
 
+    pub fn assignment_mode(&self) -> Option<ParsedAssignmentMode> {
+        self.assignment_mode
+    }
+
+    pub fn assignment_target(&self) -> Option<&str> {
+        self.assignment_target.as_deref()
+    }
+
     pub fn target(&self) -> Option<&str> {
         self.target.as_deref()
     }
@@ -161,8 +191,36 @@ impl ParsedNode {
         &self.children
     }
 
+    pub fn start_content(&self) -> &[ParsedNode] {
+        &self.start_content
+    }
+
+    pub fn choice_only_content(&self) -> &[ParsedNode] {
+        &self.choice_only_content
+    }
+
     pub fn condition(&self) -> Option<&ParsedExpression> {
         self.condition.as_ref()
+    }
+
+    pub fn sequence_type(&self) -> u8 {
+        self.sequence_type
+    }
+
+    pub fn is_else_branch(&self) -> bool {
+        self.is_else
+    }
+
+    pub fn is_inline_conditional(&self) -> bool {
+        self.is_inline
+    }
+
+    pub fn is_true_branch(&self) -> bool {
+        self.is_true_branch
+    }
+
+    pub fn matches_switch_value(&self) -> bool {
+        self.matching_equality
     }
 
     pub fn with_text(mut self, text: impl Into<String>) -> Self {
@@ -172,6 +230,12 @@ impl ParsedNode {
 
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
+        self
+    }
+
+    pub fn with_assignment(mut self, mode: ParsedAssignmentMode, target: impl Into<String>) -> Self {
+        self.assignment_mode = Some(mode);
+        self.assignment_target = Some(target.into());
         self
     }
 
@@ -219,6 +283,314 @@ impl ParsedNode {
         for child in &mut self.children {
             child.resolve_references();
         }
+    }
+
+    pub(super) fn validate(&self, scope: &ValidationScope, story: &Story) -> Result<(), CompilerError> {
+        if let Some(expression) = self.expression() {
+            expression.validate(scope, story)?;
+        }
+        if let Some(condition) = self.condition() {
+            condition.validate(scope, story)?;
+        }
+
+        for child in &self.start_content {
+            child.validate(scope, story)?;
+        }
+        for child in &self.choice_only_content {
+            child.validate(scope, story)?;
+        }
+
+        if let Some(divert) = DivertNode::from_node(self) {
+            divert.validate(scope, story)?;
+        }
+
+        if let Some(conditional) = ConditionalNode::from_node(self)
+            && self
+                .children()
+                .iter()
+                .all(|child| child.kind() == ParsedNodeKind::Conditional)
+        {
+            conditional.validate(scope, story)?;
+            return Ok(());
+        }
+
+        ParsedNode::validate_list(self.children(), scope, story)
+    }
+
+    pub(crate) fn validate_list(
+        nodes: &[ParsedNode],
+        scope: &ValidationScope,
+        story: &Story,
+    ) -> Result<(), CompilerError> {
+        let mut seen_gather_labels = HashSet::new();
+        for node in nodes {
+            if let Some(gather) = GatherNode::from_node(node) {
+                gather.validate_scope_label(&mut seen_gather_labels)?;
+            }
+        }
+
+        for node in nodes {
+            node.validate(scope, story)?;
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn contains_choice_content(&self) -> bool {
+        self.children().iter().any(|child| {
+            child.kind() == ParsedNodeKind::Choice
+                || child.contains_choice_content()
+                || child.start_content.iter().any(ParsedNode::contains_choice_content)
+                || child.choice_only_content.iter().any(ParsedNode::contains_choice_content)
+        })
+    }
+
+    pub(crate) fn collect_named_labels(&self, names: &mut HashSet<String>) -> Result<(), CompilerError> {
+        if let Some(choice) = ChoiceNode::from_node(self) {
+            choice.collect_named_label(names)?;
+        }
+        if let Some(gather) = GatherNode::from_node(self) {
+            gather.collect_named_label(names)?;
+        }
+
+        for child in &self.start_content {
+            child.collect_named_labels(names)?;
+        }
+        for child in &self.choice_only_content {
+            child.collect_named_labels(names)?;
+        }
+        for child in self.children() {
+            child.collect_named_labels(names)?;
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn collect_temp_vars(&self, names: &mut HashSet<String>) {
+        if let Some(assignment) = AssignmentNode::from_node(self) {
+            assignment.collect_temp_var(names);
+        }
+
+        for child in &self.start_content {
+            child.collect_temp_vars(names);
+        }
+        for child in &self.choice_only_content {
+            child.collect_temp_vars(names);
+        }
+        for child in self.children() {
+            child.collect_temp_vars(names);
+        }
+    }
+
+    pub(crate) fn collect_global_declared_vars(&self, names: &mut HashSet<String>) {
+        if let Some(assignment) = AssignmentNode::from_node(self) {
+            assignment.collect_global_declared_var(names);
+        }
+
+        for child in &self.start_content {
+            child.collect_global_declared_vars(names);
+        }
+        for child in &self.choice_only_content {
+            child.collect_global_declared_vars(names);
+        }
+        for child in self.children() {
+            child.collect_global_declared_vars(names);
+        }
+    }
+
+    pub(crate) fn uses_turn_or_read_count(&self) -> bool {
+        self.expression().is_some_and(expression_uses_turn_or_read_count)
+            || self.condition().is_some_and(expression_uses_turn_or_read_count)
+            || self.start_content().iter().any(ParsedNode::uses_turn_or_read_count)
+            || self
+                .choice_only_content()
+                .iter()
+                .any(ParsedNode::uses_turn_or_read_count)
+            || self.children().iter().any(ParsedNode::uses_turn_or_read_count)
+    }
+
+    pub(crate) fn export_runtime_nodes(
+        state: &crate::runtime_export::ExportState,
+        nodes: &[ParsedNode],
+        scope: crate::runtime_export::Scope<'_>,
+        story: &Story,
+        named_paths: Option<&HashMap<String, String>>,
+        container_path: Option<&str>,
+        content_index_offset: usize,
+    ) -> Result<Vec<Rc<dyn RTObject>>, CompilerError> {
+        let mut content = Vec::new();
+
+        for node in nodes {
+            let node_path = container_path
+                .map(|path| format!("{path}.{}", content_index_offset + content.len()));
+            node.export_runtime(
+                state,
+                scope,
+                story,
+                named_paths,
+                container_path,
+                node_path.as_deref(),
+                content_index_offset,
+                &mut content,
+            )?;
+        }
+
+        Ok(content)
+    }
+
+    pub(crate) fn export_runtime(
+        &self,
+        state: &crate::runtime_export::ExportState,
+        scope: crate::runtime_export::Scope<'_>,
+        story: &Story,
+        named_paths: Option<&HashMap<String, String>>,
+        _container_path: Option<&str>,
+        node_path: Option<&str>,
+        content_index_offset: usize,
+        content: &mut Vec<Rc<dyn RTObject>>,
+    ) -> Result<(), CompilerError> {
+        match self.kind() {
+            ParsedNodeKind::Text => {
+                if let Some(text) = self.text()
+                    && !text.is_empty()
+                {
+                    content.push(crate::runtime_export::rt_value(text));
+                }
+            }
+            ParsedNodeKind::Newline => content.push(crate::runtime_export::rt_value("\n")),
+            ParsedNodeKind::Glue => content.push(Rc::new(Glue::new())),
+            ParsedNodeKind::Divert
+            | ParsedNodeKind::TunnelDivert
+            | ParsedNodeKind::TunnelOnwardsWithTarget
+            | ParsedNodeKind::ThreadDivert => {
+                self.as_divert()
+                    .ok_or_else(|| CompilerError::unsupported_feature("runtime export divert shape"))?
+                    .export_runtime(scope, story, named_paths, content)?;
+            }
+            ParsedNodeKind::TunnelReturn => {
+                content.push(crate::runtime_export::command(CommandType::EvalStart));
+                content.push(Rc::new(Void::new()));
+                content.push(crate::runtime_export::command(CommandType::EvalEnd));
+                content.push(crate::runtime_export::command(CommandType::PopTunnel));
+            }
+            ParsedNodeKind::ReturnExpression => {
+                let expression = self.expression().ok_or_else(|| {
+                    CompilerError::unsupported_feature("runtime export return expression missing expression")
+                })?;
+                content.push(crate::runtime_export::command(CommandType::EvalStart));
+                crate::runtime_export::export_expression(expression, story, content)?;
+                content.push(crate::runtime_export::command(CommandType::EvalEnd));
+                content.push(crate::runtime_export::command(CommandType::PopFunction));
+            }
+            ParsedNodeKind::ReturnVoid => {
+                content.push(crate::runtime_export::command(CommandType::EvalStart));
+                content.push(Rc::new(Void::new()));
+                content.push(crate::runtime_export::command(CommandType::EvalEnd));
+                content.push(crate::runtime_export::command(CommandType::PopFunction));
+            }
+            ParsedNodeKind::VoidCall => {
+                let expression = self.expression().ok_or_else(|| {
+                    CompilerError::unsupported_feature("runtime export void call missing expression")
+                })?;
+                content.push(crate::runtime_export::command(CommandType::EvalStart));
+                crate::runtime_export::export_expression(expression, story, content)?;
+                content.push(crate::runtime_export::command(CommandType::PopEvaluatedValue));
+                content.push(crate::runtime_export::command(CommandType::EvalEnd));
+                content.push(crate::runtime_export::rt_value("\n"));
+            }
+            ParsedNodeKind::Conditional | ParsedNodeKind::SwitchConditional => {
+                let conditional = ConditionalNode::from_node(self).ok_or_else(|| {
+                    CompilerError::unsupported_feature("runtime export conditional shape")
+                })?;
+                if crate::runtime_export::conditional_is_simple(conditional) {
+                    conditional.append_simple_runtime(
+                        state,
+                        scope,
+                        story,
+                        named_paths,
+                        node_path,
+                        content_index_offset,
+                        content,
+                    )?;
+                } else {
+                    content.push(conditional.export_runtime(
+                        state,
+                        scope,
+                        story,
+                        named_paths,
+                        node_path,
+                    )?);
+                }
+            }
+            ParsedNodeKind::OutputExpression => {
+                let expression = self.expression().ok_or_else(|| {
+                    CompilerError::unsupported_feature(
+                        "runtime export output expression missing expression",
+                    )
+                })?;
+                content.push(crate::runtime_export::command(CommandType::EvalStart));
+                crate::runtime_export::export_output_expression(
+                    expression,
+                    scope,
+                    story,
+                    named_paths,
+                    content,
+                )?;
+                content.push(crate::runtime_export::command(CommandType::EvalOutput));
+                content.push(crate::runtime_export::command(CommandType::EvalEnd));
+            }
+            ParsedNodeKind::Assignment => {
+                self.as_assignment()
+                    .ok_or_else(|| CompilerError::unsupported_feature("runtime export assignment shape"))?
+                    .export_runtime(scope, story, content)?;
+            }
+            ParsedNodeKind::Tag => {
+                content.push(crate::runtime_export::command(CommandType::BeginTag));
+                content.extend(ParsedNode::export_runtime_nodes(
+                    state,
+                    self.children(),
+                    scope,
+                    story,
+                    named_paths,
+                    None,
+                    0,
+                )?);
+                content.push(crate::runtime_export::command(CommandType::EndTag));
+            }
+            ParsedNodeKind::AuthorWarning => {}
+            ParsedNodeKind::Sequence => {
+                let sequence = self.as_sequence().ok_or_else(|| {
+                    CompilerError::unsupported_feature("runtime export sequence shape")
+                })?;
+                content.push(sequence.export_runtime(state, scope, story, named_paths, node_path)?);
+            }
+            ParsedNodeKind::Choice
+            | ParsedNodeKind::GatherPoint
+            | ParsedNodeKind::GatherLabel
+            | ParsedNodeKind::ReturnBool => {
+                return Err(CompilerError::unsupported_feature(format!(
+                    "runtime export does not support {:?} yet",
+                    self.kind()
+                )))
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn expression_uses_turn_or_read_count(expression: &ParsedExpression) -> bool {
+    match expression {
+        ParsedExpression::FunctionCall { name, arguments } => {
+            matches!(name.as_str(), "TURNS_SINCE" | "READ_COUNT")
+                || arguments.iter().any(expression_uses_turn_or_read_count)
+        }
+        ParsedExpression::Unary { expression, .. } => expression_uses_turn_or_read_count(expression),
+        ParsedExpression::Binary { left, right, .. } => {
+            expression_uses_turn_or_read_count(left) || expression_uses_turn_or_read_count(right)
+        }
+        ParsedExpression::StringExpression(nodes) => nodes.iter().any(ParsedNode::uses_turn_or_read_count),
+        _ => false,
     }
 }
 
@@ -289,5 +661,39 @@ impl ParsedFlow {
         for child in &mut self.children {
             child.resolve_references();
         }
+    }
+}
+
+impl ParsedExpression {
+    pub(super) fn validate(&self, scope: &ValidationScope, story: &Story) -> Result<(), CompilerError> {
+        match self {
+            ParsedExpression::Variable(name) => {
+                VariableReference::validate_name(name, scope, story)?;
+            }
+            ParsedExpression::DivertTarget(target) => {
+                DivertTarget::validate_explicit_target(target, scope, story)?;
+            }
+            ParsedExpression::Unary { expression, .. } => {
+                expression.validate(scope, story)?;
+            }
+            ParsedExpression::Binary { left, right, .. } => {
+                left.validate(scope, story)?;
+                right.validate(scope, story)?;
+            }
+            ParsedExpression::FunctionCall { name, arguments } => {
+                FunctionCall::validate_call_arguments(name, arguments, scope, story)?;
+            }
+            ParsedExpression::StringExpression(nodes) => {
+                ParsedNode::validate_list(nodes, scope, story)?;
+            }
+            ParsedExpression::Bool(_)
+            | ParsedExpression::Int(_)
+            | ParsedExpression::Float(_)
+            | ParsedExpression::String(_)
+            | ParsedExpression::ListItems(_)
+            | ParsedExpression::EmptyList => {}
+        }
+
+        Ok(())
     }
 }

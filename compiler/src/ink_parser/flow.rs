@@ -2,6 +2,19 @@ use super::{InkParser, StatementLevel};
 use crate::parsed_hierarchy::{FlowLevel, ParsedFlow};
 
 impl<'fh> InkParser<'fh> {
+    fn peek_stitch_start(&mut self) -> bool {
+        self.parser
+            .peek(|p| {
+                let _ = p.parse_characters_from_string(" \t", true, -1);
+                p.parse_string("=")?;
+                if p.parse_string("=").is_some() {
+                    return None;
+                }
+                Some(())
+            })
+            .is_some()
+    }
+
     pub(super) fn try_parse_knot(&mut self) -> Option<ParsedFlow> {
         let rule_id = self.parser.begin_rule();
         self.whitespace();

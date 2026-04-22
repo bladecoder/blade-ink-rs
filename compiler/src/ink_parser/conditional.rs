@@ -1,5 +1,11 @@
 use super::{InkParser, sequences::build_sequence_node};
-use crate::{parsed_hierarchy::{ParsedExpression, ParsedNode, ParsedNodeKind, SequenceType}, string_parser::ParseSuccess};
+use crate::{
+    parsed_hierarchy::{
+        ConditionalBranchSpec, ConditionalNodeSpec, ParsedExpression, ParsedNode, ParsedNodeKind,
+        SequenceType,
+    },
+    string_parser::ParseSuccess,
+};
 
 impl<'fh> InkParser<'fh> {
     pub(super) fn inner_logic_nodes(&mut self, terminators: &str) -> Option<Vec<ParsedNode>> {
@@ -240,73 +246,13 @@ enum InnerLogicRule {
     Expression,
 }
 
-#[derive(Clone)]
-struct ConditionalBranchSpec {
-    condition: Option<ParsedExpression>,
-    content: Vec<ParsedNode>,
-    is_else: bool,
-    is_inline: bool,
-    is_true_branch: bool,
-    matching_equality: bool,
-}
-
-impl ConditionalBranchSpec {
-    fn from_nodes(nodes: Vec<ParsedNode>) -> Self {
-        Self {
-            condition: None,
-            content: nodes,
-            is_else: false,
-            is_inline: true,
-            is_true_branch: false,
-            matching_equality: false,
-        }
-    }
-}
-
 fn build_conditional_node(
     initial_condition: Option<ParsedExpression>,
-    mut branches: Vec<ConditionalBranchSpec>,
+    branches: Vec<ConditionalBranchSpec>,
 ) -> ParsedNode {
-    let mut saw_branch_condition = false;
-    let mut children = Vec::new();
-
-    for (idx, branch) in branches.iter_mut().enumerate() {
-        let mut branch_node = ParsedNode::new(ParsedNodeKind::Conditional);
-        branch_node.is_inline = branch.is_inline;
-        branch_node.is_else = branch.is_else;
-        branch_node.is_true_branch = branch.is_true_branch;
-        branch_node.matching_equality = branch.matching_equality;
-        if let Some(condition) = branch.condition.clone() {
-            branch_node = branch_node.with_condition(condition);
-        }
-        branch_node.set_children(branch.content.clone());
-
-        if initial_condition.is_some() {
-            if branch.condition.is_some() {
-                branch_node.matching_equality = true;
-                saw_branch_condition = true;
-            } else if saw_branch_condition && branch.is_else {
-                branch_node.matching_equality = true;
-            } else if idx == 0 {
-                branch_node.is_true_branch = true;
-            } else {
-                branch_node.is_else = true;
-            }
-        } else if branch.is_else {
-            branch_node.is_else = true;
-        }
-
-        children.push(branch_node);
+    ConditionalNodeSpec {
+        initial_condition,
+        branches,
     }
-
-    let mut node = ParsedNode::new(if initial_condition.is_some() {
-        ParsedNodeKind::SwitchConditional
-    } else {
-        ParsedNodeKind::Conditional
-    });
-    if let Some(condition) = initial_condition {
-        node = node.with_condition(condition);
-    }
-    node.set_children(children);
-    node
+    .build()
 }

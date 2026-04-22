@@ -1,5 +1,5 @@
 use super::InkParser;
-use crate::parsed_hierarchy::{ParsedNode, ParsedNodeKind};
+use crate::parsed_hierarchy::{ParsedAssignmentMode, ParsedNode, ParsedNodeKind};
 
 impl<'fh> InkParser<'fh> {
     pub(super) fn try_parse_logic_line(&mut self) -> Option<ParsedNode> {
@@ -52,5 +52,72 @@ impl<'fh> InkParser<'fh> {
         }
 
         self.parser.fail_rule(rule_id)
+    }
+
+    pub(super) fn temp_declaration_or_assignment(&mut self) -> Option<ParsedNode> {
+        let rule_id = self.parser.begin_rule();
+        let default_mode = if self.parse_temp_keyword() {
+            self.whitespace();
+            "TempSet"
+        } else {
+            "Set"
+        };
+
+        let name = self.parse_identifier()?;
+        self.whitespace();
+
+        let (mode, expression_override) = if self.parser.parse_string("+=").is_some() {
+            ("AddAssign", None)
+        } else if self.parser.parse_string("-=").is_some() {
+            ("SubtractAssign", None)
+        } else if self.parser.parse_string("++").is_some() {
+            ("AddAssign", Some(crate::parsed_hierarchy::ParsedExpression::Int(1)))
+        } else if self.parser.parse_string("--").is_some() {
+            (
+                "SubtractAssign",
+                Some(crate::parsed_hierarchy::ParsedExpression::Int(1)),
+            )
+        } else if self.parser.parse_string("=").is_some() {
+            (default_mode, None)
+        } else {
+            return self.parser.fail_rule(rule_id);
+        };
+
+        self.whitespace();
+
+        let expression = if let Some(expression) = expression_override {
+            expression
+        } else {
+            self.whitespace();
+            self.expression_until_top_level_terminators("\n\r")?
+        };
+
+        self.parser.succeed_rule(
+            rule_id,
+            Some(
+                ParsedNode::new(ParsedNodeKind::Assignment)
+                    .with_assignment(
+                        match mode {
+                            "Set" => ParsedAssignmentMode::Set,
+                            "TempSet" => ParsedAssignmentMode::TempSet,
+                            "AddAssign" => ParsedAssignmentMode::AddAssign,
+                            "SubtractAssign" => ParsedAssignmentMode::SubtractAssign,
+                            _ => return self.parser.fail_rule(rule_id),
+                        },
+                        name,
+                    )
+                    .with_expression(expression),
+            ),
+        )
+    }
+
+    fn parse_temp_keyword(&mut self) -> bool {
+        let rule_id = self.parser.begin_rule();
+        if self.parse_identifier().as_deref() == Some("temp") {
+            self.parser.succeed_rule(rule_id, Some(crate::string_parser::ParseSuccess)).is_some()
+        } else {
+            let _ = self.parser.fail_rule::<crate::string_parser::ParseSuccess>(rule_id);
+            false
+        }
     }
 }

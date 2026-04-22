@@ -1,5 +1,5 @@
 use super::{InkParser, StatementLevel};
-use crate::parsed_hierarchy::{ParsedNode, ParsedNodeKind, SequenceType};
+use crate::parsed_hierarchy::{ParsedNode, ParsedNodeKind, SequenceNodeSpec, SequenceType};
 
 impl<'fh> InkParser<'fh> {
     pub(super) fn inner_sequence_nodes(&mut self, terminators: &str, default_flags: u8) -> Option<Vec<ParsedNode>> {
@@ -153,12 +153,9 @@ impl<'fh> InkParser<'fh> {
 }
 
 pub(super) fn build_sequence_node(sequence_type: u8, elements: Vec<Vec<ParsedNode>>) -> ParsedNode {
-    let element_children = elements
-        .into_iter()
-        .map(|nodes| ParsedNode::new(ParsedNodeKind::Text).with_text("").with_children(nodes))
-        .collect();
-    let mut seq_node = ParsedNode::new(ParsedNodeKind::Sequence);
-    seq_node.sequence_type = sequence_type;
-    seq_node.set_children(element_children);
-    seq_node
+    SequenceNodeSpec {
+        sequence_type,
+        elements,
+    }
+    .build()
 }

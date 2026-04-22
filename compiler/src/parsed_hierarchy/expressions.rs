@@ -1,4 +1,4 @@
-use super::{ContentList, List, ObjectKind, ParsedObject};
+use super::{ContentList, List, ObjectKind, ParsedObject, VariableReference};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NumberValue {
@@ -101,91 +101,6 @@ impl StringExpression {
             return false;
         };
         !text.text().contains('\n')
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct VariableReference {
-    expression: Expression,
-    path: Vec<String>,
-}
-
-impl VariableReference {
-    pub fn new(path: Vec<String>) -> Self {
-        Self {
-            expression: Expression::new(ObjectKind::VariableReference),
-            path,
-        }
-    }
-
-    pub fn expression(&self) -> &Expression {
-        &self.expression
-    }
-
-    pub fn expression_mut(&mut self) -> &mut Expression {
-        &mut self.expression
-    }
-
-    pub fn path(&self) -> &[String] {
-        &self.path
-    }
-
-    pub fn name(&self) -> String {
-        self.path.join(".")
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct VariableAssignment {
-    object: ParsedObject,
-    variable_name: String,
-    expression: Option<ExpressionNode>,
-    is_global_declaration: bool,
-    is_new_temporary_declaration: bool,
-}
-
-impl VariableAssignment {
-    pub fn new(variable_name: impl Into<String>, mut expression: Option<ExpressionNode>) -> Self {
-        let mut object = ParsedObject::new(ObjectKind::VariableAssignment);
-        if let Some(expression) = expression.as_mut() {
-            expression.object_mut().set_parent(&object);
-            object.add_content_ref(expression.object().reference());
-        }
-        Self {
-            object,
-            variable_name: variable_name.into(),
-            expression,
-            is_global_declaration: false,
-            is_new_temporary_declaration: false,
-        }
-    }
-
-    pub fn object(&self) -> &ParsedObject {
-        &self.object
-    }
-
-    pub fn variable_name(&self) -> &str {
-        &self.variable_name
-    }
-
-    pub fn expression(&self) -> Option<&ExpressionNode> {
-        self.expression.as_ref()
-    }
-
-    pub fn is_global_declaration(&self) -> bool {
-        self.is_global_declaration
-    }
-
-    pub fn set_global_declaration(&mut self, value: bool) {
-        self.is_global_declaration = value;
-    }
-
-    pub fn is_new_temporary_declaration(&self) -> bool {
-        self.is_new_temporary_declaration
-    }
-
-    pub fn set_new_temporary_declaration(&mut self, value: bool) {
-        self.is_new_temporary_declaration = value;
     }
 }
 

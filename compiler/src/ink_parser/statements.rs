@@ -282,23 +282,4 @@ impl<'fh> InkParser<'fh> {
             .is_some()
     }
 
-    fn parse_dash_not_arrow(&mut self) -> Option<ParseSuccess> {
-        let rule_id = self.parser.begin_rule();
-
-        if self.parser.parse_string("->").is_none() && self.parser.parse_single_character() == Some('-') {
-            return self.parser.succeed_rule(rule_id, Some(ParseSuccess));
-        }
-
-        self.parser.fail_rule(rule_id)
-    }
-
-    fn peek_knot_start(&mut self) -> bool {
-        self.parser
-            .peek(|p| {
-                let _ = p.parse_characters_from_string(" \t", true, -1);
-                let eq = p.parse_characters_from_string("=", true, -1)?;
-                if eq.len() > 1 { Some(()) } else { None }
-            })
-            .is_some()
-    }
 }
