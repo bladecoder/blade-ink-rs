@@ -1,7 +1,7 @@
 use crate::error::CompilerError;
 use std::{collections::HashMap, rc::Rc};
 
-use bladeink::{ChoicePoint, CommandType, Divert, Path, PushPopType};
+use bladeink::{ChoicePoint, CommandType, Container, Divert, Path, PushPopType};
 
 use crate::runtime_export::{
     ExportState, PathFixupSource, PendingContainer, Scope, command, export_condition_expression,
@@ -306,6 +306,28 @@ impl<'a> ChoiceNode<'a> {
 
     pub fn has_weave_style_inline_brackets(self) -> bool {
         !self.choice_only_content().is_empty()
+    }
+
+    pub fn outer_container(self) -> Option<Rc<Container>> {
+        self.node
+            .runtime_object()
+            .and_then(|object| object.into_any().downcast::<Container>().ok())
+    }
+
+    pub fn inner_content_container(self) -> Option<Rc<Container>> {
+        self.node.container_for_counting()
+    }
+
+    pub fn runtime_container(self) -> Option<Rc<Container>> {
+        self.inner_content_container()
+    }
+
+    pub fn runtime_path(self) -> Option<Path> {
+        self.node.runtime_path()
+    }
+
+    pub fn container_for_counting(self) -> Option<Rc<Container>> {
+        self.inner_content_container()
     }
 
     pub fn collect_named_label(self, names: &mut HashSet<String>) -> Result<(), CompilerError> {

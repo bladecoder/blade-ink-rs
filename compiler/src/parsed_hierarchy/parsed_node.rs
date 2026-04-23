@@ -65,14 +65,8 @@ pub enum ParsedExpression {
     Float(f32),
     String(String),
     StringExpression(Vec<ParsedNode>),
-    Variable {
-        path: ParsedPath,
-        resolved_count_target: Option<ParsedObjectRef>,
-    },
-    DivertTarget {
-        target_path: ParsedPath,
-        resolved_target: Option<ParsedObjectRef>,
-    },
+    Variable(VariableReference),
+    DivertTarget(DivertTarget),
     ListItems(Vec<String>),
     EmptyList,
     Unary {
@@ -84,11 +78,7 @@ pub enum ParsedExpression {
         operator: String,
         right: Box<ParsedExpression>,
     },
-    FunctionCall {
-        path: ParsedPath,
-        arguments: Vec<ParsedExpression>,
-        resolved_target: Option<ParsedObjectRef>,
-    },
+    FunctionCall(FunctionCall),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -663,102 +653,70 @@ impl ParsedNode {
 
 impl ParsedExpression {
     pub fn variable(name: impl Into<String>) -> Self {
-        Self::Variable {
-            path: ParsedPath::from(name.into()),
-            resolved_count_target: None,
-        }
+        Self::Variable(VariableReference::new(ParsedPath::from(name.into())))
     }
 
     pub fn divert_target(target: impl Into<String>) -> Self {
-        Self::DivertTarget {
-            target_path: ParsedPath::from(target.into()),
-            resolved_target: None,
-        }
+        Self::DivertTarget(DivertTarget::new(ParsedPath::from(target.into())))
     }
 
     pub fn function_call(name: impl Into<String>, arguments: Vec<ParsedExpression>) -> Self {
-        Self::FunctionCall {
-            path: ParsedPath::from(name.into()),
-            arguments,
-            resolved_target: None,
-        }
+        Self::FunctionCall(FunctionCall::new(ParsedPath::from(name.into()), arguments))
     }
 
     pub fn variable_name(&self) -> Option<&str> {
         match self {
-            ParsedExpression::Variable { path, .. } => Some(path.as_str()),
+            ParsedExpression::Variable(reference) => Some(reference.path().as_str()),
             _ => None,
         }
     }
 
     pub fn divert_target_name(&self) -> Option<&str> {
         match self {
-            ParsedExpression::DivertTarget { target_path, .. } => Some(target_path.as_str()),
+            ParsedExpression::DivertTarget(target) => Some(target.target_path().as_str()),
             _ => None,
         }
     }
 
     pub fn function_call_name(&self) -> Option<&str> {
         match self {
-            ParsedExpression::FunctionCall { path, .. } => Some(path.as_str()),
+            ParsedExpression::FunctionCall(call) => Some(call.path().as_str()),
             _ => None,
         }
     }
 
     pub fn function_call_arguments(&self) -> Option<&[ParsedExpression]> {
         match self {
-            ParsedExpression::FunctionCall { arguments, .. } => Some(arguments),
+            ParsedExpression::FunctionCall(call) => Some(call.arguments()),
             _ => None,
         }
     }
 
     pub fn resolved_target(&self) -> Option<ParsedObjectRef> {
         match self {
-            ParsedExpression::DivertTarget { resolved_target, .. } => *resolved_target,
-            ParsedExpression::FunctionCall { resolved_target, .. } => *resolved_target,
+            ParsedExpression::DivertTarget(target) => target.resolved_target(),
+            ParsedExpression::FunctionCall(call) => call.resolved_target(),
             _ => None,
         }
     }
 
     pub fn resolved_count_target(&self) -> Option<ParsedObjectRef> {
         match self {
-            ParsedExpression::Variable {
-                resolved_count_target,
-                ..
-            } => *resolved_count_target,
+            ParsedExpression::Variable(reference) => reference.resolved_count_target(),
             _ => None,
         }
     }
 
     pub fn resolve_targets(&mut self, story: &Story) {
         match self {
-            ParsedExpression::Variable {
-                path,
-                resolved_count_target,
-            } => {
-                *resolved_count_target = story.resolve_target_ref(path.as_str());
-            }
-            ParsedExpression::DivertTarget {
-                target_path,
-                resolved_target,
-            } => {
-                *resolved_target = story.resolve_target_ref(target_path.as_str());
-            }
+            ParsedExpression::Variable(reference) => reference.resolve_targets(story),
+            ParsedExpression::DivertTarget(target) => target.resolve_targets(story),
             ParsedExpression::Unary { expression, .. } => expression.resolve_targets(story),
             ParsedExpression::Binary { left, right, .. } => {
                 left.resolve_targets(story);
                 right.resolve_targets(story);
             }
-            ParsedExpression::FunctionCall {
-                path,
-                arguments,
-                resolved_target,
-            } => {
-                *resolved_target = story.find_flow_by_name(path.as_str()).map(|flow| flow.reference());
-                for argument in arguments {
-                    argument.resolve_targets(story);
-                }
-            }
+            ParsedExpression::FunctionCall(call) => call.resolve_targets(story),
             ParsedExpression::StringExpression(nodes) => {
                 for node in nodes {
                     node.resolve_targets(story);
@@ -879,11 +837,11 @@ impl ParsedFlow {
 impl ParsedExpression {
     pub(super) fn validate(&self, scope: &ValidationScope, story: &Story) -> Result<(), CompilerError> {
         match self {
-            ParsedExpression::Variable { path, .. } => {
-                VariableReference::validate_name(path.as_str(), scope, story)?;
+            ParsedExpression::Variable(reference) => {
+                VariableReference::validate_name(reference.path().as_str(), scope, story)?;
             }
-            ParsedExpression::DivertTarget { target_path, .. } => {
-                DivertTarget::validate_explicit_target(target_path.as_str(), scope, story)?;
+            ParsedExpression::DivertTarget(target) => {
+                DivertTarget::validate_explicit_target(target.target_path().as_str(), scope, story)?;
             }
             ParsedExpression::Unary { expression, .. } => {
                 expression.validate(scope, story)?;
@@ -892,11 +850,7 @@ impl ParsedExpression {
                 left.validate(scope, story)?;
                 right.validate(scope, story)?;
             }
-            ParsedExpression::FunctionCall {
-                path, arguments, ..
-            } => {
-                FunctionCall::validate_call_arguments(path.as_str(), arguments, scope, story)?;
-            }
+            ParsedExpression::FunctionCall(call) => call.validate(scope, story)?,
             ParsedExpression::StringExpression(nodes) => {
                 ParsedNode::validate_list(nodes, scope, story)?;
             }

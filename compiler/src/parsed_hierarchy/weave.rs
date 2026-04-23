@@ -9,7 +9,7 @@ use crate::{
     },
 };
 
-use bladeink::CommandType;
+use bladeink::{CommandType, Container, Path};
 
 use super::{
     ChoiceNode, ChoiceNodeSpec, ContentList, GatherNode, GatherNodeSpec, ObjectKind, ParsedNode,
@@ -59,6 +59,28 @@ impl Choice {
 
     pub fn object_mut(&mut self) -> &mut ParsedObject {
         &mut self.object
+    }
+
+    pub fn outer_container(&self) -> Option<Rc<Container>> {
+        self.object
+            .runtime_object()
+            .and_then(|object| object.into_any().downcast::<Container>().ok())
+    }
+
+    pub fn inner_content_container(&self) -> Option<Rc<Container>> {
+        self.object.container_for_counting()
+    }
+
+    pub fn runtime_container(&self) -> Option<Rc<Container>> {
+        self.inner_content_container()
+    }
+
+    pub fn runtime_path(&self) -> Option<Path> {
+        self.object.runtime_path()
+    }
+
+    pub fn container_for_counting(&self) -> Option<Rc<Container>> {
+        self.inner_content_container()
     }
 
     pub fn identifier(&self) -> Option<&str> {
@@ -148,6 +170,18 @@ impl Gather {
         &mut self.object
     }
 
+    pub fn runtime_container(&self) -> Option<Rc<Container>> {
+        self.object.container_for_counting()
+    }
+
+    pub fn runtime_path(&self) -> Option<Path> {
+        self.object.runtime_path()
+    }
+
+    pub fn container_for_counting(&self) -> Option<Rc<Container>> {
+        self.runtime_container()
+    }
+
     pub fn identifier(&self) -> Option<&str> {
         self.identifier.as_deref()
     }
@@ -177,36 +211,35 @@ pub struct Weave {
 }
 
 #[derive(Debug, Clone)]
-pub enum StructuredWeaveEntryKind {
+pub(crate) enum StructuredWeaveEntryKind {
     Content(Vec<ParsedNode>),
     Choice(ChoiceNodeSpec),
     Gather(GatherNodeSpec),
 }
 
 #[derive(Debug, Clone)]
-pub struct StructuredWeaveEntry {
+pub(crate) struct StructuredWeaveEntry {
     kind: StructuredWeaveEntryKind,
     nested: Option<Box<StructuredWeave>>,
 }
 
 impl StructuredWeaveEntry {
-    pub fn kind(&self) -> &StructuredWeaveEntryKind {
+    pub(crate) fn kind(&self) -> &StructuredWeaveEntryKind {
         &self.kind
     }
 
-    pub fn nested(&self) -> Option<&StructuredWeave> {
+    pub(crate) fn nested(&self) -> Option<&StructuredWeave> {
         self.nested.as_deref()
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct StructuredWeave {
-    base_depth: usize,
+pub(crate) struct StructuredWeave {
     entries: Vec<StructuredWeaveEntry>,
 }
 
 impl StructuredWeave {
-    pub fn from_nodes(nodes: &[ParsedNode]) -> Option<Self> {
+    pub(crate) fn from_nodes(nodes: &[ParsedNode]) -> Option<Self> {
         let base_depth = nodes
             .iter()
             .filter_map(weave_depth)
@@ -293,15 +326,12 @@ impl StructuredWeave {
             });
         }
 
-        Some(Self { base_depth, entries })
+        let _ = base_depth;
+        Some(Self { entries })
     }
 
-    pub fn entries(&self) -> &[StructuredWeaveEntry] {
+    pub(crate) fn entries(&self) -> &[StructuredWeaveEntry] {
         &self.entries
-    }
-
-    pub fn base_depth(&self) -> usize {
-        self.base_depth
     }
 
     pub(crate) fn build_runtime_pending(
@@ -384,7 +414,7 @@ impl StructuredWeave {
 
                     if !choice.inner_content().is_empty() {
                         if has_weave_content(choice.inner_content()) {
-                            let weave_structure = StructuredWeave::from_nodes(choice.inner_content())
+                            let weave_structure = Weave::from_nodes(choice.inner_content())
                                 .expect("nested choice weave structure");
                             let weave = weave_structure.build_runtime_pending(
                                 state,
@@ -486,7 +516,7 @@ impl StructuredWeave {
 
                     if !gather.content().is_empty() {
                         if has_weave_content(gather.content()) {
-                            let weave_structure = StructuredWeave::from_nodes(gather.content())
+                            let weave_structure = Weave::from_nodes(gather.content())
                                 .expect("nested gather weave structure");
                             let weave = weave_structure.build_runtime_pending(
                                 state,
@@ -658,6 +688,19 @@ fn weave_depth(node: &ParsedNode) -> Option<usize> {
 }
 
 impl Weave {
+    pub(crate) fn from_nodes(nodes: &[ParsedNode]) -> Option<StructuredWeave> {
+        StructuredWeave::from_nodes(nodes)
+    }
+
+    pub(crate) fn collect_named_paths(
+        path_prefix: &str,
+        nodes: &[ParsedNode],
+    ) -> HashMap<String, String> {
+        Self::from_nodes(nodes)
+            .map(|weave| crate::runtime_export::collect_current_level_named_paths(path_prefix, weave.entries()))
+            .unwrap_or_default()
+    }
+
     pub fn new(base_indentation_index: usize) -> Self {
         Self {
             object: ParsedObject::new(ObjectKind::Weave),
@@ -672,6 +715,12 @@ impl Weave {
 
     pub fn object_mut(&mut self) -> &mut ParsedObject {
         &mut self.object
+    }
+
+    pub fn root_container(&self) -> Option<Rc<Container>> {
+        self.object
+            .runtime_object()
+            .and_then(|object| object.into_any().downcast::<Container>().ok())
     }
 
     pub fn base_indentation_index(&self) -> usize {

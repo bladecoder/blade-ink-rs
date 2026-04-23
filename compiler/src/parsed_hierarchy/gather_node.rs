@@ -1,5 +1,7 @@
 use crate::error::CompilerError;
-use std::collections::HashSet;
+use std::{collections::HashSet, rc::Rc};
+
+use bladeink::{Container, Path};
 
 use super::{ParsedNode, ParsedNodeKind};
 
@@ -80,6 +82,18 @@ impl<'a> GatherNode<'a> {
 
     pub fn is_label(self) -> bool {
         self.node.kind() == ParsedNodeKind::GatherLabel
+    }
+
+    pub fn runtime_container(self) -> Option<Rc<Container>> {
+        self.node.container_for_counting()
+    }
+
+    pub fn runtime_path(self) -> Option<Path> {
+        self.node.runtime_path()
+    }
+
+    pub fn container_for_counting(self) -> Option<Rc<Container>> {
+        self.runtime_container()
     }
 
     pub fn collect_named_label(self, names: &mut HashSet<String>) -> Result<(), CompilerError> {

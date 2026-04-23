@@ -337,16 +337,24 @@ Stitch text
             .iter()
             .find(|node| node.kind() == ParsedNodeKind::Choice)
             .expect("choice node");
+        let choice_node = choice.as_choice().expect("typed choice");
         assert!(choice.runtime_path().is_some());
         assert!(choice.container_for_counting().is_some());
+        assert!(choice_node.outer_container().is_some());
+        assert!(choice_node.inner_content_container().is_some());
+        assert!(choice_node.runtime_container().is_some());
+        assert!(choice_node.runtime_path().is_some());
 
         let gather = parsed
             .root_nodes()
             .iter()
             .find(|node| node.kind() == ParsedNodeKind::GatherLabel)
             .expect("gather node");
+        let gather_node = gather.as_gather().expect("typed gather");
         assert!(gather.runtime_path().is_some());
         assert!(gather.container_for_counting().is_some());
+        assert!(gather_node.runtime_container().is_some());
+        assert!(gather_node.runtime_path().is_some());
     }
 
     #[test]

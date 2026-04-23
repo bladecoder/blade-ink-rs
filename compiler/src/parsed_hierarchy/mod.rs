@@ -55,4 +55,5 @@ pub use tunnel_onwards::TunnelOnwards;
 pub(crate) use validation_scope::ValidationScope;
 pub use variable_assignment::{AssignmentNode, VariableAssignment};
 pub use variable_reference::VariableReference;
-pub use weave::{Choice, Gather, StructuredWeave, StructuredWeaveEntry, StructuredWeaveEntryKind, Weave, WeaveElement};
+pub use weave::{Choice, Gather, Weave, WeaveElement};
+pub(crate) use weave::{StructuredWeaveEntry, StructuredWeaveEntryKind};

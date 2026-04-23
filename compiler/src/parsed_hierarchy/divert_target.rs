@@ -1,11 +1,12 @@
 use crate::error::CompilerError;
 
-use super::{Expression, ObjectKind, ParsedPath, Story, ValidationScope};
+use super::{Expression, ObjectKind, ParsedObjectRef, ParsedPath, Story, ValidationScope};
 
 #[derive(Debug, Clone)]
 pub struct DivertTarget {
     expression: Expression,
     target_path: ParsedPath,
+    resolved_target: Option<ParsedObjectRef>,
 }
 
 impl DivertTarget {
@@ -13,6 +14,7 @@ impl DivertTarget {
         Self {
             expression: Expression::new(ObjectKind::DivertTarget),
             target_path: target_path.into(),
+            resolved_target: None,
         }
     }
 
@@ -22,6 +24,14 @@ impl DivertTarget {
 
     pub fn target_path(&self) -> &ParsedPath {
         &self.target_path
+    }
+
+    pub fn resolved_target(&self) -> Option<ParsedObjectRef> {
+        self.resolved_target
+    }
+
+    pub fn resolve_targets(&mut self, story: &Story) {
+        self.resolved_target = story.resolve_target_ref(self.target_path.as_str());
     }
 
     pub(super) fn validate_explicit_target(

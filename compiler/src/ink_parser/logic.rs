@@ -23,7 +23,7 @@ impl<'fh> InkParser<'fh> {
         let expression = self.expression_until_top_level_terminators("\n\r")?;
         let _ = self.end_of_line();
         match expression {
-            crate::parsed_hierarchy::ParsedExpression::FunctionCall { .. } => self
+            crate::parsed_hierarchy::ParsedExpression::FunctionCall(_) => self
                 .parser
                 .succeed_rule(rule_id, Some(ParsedNode::new(ParsedNodeKind::VoidCall).with_expression(expression))),
             _ => self.parser.fail_rule(rule_id),

@@ -1,3 +1,7 @@
+use std::rc::Rc;
+
+use bladeink::Container;
+
 use super::{ObjectKind, ParsedObject, Text};
 
 #[derive(Debug, Clone)]
@@ -35,6 +39,10 @@ impl ContentList {
         &mut self.object
     }
 
+    pub fn runtime_container(&self) -> Option<Rc<Container>> {
+        self.object.container_for_counting()
+    }
+
     pub fn content(&self) -> &[Content] {
         &self.content
     }
@@ -63,5 +71,20 @@ impl ContentList {
             }
             break;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ContentList;
+
+    #[test]
+    fn content_list_runtime_container_uses_object_cache() {
+        let list = ContentList::new();
+        let runtime = bladeink::Container::new(None, 0, Vec::new(), std::collections::HashMap::new());
+        list.object().set_runtime_object(runtime.clone());
+        list.object().set_container_for_counting(runtime.clone());
+
+        assert!(list.runtime_container().is_some());
     }
 }

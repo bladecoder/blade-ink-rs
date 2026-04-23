@@ -188,18 +188,39 @@ impl Story {
 
     pub fn export_runtime(&self) -> Result<RuntimeStory, CompilerError> {
         let state = crate::runtime_export::ExportState::new();
-        let list_defs = self.export_runtime_list_defs();
-        let mut named_content = HashMap::new();
+        let list_defs = self.prepare_runtime_list_defs();
+        let named_content = self.build_runtime_named_content(&state)?;
+        let root = self.build_runtime_root_container(&state, named_content)?;
 
+        self.finalize_runtime_story(root, list_defs, &state)
+    }
+
+    fn prepare_runtime_list_defs(&self) -> Vec<RuntimeListDefinition> {
+        self.export_runtime_list_defs()
+    }
+
+    fn build_runtime_named_content(
+        &self,
+        state: &crate::runtime_export::ExportState,
+    ) -> Result<HashMap<String, Rc<Container>>, CompilerError> {
+        let mut named_content = HashMap::new();
         for flow in self.parsed_flows() {
             let name = flow.flow().identifier().unwrap_or_default().to_owned();
-            named_content.insert(name.clone(), flow.export_runtime(&state, self, &name)?);
+            named_content.insert(name.clone(), flow.export_runtime(state, self, &name)?);
         }
 
         if let Some(global_decl) = self.export_global_decl_runtime()? {
             named_content.insert("global decl".to_owned(), global_decl);
         }
 
+        Ok(named_content)
+    }
+
+    fn build_runtime_root_container(
+        &self,
+        state: &crate::runtime_export::ExportState,
+        named_content: HashMap<String, Rc<Container>>,
+    ) -> Result<Rc<Container>, CompilerError> {
         let inner_root = crate::runtime_export::export_weave(
             &state,
             "0",
@@ -218,6 +239,16 @@ impl Story {
         self.object().set_runtime_object(root.clone());
         self.object().set_container_for_counting(root.clone());
 
+        Ok(root)
+    }
+
+    fn finalize_runtime_story(
+        &self,
+        root: Rc<Container>,
+        list_defs: Vec<RuntimeListDefinition>,
+        state: &crate::runtime_export::ExportState,
+    ) -> Result<RuntimeStory, CompilerError> {
+        
         state.apply_path_fixups();
 
         RuntimeStory::from_compiled(root, list_defs)
@@ -299,6 +330,72 @@ impl Story {
             .map(|flow| flow.object().reference())
             .or_else(|| self.resolve_explicit_named_label_ref(target))
             .or_else(|| self.resolve_named_label_ref(target))
+    }
+
+    pub(crate) fn resolve_unique_nested_flow_target_path(&self, target: &str) -> Option<String> {
+        let mut matches = Vec::new();
+        collect_nested_flow_target_paths(self.parsed_flows(), target, None, &mut matches);
+        (matches.len() == 1).then(|| matches.pop().unwrap())
+    }
+
+    pub(crate) fn resolve_sibling_or_ancestor_flow_target_path(
+        &self,
+        target: &str,
+        current_flow: &ParsedFlow,
+    ) -> Option<String> {
+        resolve_sibling_or_ancestor_flow_target_in(
+            self.parsed_flows(),
+            current_flow.object().id(),
+            target,
+            None,
+        )
+    }
+
+    pub(crate) fn resolve_explicit_weave_target_path(&self, target: &str) -> Option<String> {
+        let mut parts: Vec<&str> = target.split('.').collect();
+        if parts.len() < 2 {
+            return None;
+        }
+
+        let weave_name = parts.pop()?;
+        let mut flows = self.parsed_flows();
+        let mut prefix = String::new();
+        let mut current_flow: Option<&ParsedFlow> = None;
+
+        for flow_name in parts {
+            let flow = flows.iter().find(|flow| flow.flow().identifier() == Some(flow_name))?;
+            if !prefix.is_empty() {
+                prefix.push('.');
+            }
+            prefix.push_str(flow_name);
+            current_flow = Some(flow);
+            flows = flow.children();
+        }
+
+        let flow = current_flow?;
+        let path_prefix = format!("{prefix}.0");
+        let named_paths = super::Weave::collect_named_paths(&path_prefix, flow.content());
+        named_paths.get(weave_name).cloned()
+    }
+
+    pub(crate) fn expand_weave_point_runtime_path(
+        &self,
+        target: &str,
+        named_paths: Option<&HashMap<String, String>>,
+    ) -> Option<String> {
+        if let Some(named_paths) = named_paths
+            && let Some(path) = named_paths.get(target)
+        {
+            return Some(path.clone());
+        }
+
+        let mut parts: Vec<&str> = target.split('.').collect();
+        if parts.len() < 2 {
+            return None;
+        }
+        let last = parts.pop()?;
+        let candidate = format!("{}.0.{last}", parts.join("."));
+        has_named_content_path(self.parsed_flows(), &candidate).then_some(candidate)
     }
 
     pub(crate) fn has_named_label(&self, target: &str) -> bool {
@@ -650,6 +747,120 @@ fn collect_all_flow_names_into(flows: &[ParsedFlow], names: &mut HashSet<String>
     }
 }
 
+fn collect_nested_flow_target_paths(
+    flows: &[ParsedFlow],
+    target: &str,
+    prefix: Option<&str>,
+    matches: &mut Vec<String>,
+) {
+    for flow in flows {
+        let Some(flow_name) = flow.flow().identifier() else {
+            continue;
+        };
+        let path = prefix
+            .map(|prefix| format!("{prefix}.{flow_name}"))
+            .unwrap_or_else(|| flow_name.to_owned());
+
+        if flow
+            .children()
+            .iter()
+            .any(|child| child.flow().identifier() == Some(target))
+        {
+            matches.push(format!("{path}.{target}"));
+        }
+
+        collect_nested_flow_target_paths(flow.children(), target, Some(&path), matches);
+    }
+}
+
+fn resolve_sibling_or_ancestor_flow_target_in(
+    flows: &[ParsedFlow],
+    current_flow_id: usize,
+    target: &str,
+    prefix: Option<&str>,
+) -> Option<String> {
+    for flow in flows {
+        let flow_name = flow.flow().identifier()?;
+        let path = prefix
+            .map(|prefix| format!("{prefix}.{flow_name}"))
+            .unwrap_or_else(|| flow_name.to_owned());
+
+        if flow.children().iter().any(|child| child.object().id() == current_flow_id)
+            && flow
+                .children()
+                .iter()
+                .any(|child| child.flow().identifier() == Some(target))
+        {
+            return Some(format!("{path}.{target}"));
+        }
+
+        if let Some(found) = resolve_sibling_or_ancestor_flow_target_in(
+            flow.children(),
+            current_flow_id,
+            target,
+            Some(&path),
+        ) {
+            return Some(found);
+        }
+    }
+
+    None
+}
+
+fn has_named_content_path(flows: &[ParsedFlow], path: &str) -> bool {
+    let parts: Vec<&str> = path.split('.').collect();
+    if parts.is_empty() {
+        return false;
+    }
+
+    for flow in flows {
+        if flow.flow().identifier() == Some(parts[0]) {
+            return has_named_content_path_in_flow(flow, &parts[1..]);
+        }
+    }
+
+    false
+}
+
+fn has_named_content_path_in_flow(flow: &ParsedFlow, parts: &[&str]) -> bool {
+    if parts.is_empty() {
+        return true;
+    }
+
+    if parts[0] == "0" {
+        return has_named_content_path_in_nodes(flow.content(), &parts[1..]);
+    }
+
+    for child in flow.children() {
+        if child.flow().identifier() == Some(parts[0]) {
+            return has_named_content_path_in_flow(child, &parts[1..]);
+        }
+    }
+
+    false
+}
+
+fn has_named_content_path_in_nodes(nodes: &[ParsedNode], parts: &[&str]) -> bool {
+    if parts.is_empty() {
+        return true;
+    }
+
+    let target = parts[0];
+    for node in nodes {
+        if node.as_choice().and_then(|choice| choice.identifier()).is_some_and(|name| name == target) {
+            return true;
+        }
+        if node.as_gather().and_then(|gather| gather.identifier()).is_some_and(|name| name == target) {
+            return true;
+        }
+        if node.as_gather().is_some_and(|gather| !gather.is_label()) {
+            continue;
+        }
+    }
+
+    false
+}
+
 fn collect_global_declared_vars_in_flow(flow: &ParsedFlow, names: &mut HashSet<String>) {
     for node in flow.content() {
         node.collect_global_declared_vars(names);
@@ -688,33 +899,20 @@ fn apply_counting_marks_in_node(node: &ParsedNode, story: &mut Story) {
 
 fn apply_counting_marks_in_expression(expression: &ParsedExpression, story: &mut Story) {
     match expression {
-        ParsedExpression::Variable {
-            resolved_count_target,
-            ..
-        } => {
-            if let Some(target) = resolved_count_target {
-                story.mark_count_target(*target, false);
+        ParsedExpression::Variable(reference) => {
+            if let Some(target) = reference.resolved_count_target() {
+                story.mark_count_target(target, false);
             }
         }
-        ParsedExpression::DivertTarget { .. } => {}
+        ParsedExpression::DivertTarget(_) => {}
         ParsedExpression::Unary { expression, .. } => apply_counting_marks_in_expression(expression, story),
         ParsedExpression::Binary { left, right, .. } => {
             apply_counting_marks_in_expression(left, story);
             apply_counting_marks_in_expression(right, story);
         }
-        ParsedExpression::FunctionCall {
-            path,
-            arguments,
-            ..
-        } => {
-            if matches!(path.as_str(), "TURNS_SINCE" | "READ_COUNT")
-                && let Some(argument) = arguments.first()
-            {
-                if let Some(target) = argument.resolved_target().or_else(|| argument.resolved_count_target()) {
-                    story.mark_count_target(target, path.as_str() == "TURNS_SINCE");
-                }
-            }
-            for argument in arguments {
+        ParsedExpression::FunctionCall(call) => {
+            call.apply_counting_marks(story);
+            for argument in call.arguments() {
                 apply_counting_marks_in_expression(argument, story);
             }
         }

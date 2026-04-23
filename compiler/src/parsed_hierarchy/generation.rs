@@ -6,7 +6,7 @@ use crate::{error::CompilerError, runtime_export::{ExportState, Scope}};
 
 use bladeink::Container;
 
-use super::{ParsedFlow, ParsedNode, Story};
+use super::{DivertTarget, FunctionCall, ParsedFlow, ParsedNode, Story, VariableReference};
 
 #[allow(dead_code)]
 pub(crate) trait GenerateRuntimeObject {
@@ -102,5 +102,53 @@ impl GenerateRuntimeObject for Story {
     ) -> Result<Rc<dyn RTObject>, CompilerError> {
         self.runtime_object()
             .ok_or_else(|| CompilerError::unsupported_feature("story runtime object not generated yet"))
+    }
+}
+
+impl GenerateRuntimeObject for VariableReference {
+    fn generate_runtime_object(
+        &self,
+        _state: &ExportState,
+        _scope: Scope<'_>,
+        _story: &Story,
+        _named_paths: Option<&HashMap<String, String>>,
+        _path_hint: Option<&str>,
+    ) -> Result<Rc<dyn RTObject>, CompilerError> {
+        Ok(self.runtime_object())
+    }
+}
+
+impl GenerateRuntimeObject for DivertTarget {
+    fn generate_runtime_object(
+        &self,
+        _state: &ExportState,
+        _scope: Scope<'_>,
+        story: &Story,
+        _named_paths: Option<&HashMap<String, String>>,
+        _path_hint: Option<&str>,
+    ) -> Result<Rc<dyn RTObject>, CompilerError> {
+        let path = self
+            .resolved_target()
+            .and_then(|target_ref| story.runtime_target_cache_for_ref(target_ref))
+            .and_then(|cache| cache.runtime_path())
+            .map(|path| path.to_string())
+            .or_else(|| self.target_path().runtime_path(story))
+            .unwrap_or_else(|| self.target_path().as_str().to_owned());
+        Ok(Rc::new(bladeink::Value::new(bladeink::Path::new_with_components_string(Some(&path)))))
+    }
+}
+
+impl GenerateIntoContainer for FunctionCall {
+    fn generate_into_container(
+        &self,
+        _state: &ExportState,
+        _scope: Scope<'_>,
+        story: &Story,
+        _named_paths: Option<&HashMap<String, String>>,
+        _container_path: Option<&str>,
+        _content_index_offset: usize,
+        content: &mut Vec<Rc<dyn RTObject>>,
+    ) -> Result<(), CompilerError> {
+        self.export_runtime(story, content)
     }
 }
