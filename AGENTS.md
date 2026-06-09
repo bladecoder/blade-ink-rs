@@ -1,0 +1,3 @@
+- el código fuente de la implentación de referencia en C# del compilador y runtime está en ../ink
+- el compilador, el runtime y rinlekate deben seguir la implementación de referencia, tanto en arquitectura como en código. Línea a línea debe ser una traducción de C# a Rust dentro de lo que permita el lenguaje de forma idiomática.
+- la app `inklecate` está en el PATH y se puede usar tanto para generar .json y ejecutar un .ink con la implementación de referencia.
