@@ -1524,12 +1524,14 @@ fn emit_choice_block(
             let threaded = build_wrapped_loop_choice_block(
                 section.choices,
                 section.continuation_nodes,
-                loop_label,
                 scope,
-                out.content.len(),
                 next_choice_index,
                 context,
-                fallback_continuation,
+                WrappedLoopChoiceBlockConfig {
+                    loop_label,
+                    group_index: out.content.len(),
+                    fallback_continuation,
+                },
             )?;
             pack_threaded_choice_output(out, threaded)?;
             return Ok(());
@@ -1581,7 +1583,7 @@ fn emit_choice_block(
         } else {
             let generated_name = format!("g-{}", *next_choice_index);
             let name = gather_label.as_deref().unwrap_or(&generated_name);
-            let continuation_scope = block_scope.continuation(&name);
+            let continuation_scope = block_scope.continuation(name);
             // The gather label is represented by the named-content key.
             let continuation_body = if gather_label.is_some() {
                 &section.continuation_nodes[1..]
@@ -1910,16 +1912,26 @@ fn build_threaded_choice_block_no_label(
     })
 }
 
+struct WrappedLoopChoiceBlockConfig<'a> {
+    loop_label: &'a str,
+    group_index: usize,
+    fallback_continuation: Option<&'a str>,
+}
+
 fn build_wrapped_loop_choice_block(
     choices: &[Node],
     continuation: &[Node],
-    loop_label: &str,
     scope: &EmitScope,
-    group_index: usize,
     next_choice_index: &mut usize,
     context: &EmitContext,
-    fallback_continuation: Option<&str>,
+    config: WrappedLoopChoiceBlockConfig<'_>,
 ) -> Result<ThreadedChoiceOutput, CompilerError> {
+    let WrappedLoopChoiceBlockConfig {
+        loop_label,
+        group_index,
+        fallback_continuation,
+    } = config;
+
     let mut choice_labels = BTreeMap::new();
     for (offset, node) in choices.iter().enumerate() {
         let Node::Choice(choice) = node else {
