@@ -149,7 +149,8 @@ fn emit_choice(
                 if choice
                     .label
                     .as_deref()
-                    .is_some_and(|l| context.turns_since_targets.contains(l))
+                    .and_then(|label| context.flow_count_flags.get(label))
+                    .is_some_and(|flags| flags & COUNT_TURNS != 0)
                 {
                     7 // VISITS | TURNS | COUNT_START_ONLY
                 } else {

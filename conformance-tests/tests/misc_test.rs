@@ -2,6 +2,7 @@ use std::{error::Error, path::Path};
 
 use bladeink::{story::Story, story_error::StoryError, value_type::ValueType};
 use bladeink_compiler::{Compiler, CompilerError, CompilerOptions};
+use serde_json::Value;
 
 mod common;
 
@@ -299,6 +300,97 @@ fn count_all_visits_option_changes_compiled_container_flags() {
         json_with_count_all_visits.contains("\"knot\":[\"^Hello\",\"\\n\",\"end\",{\"#f\":1}]"),
         "missing visit-count flags when count_all_visits=true: {json_with_count_all_visits}"
     );
+}
+
+fn compile_json_with_count_all_visits(ink: &str, count_all_visits: bool) -> Value {
+    let json = Compiler::with_options(CompilerOptions {
+        count_all_visits,
+        source_filename: None,
+    })
+    .compile(ink)
+    .unwrap();
+    serde_json::from_str(&json).unwrap()
+}
+
+fn container_flags(container: &Value) -> Option<i64> {
+    container
+        .as_array()
+        .and_then(|values| values.last())
+        .and_then(Value::as_object)
+        .and_then(|terminator| terminator.get("#f"))
+        .and_then(Value::as_i64)
+}
+
+#[test]
+fn flow_count_flags_match_reference_bit_combinations() {
+    let ink = r#"
+{ TURNS_SINCE(-> target) }
+~ inspect(-> forwarded)
+-> END
+
+=== target ===
+-> END
+
+=== forwarded ===
+-> END
+
+=== function inspect(x) ===
+~ return
+
+=== function ordinary ===
+~ return
+"#;
+
+    let without_all_visits = compile_json_with_count_all_visits(ink, false);
+    let flows = without_all_visits["root"][2].as_object().unwrap();
+    assert_eq!(Some(2), container_flags(&flows["target"]));
+    assert_eq!(Some(3), container_flags(&flows["forwarded"]));
+    assert_eq!(None, container_flags(&flows["ordinary"]));
+
+    let with_all_visits = compile_json_with_count_all_visits(ink, true);
+    let flows = with_all_visits["root"][2].as_object().unwrap();
+    assert_eq!(Some(3), container_flags(&flows["target"]));
+    assert_eq!(Some(3), container_flags(&flows["forwarded"]));
+    assert_eq!(Some(1), container_flags(&flows["ordinary"]));
+}
+
+#[test]
+fn count_start_only_stays_on_choice_container() {
+    let json = compile_json_with_count_all_visits(
+        r#"
+=== knot ===
+* Choice
+    -> END
+"#,
+        true,
+    );
+    let knot = &json["root"][2]["knot"];
+    assert_eq!(Some(1), container_flags(knot));
+    assert_eq!(
+        Some(5),
+        container_flags(&knot[knot.as_array().unwrap().len() - 1]["c-0"])
+    );
+}
+
+#[test]
+fn turns_since_marks_only_the_referenced_nested_flow() {
+    let json = compile_json_with_count_all_visits(
+        r#"
+{ TURNS_SINCE(-> knot.first) }
+-> END
+
+=== knot ===
+= first
+-> END
+= second
+-> END
+"#,
+        false,
+    );
+    let knot = &json["root"][2]["knot"];
+    let named = knot.as_array().unwrap().last().unwrap();
+    assert_eq!(Some(2), container_flags(&named["first"]));
+    assert_eq!(None, container_flags(&named["second"]));
 }
 
 #[test]

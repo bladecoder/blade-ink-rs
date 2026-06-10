@@ -109,8 +109,8 @@ struct EmitContext {
     list_items: std::collections::BTreeMap<String, Vec<(String, u32)>>,
     /// Set of EXTERNAL function declaration names
     external_functions: BTreeSet<String>,
-    /// Set of flow names referenced as arguments to TURNS_SINCE()
-    turns_since_targets: BTreeSet<String>,
+    /// Count flags required by explicit references to flow containers.
+    flow_count_flags: BTreeMap<String, i32>,
     /// Fully-qualified authored label targets (e.g. `knot.stitch.choice`) mapped
     /// to their emitted runtime paths (e.g. `knot.stitch.c-0`).
     qualified_choice_labels: BTreeMap<String, String>,
@@ -202,26 +202,36 @@ impl EmittedContainer {
     }
 }
 
-fn collect_turns_since_targets_from_flows_into(flows: &[Flow], targets: &mut BTreeSet<String>) {
+const COUNT_VISITS: i32 = 1;
+const COUNT_TURNS: i32 = 2;
+
+fn add_flow_count_flags(targets: &mut BTreeMap<String, i32>, target: &str, flags: i32) {
+    *targets.entry(target.to_owned()).or_default() |= flags;
+}
+
+fn collect_flow_count_flags_from_flows_into(
+    flows: &[Flow],
+    targets: &mut BTreeMap<String, i32>,
+) {
     for flow in flows {
-        collect_turns_since_targets_from_nodes(&flow.nodes, targets);
-        collect_turns_since_targets_from_flows_into(&flow.children, targets);
+        collect_flow_count_flags_from_nodes(&flow.nodes, targets);
+        collect_flow_count_flags_from_flows_into(&flow.children, targets);
     }
 }
 
-fn collect_turns_since_targets_from_nodes(nodes: &[Node], targets: &mut BTreeSet<String>) {
+fn collect_flow_count_flags_from_nodes(nodes: &[Node], targets: &mut BTreeMap<String, i32>) {
     for node in nodes {
         match node {
             Node::OutputExpression(expr) => {
-                collect_turns_since_targets_from_expr(expr, targets);
+                collect_flow_count_flags_from_expr(expr, targets);
             }
             Node::Choice(choice) => {
                 for cond in &choice.conditions {
                     if let Condition::Expression(e) = cond {
-                        collect_turns_since_targets_from_expr(e, targets);
+                        collect_flow_count_flags_from_expr(e, targets);
                     }
                 }
-                collect_turns_since_targets_from_nodes(&choice.body, targets);
+                collect_flow_count_flags_from_nodes(&choice.body, targets);
             }
             Node::Conditional {
                 condition,
@@ -229,34 +239,34 @@ fn collect_turns_since_targets_from_nodes(nodes: &[Node], targets: &mut BTreeSet
                 when_false,
             } => {
                 if let Condition::Expression(e) = condition {
-                    collect_turns_since_targets_from_expr(e, targets);
+                    collect_flow_count_flags_from_expr(e, targets);
                 }
-                collect_turns_since_targets_from_nodes(when_true, targets);
+                collect_flow_count_flags_from_nodes(when_true, targets);
                 if let Some(nodes) = when_false {
-                    collect_turns_since_targets_from_nodes(nodes, targets);
+                    collect_flow_count_flags_from_nodes(nodes, targets);
                 }
             }
             Node::SwitchConditional { value, branches } => {
-                collect_turns_since_targets_from_expr(value, targets);
+                collect_flow_count_flags_from_expr(value, targets);
                 for (opt_expr, branch_nodes) in branches {
                     if let Some(e) = opt_expr {
-                        collect_turns_since_targets_from_expr(e, targets);
+                        collect_flow_count_flags_from_expr(e, targets);
                     }
-                    collect_turns_since_targets_from_nodes(branch_nodes, targets);
+                    collect_flow_count_flags_from_nodes(branch_nodes, targets);
                 }
             }
             Node::Assignment { expression, .. } => {
-                collect_turns_since_targets_from_expr(expression, targets);
+                collect_flow_count_flags_from_expr(expression, targets);
             }
             Node::ReturnExpr(e) => {
-                collect_turns_since_targets_from_expr(e, targets);
+                collect_flow_count_flags_from_expr(e, targets);
             }
             Node::VoidCall { args, .. } => {
                 for arg in args {
                     if let Expression::DivertTarget(target) = arg {
-                        targets.insert(target.clone());
+                        add_flow_count_flags(targets, target, COUNT_VISITS | COUNT_TURNS);
                     } else {
-                        collect_turns_since_targets_from_expr(arg, targets);
+                        collect_flow_count_flags_from_expr(arg, targets);
                     }
                 }
             }
@@ -265,25 +275,28 @@ fn collect_turns_since_targets_from_nodes(nodes: &[Node], targets: &mut BTreeSet
     }
 }
 
-fn collect_turns_since_targets_from_expr(expr: &Expression, targets: &mut BTreeSet<String>) {
+fn collect_flow_count_flags_from_expr(expr: &Expression, targets: &mut BTreeMap<String, i32>) {
     match expr {
-        Expression::FunctionCall { args, .. } => {
-            // Any DivertTarget passed as a function argument is a TURNS_SINCE candidate —
-            // it may be passed directly to TURNS_SINCE or forwarded via a parameter.
+        Expression::FunctionCall { name, args } => {
+            let direct_flags = match name.as_str() {
+                "TURNS_SINCE" => COUNT_TURNS,
+                "READ_COUNT" => COUNT_VISITS,
+                _ => COUNT_VISITS | COUNT_TURNS,
+            };
             for arg in args {
                 if let Expression::DivertTarget(target) = arg {
-                    targets.insert(target.clone());
+                    add_flow_count_flags(targets, target, direct_flags);
                 } else {
-                    collect_turns_since_targets_from_expr(arg, targets);
+                    collect_flow_count_flags_from_expr(arg, targets);
                 }
             }
         }
         Expression::Negate(inner) | Expression::Not(inner) => {
-            collect_turns_since_targets_from_expr(inner, targets);
+            collect_flow_count_flags_from_expr(inner, targets);
         }
         Expression::Binary { left, right, .. } => {
-            collect_turns_since_targets_from_expr(left, targets);
-            collect_turns_since_targets_from_expr(right, targets);
+            collect_flow_count_flags_from_expr(left, targets);
+            collect_flow_count_flags_from_expr(right, targets);
         }
         _ => {}
     }
@@ -300,11 +313,19 @@ impl EmitContext {
                 .collect();
             list_items.insert(list_decl.name.clone(), items);
         }
-        let mut turns_since_targets = BTreeSet::new();
-        collect_turns_since_targets_from_nodes(story.root(), &mut turns_since_targets);
-        collect_turns_since_targets_from_flows_into(story.flows(), &mut turns_since_targets);
         let qualified_choice_labels = collect_story_choice_labels(story);
         let unqualified_flow_targets = collect_unqualified_flow_targets(story);
+        let mut raw_flow_count_flags = BTreeMap::new();
+        collect_flow_count_flags_from_nodes(story.root(), &mut raw_flow_count_flags);
+        collect_flow_count_flags_from_flows_into(story.flows(), &mut raw_flow_count_flags);
+        let mut flow_count_flags = BTreeMap::new();
+        for (target, flags) in raw_flow_count_flags {
+            let resolved = unqualified_flow_targets
+                .get(&target)
+                .cloned()
+                .unwrap_or(target);
+            add_flow_count_flags(&mut flow_count_flags, &resolved, flags);
+        }
         let function_ref_param_positions = story
             .flows()
             .iter()
@@ -330,7 +351,7 @@ impl EmitContext {
                 .collect(),
             list_items,
             external_functions: story.external_functions.iter().cloned().collect(),
-            turns_since_targets,
+            flow_count_flags,
             qualified_choice_labels,
             function_ref_param_positions,
             unqualified_flow_targets,

@@ -55,36 +55,7 @@ fn emit_flow(flow: &Flow, context: &EmitContext) -> Result<Value, CompilerError>
         );
     }
 
-    let count_flags = if flow.is_function && !context.external_functions.contains(&flow.name) {
-        // inklecate does not set VISITS for function containers. If referenced by TURNS_SINCE
-        // they need TURNS (2), otherwise no flags (0) → null terminator.
-        if context.turns_since_targets.contains(&flow.name) {
-            2
-        } else {
-            0
-        }
-    } else if context.count_all_visits {
-        // Containers referenced by TURNS_SINCE need VISITS | TURNS (3).
-        // Knots/stitches with top-level choices get VISITS | COUNTSTARTONLY (5)
-        // so that choice once-only visit tracking works correctly.
-        // All other knots/stitches (no choices, or with user stitches) just get VISITS (1).
-        if context.turns_since_targets.contains(&flow.name) {
-            3
-        } else if flow.nodes.iter().any(|n| matches!(n, Node::Choice(_))) {
-            5
-        } else {
-            1
-        }
-    } else {
-        // Even without count_all_visits, containers referenced by TURNS_SINCE need TURNS tracking
-        if context.turns_since_targets.contains(&flow.name) {
-            3
-        } else {
-            0
-        }
-    };
-
-    container.into_json_array(None, Some(count_flags))
+    container.into_json_array(None, Some(flow_count_flags(&scope.path, context)))
 }
 
 fn emit_nested_flow(
@@ -109,22 +80,19 @@ fn emit_nested_flow(
         );
     }
 
-    let count_flags = if flow.is_function && !context.external_functions.contains(&flow.name) {
-        // inklecate does not set VISITS for function containers.
-        0
-    } else if context.count_all_visits {
-        if context.turns_since_targets.contains(&flow.name) {
-            3
-        } else if flow.nodes.iter().any(|n| matches!(n, Node::Choice(_))) {
-            5
-        } else {
-            1
-        }
-    } else {
-        0
-    };
+    container.into_json_array(None, Some(flow_count_flags(&scope.path, context)))
+}
 
-    container.into_json_array(None, Some(count_flags))
+fn flow_count_flags(path: &str, context: &EmitContext) -> i32 {
+    let mut flags = context
+        .flow_count_flags
+        .get(path)
+        .copied()
+        .unwrap_or_default();
+    if context.count_all_visits {
+        flags |= COUNT_VISITS;
+    }
+    flags
 }
 
 fn prepend_parameters(container: &mut EmittedContainer, parameters: &[String]) {
