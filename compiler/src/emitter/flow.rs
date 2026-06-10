@@ -39,7 +39,7 @@ fn emit_global_declarations(
 fn emit_flow(flow: &Flow, context: &EmitContext) -> Result<Value, CompilerError> {
     let parent_scope = EmitScope::root(&[]);
     let scope = parent_scope.child_flow(flow);
-    let mut container = emit_nodes(&flow.nodes, &scope, context)?;
+    let mut container = emit_flow_nodes(flow, &scope, context)?;
 
     prepend_parameters(&mut container, &flow.parameters);
 
@@ -64,7 +64,7 @@ fn emit_nested_flow(
     context: &EmitContext,
 ) -> Result<Value, CompilerError> {
     let scope = parent_scope.child_flow(flow);
-    let mut container = emit_nodes(&flow.nodes, &scope, context)?;
+    let mut container = emit_flow_nodes(flow, &scope, context)?;
 
     prepend_parameters(&mut container, &flow.parameters);
 
@@ -81,6 +81,30 @@ fn emit_nested_flow(
     }
 
     container.into_json_array(None, Some(flow_count_flags(&scope.path, context)))
+}
+
+fn emit_flow_nodes(
+    flow: &Flow,
+    scope: &EmitScope,
+    context: &EmitContext,
+) -> Result<EmittedContainer, CompilerError> {
+    if !flow
+        .nodes
+        .iter()
+        .any(|node| matches!(node, Node::GatherLabel { indent: 0, .. }))
+    {
+        return emit_nodes(&flow.nodes, scope, context);
+    }
+
+    let weave_scope = flow_nodes_scope(flow, scope);
+    let weave = emit_nodes(&flow.nodes, &weave_scope, context)?;
+    let mut container = EmittedContainer::default();
+    container.push(weave.into_json_array(None, None)?);
+    Ok(container)
+}
+
+fn flow_nodes_scope(flow: &Flow, scope: &EmitScope) -> EmitScope {
+    scope.at_path(joined_path(&scope.path, flow.parameters.len()))
 }
 
 fn flow_count_flags(path: &str, context: &EmitContext) -> i32 {
@@ -136,7 +160,18 @@ fn collect_qualified_choice_labels_for_flow(
     labels: &mut BTreeMap<String, String>,
 ) {
     let scope = parent_scope.child_flow(flow);
-    collect_qualified_choice_labels_for_scope(&flow.nodes, &scope, labels);
+    let nodes_scope = if flow
+        .nodes
+        .iter()
+        .any(|node| matches!(node, Node::GatherLabel { indent: 0, .. }))
+    {
+        flow_nodes_scope(flow, &scope)
+    } else {
+        scope.clone()
+    };
+    for (label, path) in collect_all_choice_labels(&flow.nodes, &nodes_scope) {
+        labels.insert(format!("{}.{}", scope.path, label), path);
+    }
 
     for child in &flow.children {
         collect_qualified_choice_labels_for_flow(child, &scope, labels);
@@ -215,7 +250,7 @@ fn collect_choice_labels_recursive(
                 if !continuation.is_empty() {
                     let g_name = format!("g-{}", block_start_ci);
                     let (child_scope, continuation) =
-                        if let Some(Node::GatherLabel(label)) = continuation.first() {
+                        if let Some(Node::GatherLabel { label, .. }) = continuation.first() {
                             labels.insert(label.clone(), format!("{}.{}", scope.path, label));
                             (scope.choice_branch(label), &continuation[1..])
                         } else {
@@ -231,38 +266,59 @@ fn collect_choice_labels_recursive(
                 }
                 return; // choice block consumes the rest via continuation
             }
-            Node::GatherLabel(label) => {
-                // Standalone gather label (loop-back point): record its path so
-                // DivertTarget expressions can resolve it. Remaining nodes are
-                // emitted inside the label's sub-scope. Generated g-N continuations
-                // are hoisted back to the parent by emit_nodes_with_continuation,
-                // so mirror that path rewrite while collecting nested labels.
+            Node::GatherLabel {
+                label,
+                level,
+                indent,
+            } => {
                 labels.insert(label.clone(), format!("{}.{}", scope.path, label));
                 let sub_scope = scope.choice_branch(label);
                 let mut child_index = 0;
-                let mut nested_labels = BTreeMap::new();
+                if *indent > 0 {
+                    let mut nested_labels = BTreeMap::new();
+                    collect_choice_labels_recursive(
+                        &nodes[i + 1..],
+                        &sub_scope,
+                        &mut nested_labels,
+                        &mut child_index,
+                    );
+                    let nested_prefix = format!("{}.", sub_scope.path);
+                    for (nested_label, path) in nested_labels {
+                        let path = path
+                            .strip_prefix(&nested_prefix)
+                            .and_then(|suffix| {
+                                let first = suffix.split('.').next()?;
+                                first
+                                    .strip_prefix("g-")?
+                                    .parse::<usize>()
+                                    .ok()
+                                    .map(|_| format!("{}.{}", scope.path, suffix))
+                            })
+                            .unwrap_or(path);
+                        labels.insert(nested_label, path);
+                    }
+                    return;
+                }
+                let body_end = nodes[i + 1..]
+                    .iter()
+                    .position(|node| {
+                        matches!(
+                            node,
+                            Node::GatherLabel {
+                                level: next_level,
+                                indent: 0,
+                                ..
+                            } if next_level <= level
+                        )
+                    })
+                    .map_or(nodes.len(), |offset| i + 1 + offset);
                 collect_choice_labels_recursive(
-                    &nodes[i + 1..],
+                    &nodes[i + 1..body_end],
                     &sub_scope,
-                    &mut nested_labels,
+                    labels,
                     &mut child_index,
                 );
-                let nested_prefix = format!("{}.", sub_scope.path);
-                for (nested_label, path) in nested_labels {
-                    let path = path
-                        .strip_prefix(&nested_prefix)
-                        .and_then(|suffix| {
-                            let first = suffix.split('.').next()?;
-                            first
-                                .strip_prefix("g-")?
-                                .parse::<usize>()
-                                .ok()
-                                .map(|_| format!("{}.{}", scope.path, suffix))
-                        })
-                        .unwrap_or(path);
-                    labels.insert(nested_label, path);
-                }
-                return; // remaining nodes consumed by sub-scope recursion
+                i = body_end;
             }
             _ => {
                 i += 1;

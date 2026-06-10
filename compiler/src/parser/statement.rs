@@ -145,8 +145,9 @@ pub fn parse_statement(
 
     if !trimmed.starts_with("->") && trimmed.starts_with('-') {
         *line_index += 1;
+        let gather_level = choice::gather_nesting_level(trimmed);
         // Strip all leading '-' markers (nested gathers like "- -" or "- - -") — nesting
-        // is handled by indentation, treated as a single gather point.
+        // is retained on labeled gathers for weave hierarchy emission.
         let mut gather_content = trimmed;
         while let Some(rest) = gather_content.strip_prefix('-') {
             let next = rest.trim_start();
@@ -204,7 +205,11 @@ pub fn parse_statement(
             };
             let mut result = vec![Node::GatherPoint];
             if let Some(label) = gather_label {
-                result.push(Node::GatherLabel(label));
+                result.push(Node::GatherLabel {
+                    label,
+                    level: gather_level,
+                    indent: line.indent,
+                });
             }
             result.extend(choice_nodes);
             return Ok(ParsedStatement::Nodes(result));
@@ -245,7 +250,11 @@ pub fn parse_statement(
             }
             let mut result = Vec::new();
             if let Some(label) = gather_label {
-                result.push(Node::GatherLabel(label));
+                result.push(Node::GatherLabel {
+                    label,
+                    level: gather_level,
+                    indent: line.indent,
+                });
             }
             result.extend(nodes);
             return Ok(ParsedStatement::Nodes(result));
@@ -259,7 +268,14 @@ pub fn parse_statement(
         };
         let mut nodes = parse_content_line(&gather_line, true).map_err(|e| e.with_line(ln))?;
         if let Some(label) = gather_label {
-            nodes.insert(0, Node::GatherLabel(label));
+            nodes.insert(
+                0,
+                Node::GatherLabel {
+                    label,
+                    level: gather_level,
+                    indent: line.indent,
+                },
+            );
         }
         return Ok(ParsedStatement::Nodes(nodes));
     }
@@ -295,4 +311,3 @@ pub fn parse_statement(
         .map(ParsedStatement::Nodes)
         .map_err(|e| e.with_line(ln))
 }
-

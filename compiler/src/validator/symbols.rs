@@ -29,7 +29,7 @@ fn is_builtin_function(name: &str) -> bool {
 fn collect_labels_from_nodes(nodes: &[Node], prefix: &str, targets: &mut BTreeSet<String>) {
     for node in nodes {
         match node {
-            Node::GatherLabel(label) => {
+            Node::GatherLabel { label, .. } => {
                 if prefix.is_empty() {
                     targets.insert(label.clone());
                 } else {

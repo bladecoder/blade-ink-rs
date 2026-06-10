@@ -179,8 +179,12 @@ pub enum Node {
     /// An anonymous gather point `-` with no content and no label.
     /// Acts as a separator between choice blocks at different nesting levels.
     GatherPoint,
-    /// A gather point label `- (label)` — signals the emitter to name the next g-N container.
-    GatherLabel(String),
+    /// A gather point label `- (label)` with its weave level and source indentation.
+    GatherLabel {
+        label: String,
+        level: usize,
+        indent: usize,
+    },
     /// A void function call statement: `~ funcname(args)`
     VoidCall {
         name: String,

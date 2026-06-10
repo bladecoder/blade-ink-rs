@@ -63,7 +63,7 @@ fn emit_choice_block(
     }
     // Detect gather label for the continuation so it can be added to choice_labels
     let gather_label: Option<String> =
-        if let Some(Node::GatherLabel(lbl)) = section.continuation_nodes.first() {
+        if let Some(Node::GatherLabel { label: lbl, .. }) = section.continuation_nodes.first() {
             let path = format!("{}.{}", scope.path, lbl);
             choice_labels.insert(lbl.clone(), path);
             Some(lbl.clone())

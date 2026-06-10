@@ -29,7 +29,9 @@ impl ValidationContext {
     ) -> Result<(), CompilerError> {
         for node in nodes {
             match node {
-                Node::GatherLabel(label) if seen.insert(label.clone(), ()).is_some() => {
+                Node::GatherLabel { label, .. }
+                    if seen.insert(label.clone(), ()).is_some() =>
+                {
                     return Err(CompilerError::invalid_source(format!(
                         "A gather point with the same label '{label}' already exists in this scope."
                     )));

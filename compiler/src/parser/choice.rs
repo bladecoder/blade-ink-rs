@@ -251,7 +251,7 @@ fn choice_marker_nesting_level(trimmed_start: &str) -> Option<usize> {
 
 /// Count the gather nesting level of a trimmed line (e.g. "- text" = 1, "- - text" = 2).
 /// Returns 0 if the line is not a gather (doesn't start with '-' or starts with '->').
-fn gather_nesting_level(trimmed: &str) -> usize {
+pub(super) fn gather_nesting_level(trimmed: &str) -> usize {
     if trimmed.starts_with("->") {
         return 0;
     }

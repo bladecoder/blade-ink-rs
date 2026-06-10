@@ -43,7 +43,7 @@ fn threaded_loop_label_for_choice_block(continuation: &[Node]) -> Option<(String
         nodes = &nodes[1..];
     }
 
-    if let Some(Node::GatherLabel(label)) = nodes.first()
+    if let Some(Node::GatherLabel { label, .. }) = nodes.first()
         && label == "loop"
     {
         return Some((label.clone(), true));
@@ -186,7 +186,12 @@ fn analyze_weave_choice_section<'a>(
         && should_use_wrapped_choice_for_label(&loop_label, scope)
     {
         let mut continuation_tail = skip_leading_newlines(continuation);
-        if strip_label && matches!(continuation_tail.first(), Some(Node::GatherLabel(_))) {
+        if strip_label
+            && matches!(
+                continuation_tail.first(),
+                Some(Node::GatherLabel { .. })
+            )
+        {
             continuation_tail = &continuation_tail[1..];
         }
 
@@ -449,65 +454,160 @@ fn emit_nodes_with_continuation(
                 // Anonymous gather with no content — acts only as a separator between
                 // choice blocks at different nesting levels.  Emits nothing itself.
             }
-            Node::GatherLabel(label) => {
-                // Emit remaining nodes as a sub-container named `label`, placed as
-                // indexed content in the parent so the runtime enters it sequentially.
-                // Any g-N continuation containers produced inside (by emit_choice_block)
-                // must be hoisted to the parent level as named-only entries: they are
-                // the "after choice" content and must be siblings of `label`, not
-                // children. We also fix any divert paths that reference the old
-                // sub-scope path so they point to the correct hoisted location.
-                let remaining = &nodes[index + 1..];
-                let sub_scope = scope.choice_branch(label);
-                let mut sub_container = emit_nodes_with_continuation(
-                    remaining,
-                    &sub_scope,
-                    context,
-                    fallback_continuation,
-                )?;
-                // Hoist g-N entries to parent level.
-                let g_keys: Vec<String> = sub_container
-                    .named
-                    .keys()
-                    .filter(|k| k.starts_with("g-"))
-                    .cloned()
-                    .collect();
-                for key in &g_keys {
-                    // Fix references inside sub_container from the old nested path
-                    // (sub_scope.path + "." + key) to the hoisted parent path
-                    // (scope.path + "." + key).
-                    let old_path = format!("{}.{}", sub_scope.path, key);
-                    let new_path = format!("{}.{}", scope.path, key);
-                    for v in sub_container.content.iter_mut() {
-                        fix_divert_paths(v, &old_path, &new_path);
-                    }
-                    for v in sub_container.named.values_mut() {
-                        fix_divert_paths(v, &old_path, &new_path);
-                    }
-                }
-                for key in g_keys {
-                    let mut value = sub_container.named.remove(&key).unwrap();
-                    // The hoisted g-N container may contain a fallback divert that
-                    // was computed using the outer fallback_continuation (e.g. "0.g-0").
-                    // After hoisting, g-N's new path IS scope.path + "." + key, which may
-                    // equal that fallback target, creating a self-loop. Remove any such
-                    // self-referential diverts from within the hoisted value.
-                    let hoisted_path = format!("{}.{}", scope.path, key);
-                    replace_self_divert_with_done(&mut value, &hoisted_path);
-                    out.insert_named(key, value);
-                }
-                // Add count flags for all gather-label containers when count_all_visits
-                // is set. #f:5 = CountVisits | CountStartOnly enables {label} visit-count
-                // expressions. Containers used purely as routing points technically don't
-                // need tracking, but including it is safe and keeps behaviour consistent.
-                let count_flags = if context.count_all_visits {
-                    Some(5)
-                } else {
-                    None
+            Node::GatherLabel { .. } => {
+                let Node::GatherLabel { label, indent, .. } = &nodes[index] else {
+                    unreachable!();
                 };
-                let sub_value = sub_container.into_json_array(Some(label), count_flags)?;
-                out.push(sub_value); // push as indexed content (sequential execution)
-                break; // all remaining nodes consumed by the sub-container
+                if *indent > 0 {
+                    let remaining = &nodes[index + 1..];
+                    let sub_scope = scope.choice_branch(label);
+                    let mut sub_container = emit_nodes_with_continuation(
+                        remaining,
+                        &sub_scope,
+                        context,
+                        fallback_continuation,
+                    )?;
+                    let g_keys: Vec<String> = sub_container
+                        .named
+                        .keys()
+                        .filter(|key| key.starts_with("g-"))
+                        .cloned()
+                        .collect();
+                    for key in &g_keys {
+                        let old_path = format!("{}.{}", sub_scope.path, key);
+                        let new_path = format!("{}.{}", scope.path, key);
+                        for value in sub_container.content.iter_mut() {
+                            fix_divert_paths(value, &old_path, &new_path);
+                        }
+                        for value in sub_container.named.values_mut() {
+                            fix_divert_paths(value, &old_path, &new_path);
+                        }
+                    }
+                    for key in g_keys {
+                        let mut value = sub_container.named.remove(&key).unwrap();
+                        let hoisted_path = format!("{}.{}", scope.path, key);
+                        replace_self_divert_with_done(&mut value, &hoisted_path);
+                        out.insert_named(key, value);
+                    }
+                    let count_flags = context.count_all_visits.then_some(5);
+                    out.push(sub_container.into_json_array(Some(label), count_flags)?);
+                    break;
+                }
+
+                let mut gather_index = index;
+                let mut is_first = true;
+
+                loop {
+                    let Node::GatherLabel {
+                        label: gather_label,
+                        level: gather_level,
+                        indent: gather_indent,
+                    } = &nodes[gather_index]
+                    else {
+                        unreachable!();
+                    };
+                    let body_start = gather_index + 1;
+                    let body_end = nodes[body_start..]
+                        .iter()
+                        .position(|node| {
+                            matches!(
+                                node,
+                                Node::GatherLabel {
+                                    level,
+                                    indent,
+                                    ..
+                                } if indent == gather_indent && level <= gather_level
+                            )
+                        })
+                        .map_or(nodes.len(), |offset| body_start + offset);
+                    let next_gather_path = nodes.get(body_end).and_then(|node| {
+                        let Node::GatherLabel {
+                            label: next_label,
+                            level: next_level,
+                            indent: next_indent,
+                        } = node
+                        else {
+                            return None;
+                        };
+                        (next_level == gather_level && next_indent == gather_indent)
+                            .then(|| format!("{}.{}", scope.path, next_label))
+                    });
+                    let gather_fallback = next_gather_path
+                        .as_deref()
+                        .or(fallback_continuation);
+                    let sub_scope = scope.choice_branch(gather_label);
+                    let gather_body = &nodes[body_start..body_end];
+                    let mut sub_container = emit_nodes_with_continuation(
+                        gather_body,
+                        &sub_scope,
+                        context,
+                        gather_fallback,
+                    )?;
+                    if let Some(token) = loose_end_append_for_nodes(
+                        gather_body,
+                        nodes_contain_choice(gather_body),
+                        gather_fallback,
+                        None,
+                        false,
+                        LooseEndNoFallback::None,
+                    ) {
+                        sub_container.push(token);
+                    }
+
+                    let g_keys: Vec<String> = sub_container
+                        .named
+                        .keys()
+                        .filter(|key| key.starts_with("g-"))
+                        .cloned()
+                        .collect();
+                    for key in &g_keys {
+                        let old_path = format!("{}.{}", sub_scope.path, key);
+                        let new_path = format!("{}.{}", scope.path, key);
+                        for value in sub_container.content.iter_mut() {
+                            fix_divert_paths(value, &old_path, &new_path);
+                        }
+                        for value in sub_container.named.values_mut() {
+                            fix_divert_paths(value, &old_path, &new_path);
+                        }
+                    }
+                    for key in g_keys {
+                        let mut value = sub_container.named.remove(&key).unwrap();
+                        let hoisted_path = format!("{}.{}", scope.path, key);
+                        replace_self_divert_with_done(&mut value, &hoisted_path);
+                        out.insert_named(key, value);
+                    }
+
+                    let count_flags = context.count_all_visits.then_some(5);
+                    if is_first {
+                        out.push(
+                            sub_container
+                                .into_json_array(Some(gather_label), count_flags)?,
+                        );
+                    } else {
+                        out.insert_named(
+                            gather_label.clone(),
+                            sub_container.into_json_array(None, count_flags)?,
+                        );
+                    }
+
+                    if body_end == nodes.len() {
+                        break;
+                    }
+                    if !matches!(
+                        &nodes[body_end],
+                        Node::GatherLabel {
+                            level,
+                            indent,
+                            ..
+                        } if level == gather_level && indent == gather_indent
+                    ) {
+                        break;
+                    }
+                    gather_index = body_end;
+                    is_first = false;
+                }
+
+                break;
             }
         }
 
@@ -516,4 +616,3 @@ fn emit_nodes_with_continuation(
 
     Ok(out)
 }
-

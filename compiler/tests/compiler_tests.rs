@@ -263,3 +263,47 @@ fn ref_parameter_assignment_uses_temp_frame() {
         "ref parameter assignment should not emit VAR= with re:true, got: {json}"
     );
 }
+
+#[test]
+fn sibling_labeled_gathers_share_the_same_weave_container() {
+    let ink = r#"
+-> dialogue
+
+=== dialogue ===
+Start.
+- (options)
++ [First]
++ [Second]
+- (response)
+Response.
+-> options
+"#;
+
+    let json = Compiler::new().compile(ink).unwrap();
+    let value: Value = serde_json::from_str(&json).unwrap();
+    let dialogue = value["root"][2]["dialogue"].as_array().unwrap();
+    let weave = dialogue[0]
+        .as_array()
+        .expect("labeled gathers should be wrapped in an anonymous weave container");
+    let options = weave
+        .iter()
+        .find_map(|item| {
+            let array = item.as_array()?;
+            let terminator = array.last()?.as_object()?;
+            (terminator.get("#n").and_then(Value::as_str) == Some("options")).then_some(terminator)
+        })
+        .expect("missing options gather");
+    let weave_named = weave
+        .last()
+        .and_then(Value::as_object)
+        .expect("missing weave named content");
+
+    assert!(
+        weave_named.contains_key("response"),
+        "response gather should be a sibling of options: {json}"
+    );
+    assert!(
+        !options.contains_key("response"),
+        "response gather must not be nested inside options: {json}"
+    );
+}

@@ -111,7 +111,7 @@ fn count_nodes_in_slice(nodes: &[Node], stats: &mut Stats) {
                 stats.choices += 1;
                 count_nodes_in_slice(&c.body, stats);
             }
-            Node::GatherLabel(_) => {
+            Node::GatherLabel { .. } => {
                 stats.gathers += 1;
             }
             Node::Divert(_) | Node::TunnelDivert { .. } => {
