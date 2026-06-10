@@ -282,39 +282,24 @@ fn build_threaded_choice_block_no_label(
     };
 
     let mut choice_labels = BTreeMap::new();
+    let group_path = joined_path(&scope.path, group_index);
     for (offset, choice) in emit_choices.iter().enumerate() {
         if let Some(label) = &choice.label {
-            let label_target = if scope.path == "0" {
-                format!("0.c-{}", *next_choice_index + offset)
-            } else {
-                format!(".^.^.c-{}", *next_choice_index + offset)
-            };
+            let label_target =
+                joined_path(&group_path, format!("c-{}", *next_choice_index + offset));
             choice_labels.insert(label.clone(), label_target);
         }
     }
-    let block_scope = scope.with_choice_labels(choice_labels);
-
-    let choices_prefix = if scope.path == "0" {
-        "0".to_owned()
-    } else {
-        format!("{}.{group_index}", scope.path)
-    };
-    let header_scope = block_scope.with_relative_depth(block_scope.relative_depth + 3);
+    let block_scope = scope
+        .at_path(group_path.clone())
+        .with_choice_labels(choice_labels);
+    let choices_prefix = group_path;
 
     let mut choices_group = EmittedContainer::default();
     let mut local_choice_index = *next_choice_index;
 
     let g_name = format!("g-{}", *next_choice_index);
-    let continuation_path_abs = if scope.path == "0" {
-        format!("0.{g_name}")
-    } else {
-        format!("{}.{}", scope.path, g_name)
-    };
-    let continuation_path_rel = if scope.path == "0" {
-        continuation_path_abs.clone()
-    } else {
-        format!(".^.^.{g_name}")
-    };
+    let continuation_path_abs = joined_path(&block_scope.path, &g_name);
 
     let continuation_scope = block_scope.continuation(&g_name);
     let continuation_body = match continuation.first() {
@@ -356,6 +341,8 @@ fn build_threaded_choice_block_no_label(
 
     for choice in emit_choices {
         let header_idx = choices_group.content.len();
+        let header_scope =
+            block_scope.at_path(joined_path(&block_scope.path, header_idx));
         choices_group.push(emit_wrapped_loop_choice_header(
             choice,
             &header_scope,
@@ -366,9 +353,7 @@ fn build_threaded_choice_block_no_label(
         )?);
 
         let branch_name = format!("c-{local_choice_index}");
-        let branch_scope = block_scope
-            .choice_branch(&branch_name)
-            .with_relative_depth(block_scope.relative_depth + 3);
+        let branch_scope = block_scope.choice_branch(&branch_name);
         choices_group.insert_named(
             branch_name,
             emit_wrapped_loop_choice_body(
@@ -378,7 +363,7 @@ fn build_threaded_choice_block_no_label(
                     choice_index: local_choice_index,
                     header_idx,
                     choices_prefix: &choices_prefix,
-                    continuation_path: Some(&continuation_path_rel),
+                    continuation_path: Some(&continuation_path_abs),
                     continuation_terminal: None,
                 },
                 context,
@@ -391,10 +376,8 @@ fn build_threaded_choice_block_no_label(
 
     if let Some(fallback_choice) = fallback_choice {
         let branch_name = format!("c-{local_choice_index}");
-        let branch_scope = block_scope
-            .choice_branch(&branch_name)
-            .with_relative_depth(block_scope.relative_depth + 3);
-        choices_group.push(json!({"*": format!(".^.{}", branch_name), "flg": 8}));
+        let branch_scope = block_scope.choice_branch(&branch_name);
+        choices_group.push(json!({"*": branch_scope.path, "flg": 8}));
         choices_group.insert_named(
             branch_name,
             emit_wrapped_loop_choice_body(
@@ -404,7 +387,7 @@ fn build_threaded_choice_block_no_label(
                     choice_index: local_choice_index,
                     header_idx: 0,
                     choices_prefix: &choices_prefix,
-                    continuation_path: Some(&continuation_path_rel),
+                    continuation_path: Some(&continuation_path_abs),
                     continuation_terminal: None,
                 },
                 context,
@@ -420,4 +403,3 @@ fn build_threaded_choice_block_no_label(
         continuation_placement: ThreadedContinuationPlacement::InsideGroup,
     })
 }
-

@@ -9,7 +9,12 @@ fn emit_sequence_block(
         let Node::Sequence(sequence) = sequence else {
             continue;
         };
-        out.push(emit_sequence(sequence, scope, context)?);
+        out.push(emit_sequence(
+            sequence,
+            scope,
+            out.content.len() + scope.param_offset,
+            context,
+        )?);
     }
 
     Ok(())
@@ -18,8 +23,10 @@ fn emit_sequence_block(
 fn emit_sequence(
     sequence: &Sequence,
     scope: &EmitScope,
+    sequence_index: usize,
     context: &EmitContext,
 ) -> Result<Value, CompilerError> {
+    let sequence_path = joined_path(&scope.path, sequence_index);
     let has_once_fallthrough = matches!(
         sequence.mode,
         SequenceMode::Once | SequenceMode::ShuffleOnce
@@ -48,7 +55,7 @@ fn emit_sequence(
             out.push(json!("du"));
             out.push(json!(max_index));
             out.push(json!("=="));
-            out.push(json!({"->": ".^.10", "c": true}));
+            out.push(json!({"->": joined_path(&sequence_path, 10), "c": true}));
             out.push(json!(max_index));
             out.push(json!("seq"));
             out.push(json!("nop"));
@@ -62,17 +69,21 @@ fn emit_sequence(
         out.push(json!(index as i32));
         out.push(json!("=="));
         out.push(json!("/ev"));
-        out.push(json!({"->": format!(".^.s{index}"), "c": true}));
+        out.push(json!({
+            "->": joined_path(&sequence_path, format!("s{index}")),
+            "c": true
+        }));
     }
     let rejoin_index = out.len();
     out.push(json!("nop"));
 
     let mut named = Map::new();
     for (index, branch) in sequence.branches.iter().enumerate() {
-        let branch_scope = scope.choice_branch(&format!("s{index}"));
+        let branch_scope =
+            scope.at_path(joined_path(&sequence_path, format!("s{index}")));
         let mut branch_container = emit_nodes(branch, &branch_scope, context)?;
         branch_container.content.insert(0, json!("pop"));
-        branch_container.push(json!({"->": format!(".^.^.{rejoin_index}")}));
+        branch_container.push(json!({"->": joined_path(&sequence_path, rejoin_index)}));
         named.insert(
             format!("s{index}"),
             branch_container.into_json_array(None, None)?,
@@ -81,7 +92,7 @@ fn emit_sequence(
     if has_once_fallthrough {
         let mut branch_container = EmittedContainer::default();
         branch_container.push(json!("pop"));
-        branch_container.push(json!({"->": format!(".^.^.{rejoin_index}")}));
+        branch_container.push(json!({"->": joined_path(&sequence_path, rejoin_index)}));
         named.insert(
             format!("s{authored_branch_count}"),
             branch_container.into_json_array(None, None)?,
@@ -483,7 +494,12 @@ fn emit_dynamic_string_parts(
             emit_dynamic_string_parts(&parts[1..], out, scope, context)
         }
         DynamicStringPart::Sequence(sequence) => {
-            out.push(emit_sequence(sequence, scope, context)?);
+            out.push(emit_sequence(
+                sequence,
+                scope,
+                out.len() + scope.param_offset,
+                context,
+            )?);
             emit_dynamic_string_parts(&parts[1..], out, scope, context)
         }
     }
@@ -566,4 +582,3 @@ fn emit_choice_text_content(
 
     Ok(())
 }
-

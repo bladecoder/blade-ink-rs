@@ -44,18 +44,7 @@ fn emit_flow(flow: &Flow, context: &EmitContext) -> Result<Value, CompilerError>
     prepend_parameters(&mut container, &flow.parameters);
 
     if container.content.is_empty() && !flow.children.is_empty() {
-        // Auto-divert to the first child stitch. Use a relative path when possible.
-        let target = if scope.relative_depth > 0 {
-            scope.make_relative(&format!(
-                "{}.{}",
-                scope.top_flow_name.as_deref().unwrap_or(&scope.path),
-                flow.children[0].name
-            ))
-        } else if let Some(top_flow_name) = &scope.top_flow_name {
-            format!("{top_flow_name}.{}", flow.children[0].name)
-        } else {
-            flow.children[0].name.clone()
-        };
+        let target = joined_path(&scope.path, &flow.children[0].name);
         container.push(json!({"->": target}));
     }
 
@@ -109,18 +98,7 @@ fn emit_nested_flow(
     prepend_parameters(&mut container, &flow.parameters);
 
     if container.content.is_empty() && !flow.children.is_empty() {
-        // Auto-divert to the first child stitch. Use a relative path when possible.
-        let target = if scope.relative_depth > 0 {
-            scope.make_relative(&format!(
-                "{}.{}",
-                scope.top_flow_name.as_deref().unwrap_or(&scope.path),
-                flow.children[0].name
-            ))
-        } else if let Some(top_flow_name) = &scope.top_flow_name {
-            format!("{top_flow_name}.{}", flow.children[0].name)
-        } else {
-            flow.children[0].name.clone()
-        };
+        let target = joined_path(&scope.path, &flow.children[0].name);
         container.push(json!({"->": target}));
     }
 
@@ -324,4 +302,3 @@ fn collect_choice_labels_recursive(
         }
     }
 }
-

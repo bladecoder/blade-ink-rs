@@ -38,16 +38,8 @@ fn emit_choice(
     }
 
     let branch_name = format!("c-{choice_index}");
-    let branch_scope = scope
-        .choice_branch(&branch_name)
-        .with_relative_depth(scope.relative_depth + 1);
-    // In root (scope.path == "0") inklecate emits absolute paths ("0.c-N"),
-    // in knots/stitches it emits relative paths (".^.c-N").
-    let choice_ptr = if scope.path == "0" {
-        format!("0.{}", branch_name)
-    } else {
-        format!(".^.{}", branch_name)
-    };
+    let branch_scope = scope.choice_branch(&branch_name);
+    let choice_ptr = branch_scope.path.clone();
     out.push(json!({"*": choice_ptr, "flg": choice_flags(choice)}));
 
     let mut branch_nodes = Vec::new();
@@ -169,4 +161,3 @@ fn emit_choice(
 
     Ok(())
 }
-

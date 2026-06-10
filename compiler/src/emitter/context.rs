@@ -56,7 +56,7 @@ pub fn story_to_json_value(
     }
 
     // Emit keys in inklecate-compatible order: inkVersion, root, listDefs.
-    let root_value = json!([
+    let mut root_value = json!([
         root_container.into_json_array(None, None)?,
         "done",
         if named_content.is_empty() {
@@ -65,6 +65,7 @@ pub fn story_to_json_value(
             Value::Object(named_content)
         }
     ]);
+    compact_story_paths(&mut root_value);
 
     let mut output = serde_json::Map::new();
     output.insert("inkVersion".to_owned(), json!(INK_VERSION_CURRENT));
@@ -96,20 +97,6 @@ struct EmitScope {
     temp_param_names: BTreeSet<String>,
     /// Divert-typed parameter names for the current flow (valid `-> var` targets).
     divert_param_names: BTreeSet<String>,
-    /// Number of `^` hops needed to navigate from content in this scope back to
-    /// the enclosing knot/stitch container (used for relative divert paths).
-    /// - 0  : root (relative paths not used)
-    /// - 1  : knot body
-    /// - 2  : stitch body
-    /// - 3  : inside a conditional branch (b) within a knot or stitch
-    relative_depth: usize,
-    /// The path of the enclosing flow container (knot or stitch).
-    /// For branch scopes, this is the scope.path of the parent flow scope.
-    /// Used to compute the suffix for relative divert paths.
-    flow_path: String,
-    /// Generated continuation containers can be renamed or hoisted after emission.
-    /// Flow targets emitted inside them must therefore use stable absolute paths.
-    absolute_flow_targets: bool,
 }
 
 struct EmitContext {
@@ -385,9 +372,6 @@ impl EmitScope {
             param_offset: 0,
             temp_param_names: BTreeSet::new(),
             divert_param_names: BTreeSet::new(),
-            relative_depth: 0,
-            flow_path: "0".to_owned(),
-            absolute_flow_targets: false,
         }
     }
 
@@ -406,15 +390,7 @@ impl EmitScope {
             BTreeSet::new()
         };
 
-        // Depth to navigate back from content to the enclosing knot container:
-        // - knot body  (path = "knot"):          1 hop
-        // - stitch body (path = "knot.stitch"):  2 hops (up to stitch, up through knot's
-        //                                        named-dict level to knot container)
-        let is_stitch = self.top_flow_name.is_some();
-        let new_depth = if is_stitch { 2 } else { 1 };
-
         Self {
-            flow_path: path.clone(),
             path,
             top_flow_name: self
                 .top_flow_name
@@ -430,15 +406,12 @@ impl EmitScope {
             param_offset: child.parameters.len(),
             temp_param_names: child.parameters.iter().cloned().collect(),
             divert_param_names: child.divert_parameters.iter().cloned().collect(),
-            relative_depth: new_depth,
-            absolute_flow_targets: false,
         }
     }
 
     fn choice_branch(&self, branch_name: &str) -> Self {
         Self {
             path: format!("{}.{}", self.path, branch_name),
-            flow_path: self.flow_path.clone(),
             top_flow_name: self.top_flow_name.clone(),
             child_flow_names: self.child_flow_names.clone(),
             sibling_flow_names: self.sibling_flow_names.clone(),
@@ -446,43 +419,15 @@ impl EmitScope {
             param_offset: 0,
             temp_param_names: self.temp_param_names.clone(),
             divert_param_names: self.divert_param_names.clone(),
-            relative_depth: self.relative_depth,
-            absolute_flow_targets: self.absolute_flow_targets,
         }
     }
 
     fn continuation(&self, name: &str) -> Self {
-        let mut scope = self.choice_branch(name);
-        scope.absolute_flow_targets = true;
-        scope
+        self.choice_branch(name)
     }
 
-    /// Create a scope for a conditional branch `b` body. Inside a conditional branch
-    /// the runtime path gains two extra hops (conditional item index + `b` key), so
-    /// `relative_depth` is set to 3 regardless of the parent depth.
-    /// However, for nested conditionals (inside another conditional branch, depth >= 3),
-    /// we cannot reliably navigate back to the flow with 3 `^`s, so we use 0 (absolute).
     fn conditional_branch(&self, branch_name: &str) -> Self {
-        // Only use relative paths (depth=3) for direct conditional branches within a
-        // flow body (knot depth=1 or stitch depth=2). For deeper nesting, use absolute.
-        let branch_depth = if self.relative_depth == 1 || self.relative_depth == 2 {
-            3
-        } else {
-            0
-        };
-        Self {
-            path: format!("{}.{}", self.path, branch_name),
-            flow_path: self.flow_path.clone(),
-            top_flow_name: self.top_flow_name.clone(),
-            child_flow_names: self.child_flow_names.clone(),
-            sibling_flow_names: self.sibling_flow_names.clone(),
-            choice_label_targets: self.choice_label_targets.clone(),
-            param_offset: 0,
-            temp_param_names: self.temp_param_names.clone(),
-            divert_param_names: self.divert_param_names.clone(),
-            relative_depth: branch_depth,
-            absolute_flow_targets: self.absolute_flow_targets,
-        }
+        self.choice_branch(branch_name)
     }
 
     fn with_choice_labels(&self, labels: BTreeMap<String, String>) -> Self {
@@ -491,7 +436,6 @@ impl EmitScope {
         merged.extend(labels);
         Self {
             path: self.path.clone(),
-            flow_path: self.flow_path.clone(),
             top_flow_name: self.top_flow_name.clone(),
             child_flow_names: self.child_flow_names.clone(),
             sibling_flow_names: self.sibling_flow_names.clone(),
@@ -499,53 +443,19 @@ impl EmitScope {
             param_offset: self.param_offset,
             temp_param_names: self.temp_param_names.clone(),
             divert_param_names: self.divert_param_names.clone(),
-            relative_depth: self.relative_depth,
-            absolute_flow_targets: self.absolute_flow_targets,
         }
     }
 
-    fn with_relative_depth(&self, relative_depth: usize) -> Self {
+    fn at_path(&self, path: String) -> Self {
         Self {
-            path: self.path.clone(),
-            flow_path: self.flow_path.clone(),
+            path,
             top_flow_name: self.top_flow_name.clone(),
             child_flow_names: self.child_flow_names.clone(),
             sibling_flow_names: self.sibling_flow_names.clone(),
             choice_label_targets: self.choice_label_targets.clone(),
-            param_offset: self.param_offset,
+            param_offset: 0,
             temp_param_names: self.temp_param_names.clone(),
             divert_param_names: self.divert_param_names.clone(),
-            relative_depth,
-            absolute_flow_targets: self.absolute_flow_targets,
-        }
-    }
-
-    /// Convert an absolute path like `knot.stitch` or `knot.stitch.7` to a relative path
-    /// `.^...^.X` when we are currently inside that same knot/stitch.
-    ///
-    /// Uses `self.relative_depth` `^` hops. After those hops, the runtime reaches:
-    ///
-    /// - depth 1 or 2 (knot/stitch body): the enclosing KNOT container (`top_flow_name`)
-    /// - depth 3 (branch scope): the enclosing FLOW container (`flow_path`)
-    ///
-    /// The suffix is the remainder of `absolute` after stripping the appropriate prefix.
-    fn make_relative(&self, absolute: &str) -> String {
-        let ups = ".^".repeat(self.relative_depth);
-        let prefix = if self.relative_depth == 3 {
-            // Inside a branch: 3 `^`s reaches flow_path (the enclosing knot/stitch)
-            self.flow_path.as_str()
-        } else {
-            // In knot/stitch body: `^`s reach the knot
-            self.top_flow_name.as_deref().unwrap_or(&self.path)
-        };
-        let suffix = absolute
-            .strip_prefix(prefix)
-            .unwrap_or(absolute)
-            .trim_start_matches('.');
-        if suffix.is_empty() {
-            ups
-        } else {
-            format!("{ups}.{suffix}")
         }
     }
 
@@ -571,22 +481,12 @@ impl EmitScope {
         }
 
         if self.child_flow_names.contains(target) && self.top_flow_name.is_some() {
-            let abs = format!("{}.{target}", self.top_flow_name.as_deref().unwrap());
-            return if self.absolute_flow_targets {
-                abs
-            } else {
-                self.make_relative(&abs)
-            };
+            return format!("{}.{target}", self.top_flow_name.as_deref().unwrap());
         }
 
         // Sibling stitch: target is a stitch of the same parent knot
         if self.sibling_flow_names.contains(target) && self.top_flow_name.is_some() {
-            let abs = format!("{}.{target}", self.top_flow_name.as_deref().unwrap());
-            return if self.absolute_flow_targets {
-                abs
-            } else {
-                self.make_relative(&abs)
-            };
+            return format!("{}.{target}", self.top_flow_name.as_deref().unwrap());
         }
 
         if let Some(abs) = context.unqualified_flow_targets.get(target) {
@@ -625,4 +525,3 @@ impl EmitScope {
         }
     }
 }
-

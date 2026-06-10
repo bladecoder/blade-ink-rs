@@ -171,13 +171,7 @@ fn emit_conditional(
         })
         .sum();
     let nop_index = conditional_index + tokens_before_nop;
-    // From inside the conditional branch `b` content (3 `^` hops from scope.path),
-    // the rejoin target is relative: `.^.^.^.N` where N is the nop index within scope.path.
-    let rejoin_target = if scope.relative_depth > 0 {
-        format!(".^.^.^.{nop_index}")
-    } else {
-        format!("{}.{}", scope.path, nop_index)
-    };
+    let rejoin_target = joined_path(&scope.path, nop_index);
 
     // Second pass: build the output with the correct rejoin target.
     let mut out = Vec::new();
@@ -197,10 +191,15 @@ fn emit_conditional(
         let mut named = Map::new();
         named.insert("b".to_owned(), branch_content.into_json_array(None, None)?);
 
+        let branch_array_index = conditional_index + out.len();
+        let branch_target = joined_path(
+            &joined_path(&scope.path, branch_array_index),
+            "b",
+        );
         let selector = if has_condition {
-            json!({"->": ".^.b", "c": true})
+            json!({"->": branch_target, "c": true})
         } else {
-            json!({"->": ".^.b"})
+            json!({"->": branch_target})
         };
         out.push(Value::Array(vec![selector, Value::Object(named)]));
     }
@@ -229,16 +228,14 @@ fn emit_switch_conditional(
     let num_branches = branches.len();
     // Layout: [preamble_len tokens] [N branch arrays] [nop]
     let nop_index = switch_index + preamble_len + num_branches;
-    let exit_target = if scope.relative_depth > 0 {
-        format!(".^.^.^.{nop_index}")
-    } else {
-        format!("{}.{}", scope.path, nop_index)
-    };
+    let exit_target = joined_path(&scope.path, nop_index);
 
     // Emit all branch bodies first (they all reference exit_target)
     let mut branch_bodies: Vec<EmittedContainer> = Vec::new();
-    for (_, body_nodes) in branches {
-        let branch_scope = scope.conditional_branch("b");
+    for (branch_index, (_, body_nodes)) in branches.iter().enumerate() {
+        let branch_array_index = switch_index + preamble_len + branch_index;
+        let branch_scope =
+            scope.conditional_branch(&format!("{branch_array_index}.b"));
         let mut body = emit_nodes(body_nodes, &branch_scope, context)?;
         body.push(json!({"->": exit_target}));
         branch_bodies.push(body);
@@ -252,7 +249,14 @@ fn emit_switch_conditional(
     out.push(json!("/ev"));
 
     // Each branch
-    for ((case_expr, _), body) in branches.iter().zip(branch_bodies) {
+    for (branch_index, ((case_expr, _), body)) in
+        branches.iter().zip(branch_bodies).enumerate()
+    {
+        let branch_array_index = switch_index + preamble_len + branch_index;
+        let branch_target = joined_path(
+            &joined_path(&scope.path, branch_array_index),
+            "b",
+        );
         let mut named = Map::new();
         let body_array = body.into_json_array(None, None)?;
         // Insert pop at the start of the body array
@@ -274,12 +278,11 @@ fn emit_switch_conditional(
             branch_array.extend(case_tokens);
             branch_array.push(json!("=="));
             branch_array.push(json!("/ev"));
-            branch_array.push(json!({"->": ".^.b", "c": true}));
+            branch_array.push(json!({"->": branch_target, "c": true}));
             branch_array.push(Value::Object(named));
             out.push(Value::Array(branch_array));
         } else {
-            // Else branch: [{->:.^.b}, {b:[...]}]
-            let branch_array = vec![json!({"->": ".^.b"}), Value::Object(named)];
+            let branch_array = vec![json!({"->": branch_target}), Value::Object(named)];
             out.push(Value::Array(branch_array));
         }
     }

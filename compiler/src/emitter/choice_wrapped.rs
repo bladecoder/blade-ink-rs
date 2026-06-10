@@ -18,51 +18,32 @@ fn build_wrapped_loop_choice_block(
         fallback_continuation,
     } = config;
 
+    let outer_path = joined_path(&scope.path, group_index);
+    let group_path = joined_path(&outer_path, loop_label);
     let mut choice_labels = BTreeMap::new();
     for (offset, node) in choices.iter().enumerate() {
         let Node::Choice(choice) = node else {
             continue;
         };
         if let Some(label) = &choice.label {
-            let label_target = if scope.path == "0" {
-                format!("0.c-{}", *next_choice_index + offset)
-            } else {
-                format!(".^.^.c-{}", *next_choice_index + offset)
-            };
+            let label_target =
+                joined_path(&group_path, format!("c-{}", *next_choice_index + offset));
             choice_labels.insert(label.clone(), label_target);
         }
     }
-    let loop_target = if scope.path == "0" {
-        "0".to_owned()
-    } else {
-        ".^.^".to_owned()
-    };
-    choice_labels.insert(loop_label.to_owned(), loop_target);
-    let block_scope = scope.with_choice_labels(choice_labels);
-
-    let choices_prefix = if scope.path == "0" {
-        format!("0.{loop_label}")
-    } else {
-        format!("{}.{group_index}.{loop_label}", scope.path)
-    };
-    let header_scope = block_scope.with_relative_depth(block_scope.relative_depth + 3);
+    choice_labels.insert(loop_label.to_owned(), group_path.clone());
+    let block_scope = scope
+        .at_path(group_path.clone())
+        .with_choice_labels(choice_labels);
+    let choices_prefix = group_path;
 
     let mut choices_group = EmittedContainer::default();
     let mut local_choice_index = *next_choice_index;
 
     // Build continuation g-N.
     let g_name = format!("g-{}", *next_choice_index);
-    let continuation_path_abs = if scope.path == "0" {
-        format!("0.{g_name}")
-    } else {
-        format!("{}.{}", scope.path, g_name)
-    };
-    let continuation_path_rel = if scope.path == "0" {
-        continuation_path_abs.clone()
-    } else {
-        format!(".^.^.^.{g_name}")
-    };
-    let continuation_scope = block_scope.continuation(&g_name);
+    let continuation_path_abs = joined_path(&outer_path, &g_name);
+    let continuation_scope = scope.at_path(continuation_path_abs.clone());
     let continuation_body = match continuation.first() {
         Some(Node::GatherPoint) => &continuation[1..],
         _ => continuation,
@@ -101,18 +82,14 @@ fn build_wrapped_loop_choice_block(
         None
     };
 
-    let continuation_path_fallback_rel = if scope.path == "0" {
-        format!("0.{g_name}")
-    } else {
-        continuation_path_rel.clone()
-    };
-
     for node in choices {
         let Node::Choice(choice) = node else {
             continue;
         };
 
         let header_idx = choices_group.content.len();
+        let header_scope =
+            block_scope.at_path(joined_path(&block_scope.path, header_idx));
         choices_group.push(emit_wrapped_loop_choice_header(
             choice,
             &header_scope,
@@ -123,9 +100,7 @@ fn build_wrapped_loop_choice_block(
         )?);
 
         let branch_name = format!("c-{local_choice_index}");
-        let branch_scope = block_scope
-            .choice_branch(&branch_name)
-            .with_relative_depth(block_scope.relative_depth + 3);
+        let branch_scope = block_scope.choice_branch(&branch_name);
         choices_group.insert_named(
             branch_name,
             emit_wrapped_loop_choice_body(
@@ -138,7 +113,7 @@ fn build_wrapped_loop_choice_block(
                     continuation_path: if simple_terminal_fallback.is_some() {
                         None
                     } else {
-                        Some(&continuation_path_fallback_rel)
+                        Some(&continuation_path_abs)
                     },
                     continuation_terminal: simple_terminal_fallback,
                 },
@@ -171,7 +146,7 @@ fn emit_wrapped_loop_choice_header(
         json!({"^->": format!("{choices_prefix}.{header_idx}.$r1")}),
         json!({"temp=": "$r"}),
         json!("str"),
-        json!({"->": ".^.s"}),
+        json!({"->": joined_path(&scope.path, "s")}),
         Value::Array(vec![json!({"#n": "$r1"})]),
         json!("/str"),
     ];
@@ -184,7 +159,10 @@ fn emit_wrapped_loop_choice_header(
     }
 
     arr.push(json!("/ev"));
-    arr.push(json!({"*": format!(".^.^.c-{choice_index}"), "flg": choice_flags(choice)}));
+    arr.push(json!({
+        "*": joined_path(choices_prefix, format!("c-{choice_index}")),
+        "flg": choice_flags(choice)
+    }));
 
     let mut s = Vec::new();
     emit_choice_text_content(
@@ -327,7 +305,7 @@ fn emit_wrapped_loop_choice_body(
         json!({"^->": format!("{}.c-{}.$r2", config.choices_prefix, config.choice_index)}),
         json!("/ev"),
         json!({"temp=": "$r"}),
-        json!({"->": format!(".^.^.{}.s", config.header_idx)}),
+        json!({"->": format!("{}.{}.s", config.choices_prefix, config.header_idx)}),
         Value::Array(vec![json!({"#n": "$r2"})]),
         json!("\n"),
     ];
@@ -355,4 +333,3 @@ fn wrapped_loop_simple_terminal_fallback(nodes: &[Node]) -> Option<&'static str>
         _ => None,
     }
 }
-

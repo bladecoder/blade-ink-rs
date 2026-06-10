@@ -21,3 +21,4 @@ include!("choice_wrapped.rs");
 include!("choice.rs");
 include!("expression.rs");
 include!("conditional.rs");
+include!("path.rs");
