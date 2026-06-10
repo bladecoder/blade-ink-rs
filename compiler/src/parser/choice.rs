@@ -295,7 +295,8 @@ pub fn parse_choice_prefixes(
 }
 
 pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError> {
-    let trimmed = input.trim();
+    let input = input.trim_start();
+    let trimmed = input.trim_end();
     // `\ ` at the start of choice content is a whitespace-suppression escape —
     // strip the backslash but keep what follows (may start with a space that itself gets trimmed).
     let trimmed = trimmed
@@ -342,12 +343,17 @@ pub fn parse_choice_text(input: &str) -> Result<ParsedChoiceText, CompilerError>
         });
     }
 
-    if let Some(choice_only) = trimmed.strip_prefix('[') {
+    if let Some(choice_only) = input.strip_prefix('[') {
         let end = choice_only.find(']').ok_or_else(|| {
             CompilerError::invalid_source("choice label is missing closing ']'".to_owned())
         })?;
         let label = choice_only[..end].trim().to_owned();
-        let after_label = choice_only[end + 1..].trim_start();
+        let raw_after_label = &choice_only[end + 1..];
+        let after_label = if raw_after_label.trim().is_empty() {
+            raw_after_label
+        } else {
+            raw_after_label.trim_start()
+        };
         let (choice_only_text, choice_only_tags) = split_text_and_tags(&label)?;
         if after_label.is_empty() || after_label.starts_with("->") {
             let inline_target = after_label

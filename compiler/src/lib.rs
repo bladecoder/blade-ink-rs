@@ -515,6 +515,142 @@ mod tests {
     }
 
     #[test]
+    fn nested_anonymous_gather_divert_to_stitch_test() {
+        let ink = r#"
+-> start
+
+== start ==
+- Intro.
+    * Hut 14[]. Entered.
+    More intro.
+    End intro.
+
+- (opts)
+    {|Idle.|}
+    * [Think]
+        Thinking.
+        -> opts
+    * [Plan]
+        Planning.
+        * * [Subplan]
+            Subplanning.
+    * [Wait]
+- -> waited
+
+= waited
+Done.
+-> END
+"#;
+
+        let json = Compiler::new().compile(ink).unwrap();
+        let mut story = Story::new(&json).unwrap();
+
+        story.continue_maximally().unwrap();
+        story.choose_choice_index(0).unwrap();
+        story.continue_maximally().unwrap();
+
+        let choices = story.get_current_choices();
+        assert_eq!(3, choices.len());
+        assert_eq!("Wait", choices[2].text);
+
+        story.choose_choice_index(2).unwrap();
+        assert_eq!("Done.\n", story.continue_maximally().unwrap());
+    }
+
+    #[test]
+    fn condition_resolves_nested_choice_label_test() {
+        let ink = r#"
+-> start
+
+== start ==
+* [Plan]
+    * * (delay) [Delay]
+        Delayed.
+        -> END
+* [Wait]
+- -> waited
+
+= waited
+* {not start.delay} [Available]
+    Available.
+    -> END
+    * [Fallback]
+    Fallback.
+    -> END
+"#;
+
+        let json = Compiler::new().compile(ink).unwrap();
+        let mut story = Story::new(&json).unwrap();
+
+        story.continue_maximally().unwrap();
+        story.choose_choice_index(1).unwrap();
+        story.continue_maximally().unwrap();
+
+        let choices = story.get_current_choices();
+        assert_eq!(2, choices.len());
+        assert_eq!("Available", choices[0].text);
+        assert_eq!("Fallback", choices[1].text);
+    }
+
+    #[test]
+    fn choice_body_can_start_with_nested_labeled_gather_test() {
+        let ink = r#"
+VAR teacup = false
+
+-> start
+
+== start ==
+* [Enter]
+- Middle.
+    * [Proceed]
+- (silence) Silence.
+- (drinkit) Prompt.
+    * {teacup} [Drink] -> drinkfromcup
+    * {teacup} [Put the cup down]
+        Put down.
+        ~ teacup = false
+        -> whatsinit
+    * {not teacup} [Take the cup]
+        - - (drinkfromcup) Took the cup.
+            ~ teacup = true
+    * {not teacup} [Don't take it]
+        Refused.
+        - - (whatsinit) Why?
+- After.
+    * (target) [Direct]
+        Target.
+        -> END
+    * [Alias] -> target
+"#;
+
+        let json = Compiler::new().compile(ink).unwrap();
+        let mut story = Story::new(&json).unwrap();
+
+        story.continue_maximally().unwrap();
+        story.choose_choice_index(0).unwrap();
+        assert_eq!("Middle.\n", story.continue_maximally().unwrap());
+        story.choose_choice_index(0).unwrap();
+        assert_eq!("Silence.\nPrompt.\n", story.continue_maximally().unwrap());
+        let choices = story.get_current_choices();
+        assert_eq!(2, choices.len());
+        assert_eq!("Take the cup", choices[0].text);
+        assert_eq!("Don't take it", choices[1].text);
+
+        story.choose_choice_index(0).unwrap();
+        assert_eq!(
+            "Took the cup.\nAfter.\n",
+            story.continue_maximally().unwrap()
+        );
+        let choices = story.get_current_choices();
+        assert_eq!(2, choices.len());
+        assert_eq!("Direct", choices[0].text);
+        assert_eq!("Alias", choices[1].text);
+
+        story.choose_choice_index(1).unwrap();
+        assert_eq!("\nTarget.\n", story.continue_maximally().unwrap());
+    }
+
+    #[test]
     fn ref_parameter_assignment_uses_temp_frame() {
         let ink = r#"
 === function lower(ref x)

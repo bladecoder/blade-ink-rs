@@ -124,6 +124,9 @@ struct EmitScope {
     /// For branch scopes, this is the scope.path of the parent flow scope.
     /// Used to compute the suffix for relative divert paths.
     flow_path: String,
+    /// Generated continuation containers can be renamed or hoisted after emission.
+    /// Flow targets emitted inside them must therefore use stable absolute paths.
+    absolute_flow_targets: bool,
 }
 
 struct EmitContext {
@@ -401,6 +404,7 @@ impl EmitScope {
             divert_param_names: BTreeSet::new(),
             relative_depth: 0,
             flow_path: "0".to_owned(),
+            absolute_flow_targets: false,
         }
     }
 
@@ -444,6 +448,7 @@ impl EmitScope {
             temp_param_names: child.parameters.iter().cloned().collect(),
             divert_param_names: child.divert_parameters.iter().cloned().collect(),
             relative_depth: new_depth,
+            absolute_flow_targets: false,
         }
     }
 
@@ -459,7 +464,14 @@ impl EmitScope {
             temp_param_names: self.temp_param_names.clone(),
             divert_param_names: self.divert_param_names.clone(),
             relative_depth: self.relative_depth,
+            absolute_flow_targets: self.absolute_flow_targets,
         }
+    }
+
+    fn continuation(&self, name: &str) -> Self {
+        let mut scope = self.choice_branch(name);
+        scope.absolute_flow_targets = true;
+        scope
     }
 
     /// Create a scope for a conditional branch `b` body. Inside a conditional branch
@@ -486,6 +498,7 @@ impl EmitScope {
             temp_param_names: self.temp_param_names.clone(),
             divert_param_names: self.divert_param_names.clone(),
             relative_depth: branch_depth,
+            absolute_flow_targets: self.absolute_flow_targets,
         }
     }
 
@@ -504,6 +517,7 @@ impl EmitScope {
             temp_param_names: self.temp_param_names.clone(),
             divert_param_names: self.divert_param_names.clone(),
             relative_depth: self.relative_depth,
+            absolute_flow_targets: self.absolute_flow_targets,
         }
     }
 
@@ -519,6 +533,7 @@ impl EmitScope {
             temp_param_names: self.temp_param_names.clone(),
             divert_param_names: self.divert_param_names.clone(),
             relative_depth,
+            absolute_flow_targets: self.absolute_flow_targets,
         }
     }
 
@@ -574,13 +589,21 @@ impl EmitScope {
 
         if self.child_flow_names.contains(target) && self.top_flow_name.is_some() {
             let abs = format!("{}.{target}", self.top_flow_name.as_deref().unwrap());
-            return self.make_relative(&abs);
+            return if self.absolute_flow_targets {
+                abs
+            } else {
+                self.make_relative(&abs)
+            };
         }
 
         // Sibling stitch: target is a stitch of the same parent knot
         if self.sibling_flow_names.contains(target) && self.top_flow_name.is_some() {
             let abs = format!("{}.{target}", self.top_flow_name.as_deref().unwrap());
-            return self.make_relative(&abs);
+            return if self.absolute_flow_targets {
+                abs
+            } else {
+                self.make_relative(&abs)
+            };
         }
 
         if let Some(abs) = context.unqualified_flow_targets.get(target) {
@@ -843,9 +866,18 @@ fn collect_choice_labels_recursive(
     while i < nodes.len() {
         match &nodes[i] {
             Node::Choice(choice) => {
+                let branch_index = *choice_index;
                 if let Some(label) = &choice.label {
-                    labels.insert(label.clone(), format!("{}.c-{}", scope.path, *choice_index));
+                    labels.insert(label.clone(), format!("{}.c-{branch_index}", scope.path));
                 }
+                let branch_scope = scope.choice_branch(&format!("c-{branch_index}"));
+                let mut nested_choice_index = 0;
+                collect_choice_labels_recursive(
+                    &choice.body,
+                    &branch_scope,
+                    labels,
+                    &mut nested_choice_index,
+                );
                 let level = choice.nesting_level;
                 *choice_index += 1;
                 i += 1;
@@ -856,12 +888,21 @@ fn collect_choice_labels_recursive(
                 while i < nodes.len() {
                     match &nodes[i] {
                         Node::Choice(c) if c.nesting_level == level => {
+                            let branch_index = *choice_index;
                             if let Some(label) = &c.label {
                                 labels.insert(
                                     label.clone(),
-                                    format!("{}.c-{}", scope.path, *choice_index),
+                                    format!("{}.c-{branch_index}", scope.path),
                                 );
                             }
+                            let branch_scope = scope.choice_branch(&format!("c-{branch_index}"));
+                            let mut nested_choice_index = 0;
+                            collect_choice_labels_recursive(
+                                &c.body,
+                                &branch_scope,
+                                labels,
+                                &mut nested_choice_index,
+                            );
                             *choice_index += 1;
                             i += 1;
                         }
@@ -872,11 +913,13 @@ fn collect_choice_labels_recursive(
                 let continuation = &nodes[i..];
                 if !continuation.is_empty() {
                     let g_name = format!("g-{}", block_start_ci);
-                    let child_scope = scope.choice_branch(&g_name);
-                    // If the continuation starts with a GatherLabel, add it as an alias for g-N
-                    if let Some(Node::GatherLabel(lbl)) = continuation.first() {
-                        labels.insert(lbl.clone(), format!("{}.{}", scope.path, g_name));
-                    }
+                    let (child_scope, continuation) =
+                        if let Some(Node::GatherLabel(label)) = continuation.first() {
+                            labels.insert(label.clone(), format!("{}.{}", scope.path, label));
+                            (scope.choice_branch(label), &continuation[1..])
+                        } else {
+                            (scope.choice_branch(&g_name), continuation)
+                        };
                     let mut child_index = 0;
                     collect_choice_labels_recursive(
                         continuation,
@@ -890,16 +933,34 @@ fn collect_choice_labels_recursive(
             Node::GatherLabel(label) => {
                 // Standalone gather label (loop-back point): record its path so
                 // DivertTarget expressions can resolve it. Remaining nodes are
-                // emitted inside the label's sub-scope, so recurse with that scope.
+                // emitted inside the label's sub-scope. Generated g-N continuations
+                // are hoisted back to the parent by emit_nodes_with_continuation,
+                // so mirror that path rewrite while collecting nested labels.
                 labels.insert(label.clone(), format!("{}.{}", scope.path, label));
                 let sub_scope = scope.choice_branch(label);
                 let mut child_index = 0;
+                let mut nested_labels = BTreeMap::new();
                 collect_choice_labels_recursive(
                     &nodes[i + 1..],
                     &sub_scope,
-                    labels,
+                    &mut nested_labels,
                     &mut child_index,
                 );
+                let nested_prefix = format!("{}.", sub_scope.path);
+                for (nested_label, path) in nested_labels {
+                    let path = path
+                        .strip_prefix(&nested_prefix)
+                        .and_then(|suffix| {
+                            let first = suffix.split('.').next()?;
+                            first
+                                .strip_prefix("g-")?
+                                .parse::<usize>()
+                                .ok()
+                                .map(|_| format!("{}.{}", scope.path, suffix))
+                        })
+                        .unwrap_or(path);
+                    labels.insert(nested_label, path);
+                }
                 return; // remaining nodes consumed by sub-scope recursion
             }
             _ => {
@@ -917,16 +978,22 @@ fn emit_nodes(
     emit_nodes_with_continuation(nodes, scope, context, None)
 }
 
-/// Recursively replace all occurrences of `old_path` with `new_path` in divert
-/// targets (`"->"` and `"x->"` fields) within a JSON value tree.
+/// Recursively replace `old_path` and its descendants with `new_path` in
+/// path-bearing runtime fields within a JSON value tree.
 fn fix_divert_paths(value: &mut Value, old_path: &str, new_path: &str) {
     match value {
         Value::Object(map) => {
-            for field in ["->", "x->"] {
+            for field in ["->", "x->", "*", "^->", "CNT?"] {
                 if let Some(v) = map.get_mut(field)
-                    && v.as_str() == Some(old_path)
+                    && let Some(path) = v.as_str()
                 {
-                    *v = Value::String(new_path.to_owned());
+                    if path == old_path {
+                        *v = Value::String(new_path.to_owned());
+                    } else if let Some(suffix) = path.strip_prefix(old_path)
+                        && suffix.starts_with('.')
+                    {
+                        *v = Value::String(format!("{new_path}{suffix}"));
+                    }
                 }
             }
             for v in map.values_mut() {
@@ -1445,6 +1512,7 @@ fn emit_choice_block(
                 section.choices,
                 section.continuation_nodes,
                 scope,
+                out.content.len(),
                 next_choice_index,
                 context,
                 fallback_continuation,
@@ -1458,6 +1526,7 @@ fn emit_choice_block(
                 section.continuation_nodes,
                 loop_label,
                 scope,
+                out.content.len(),
                 next_choice_index,
                 context,
                 fallback_continuation,
@@ -1484,8 +1553,7 @@ fn emit_choice_block(
     // Detect gather label for the continuation so it can be added to choice_labels
     let gather_label: Option<String> =
         if let Some(Node::GatherLabel(lbl)) = section.continuation_nodes.first() {
-            let g_name = format!("g-{}", *next_choice_index);
-            let path = format!("{}.{}", scope.path, g_name);
+            let path = format!("{}.{}", scope.path, lbl);
             choice_labels.insert(lbl.clone(), path);
             Some(lbl.clone())
         } else {
@@ -1511,9 +1579,10 @@ fn emit_choice_block(
             };
             (fallback_continuation.map(|s| s.to_owned()), deferred)
         } else {
-            let name = format!("g-{}", *next_choice_index);
-            let continuation_scope = block_scope.choice_branch(&name);
-            // Strip leading GatherLabel — it's already handled via into_json_array(gather_label)
+            let generated_name = format!("g-{}", *next_choice_index);
+            let name = gather_label.as_deref().unwrap_or(&generated_name);
+            let continuation_scope = block_scope.continuation(&name);
+            // The gather label is represented by the named-content key.
             let continuation_body = if gather_label.is_some() {
                 &section.continuation_nodes[1..]
             } else {
@@ -1545,10 +1614,14 @@ fn emit_choice_block(
             ) {
                 gather_container.push(token);
             }
-            let continuation_value =
-                gather_container.into_json_array(gather_label.as_deref(), None)?;
+            let count_flags = if gather_label.is_some() && context.count_all_visits {
+                Some(5)
+            } else {
+                None
+            };
+            let continuation_value = gather_container.into_json_array(None, count_flags)?;
             let path = format!("{}.{}", scope.path, name);
-            (Some(path), Some((name, continuation_value)))
+            (Some(path), Some((name.to_owned(), continuation_value)))
         };
 
     for choice in section.choices {
@@ -1665,6 +1738,7 @@ fn build_threaded_choice_block_no_label(
     choices: &[Node],
     continuation: &[Node],
     scope: &EmitScope,
+    group_index: usize,
     next_choice_index: &mut usize,
     context: &EmitContext,
     fallback_continuation: Option<&str>,
@@ -1712,7 +1786,7 @@ fn build_threaded_choice_block_no_label(
     let choices_prefix = if scope.path == "0" {
         "0".to_owned()
     } else {
-        format!("{}.0", scope.path)
+        format!("{}.{group_index}", scope.path)
     };
     let header_scope = block_scope.with_relative_depth(block_scope.relative_depth + 3);
 
@@ -1731,7 +1805,7 @@ fn build_threaded_choice_block_no_label(
         format!(".^.^.{g_name}")
     };
 
-    let continuation_scope = block_scope.choice_branch(&g_name);
+    let continuation_scope = block_scope.continuation(&g_name);
     let continuation_body = match continuation.first() {
         Some(Node::GatherPoint) => {
             let mut idx = 1;
@@ -1841,6 +1915,7 @@ fn build_wrapped_loop_choice_block(
     continuation: &[Node],
     loop_label: &str,
     scope: &EmitScope,
+    group_index: usize,
     next_choice_index: &mut usize,
     context: &EmitContext,
     fallback_continuation: Option<&str>,
@@ -1870,7 +1945,7 @@ fn build_wrapped_loop_choice_block(
     let choices_prefix = if scope.path == "0" {
         format!("0.{loop_label}")
     } else {
-        format!("{}.0.{loop_label}", scope.path)
+        format!("{}.{group_index}.{loop_label}", scope.path)
     };
     let header_scope = block_scope.with_relative_depth(block_scope.relative_depth + 3);
 
@@ -1889,7 +1964,7 @@ fn build_wrapped_loop_choice_block(
     } else {
         format!(".^.^.^.{g_name}")
     };
-    let continuation_scope = block_scope.choice_branch(&g_name);
+    let continuation_scope = block_scope.continuation(&g_name);
     let continuation_body = match continuation.first() {
         Some(Node::GatherPoint) => &continuation[1..],
         _ => continuation,
@@ -2076,6 +2151,8 @@ fn emit_wrapped_loop_choice_body(
                 arguments: Vec::new(),
             }));
             body_already_emitted = true;
+        } else if !choice.has_start_content {
+            branch_nodes.extend(tokenize_inline_content(selected_text)?);
         }
         branch_nodes.extend(choice.selected_tags.iter().cloned().map(Node::Tag));
         if !body_already_emitted && !choice.has_start_content {
@@ -2089,6 +2166,21 @@ fn emit_wrapped_loop_choice_body(
                 branch_nodes.push(Node::Newline);
             }
         }
+    } else if choice.has_choice_only_content
+        && !choice.has_start_content
+        && matches!(choice.body.as_slice(), [Node::Divert(_)])
+    {
+        if choice.body_divert_is_inline {
+            branch_nodes.push(Node::Text(" ".to_owned()));
+            branch_nodes.extend(choice.body.clone());
+            branch_nodes.push(Node::Newline);
+        } else {
+            branch_nodes.push(Node::Newline);
+            branch_nodes.extend(choice.body.clone());
+        }
+        body_already_emitted = true;
+    } else if choice.has_choice_only_content && !choice.has_start_content {
+        branch_nodes.push(Node::Newline);
     }
 
     if !body_already_emitted {
@@ -2123,6 +2215,10 @@ fn emit_wrapped_loop_choice_body(
     }
 
     let branch_count_flags = if choice.once_only { Some(5) } else { None };
+    if !choice.has_start_content {
+        return branch_container.into_json_array(None, branch_count_flags);
+    }
+
     let mut arr = match branch_container.into_json_array(None, branch_count_flags)? {
         Value::Array(arr) => arr,
         _ => unreachable!(),
@@ -2613,6 +2709,9 @@ fn emit_expression_ctx(
         Expression::Variable(name) => {
             if let Some(path) = scope.and_then(|s| s.resolve_choice_label(name)) {
                 out.push(json!({"CNT?": path}))
+            } else if let Some(path) = context.and_then(|ctx| ctx.qualified_choice_labels.get(name))
+            {
+                out.push(json!({"CNT?": path}))
             } else if name.contains('.') {
                 out.push(json!({"CNT?": name}))
             } else if let (Some(s), Some(ctx)) = (scope, context)
@@ -2916,6 +3015,11 @@ fn emit_condition(
         {
             // Labels are stored as absolute paths now
             out.push(json!({"CNT?": scope.resolve_choice_label(name).unwrap()}));
+        }
+        Condition::Expression(Expression::Variable(name))
+            if context.qualified_choice_labels.contains_key(name) =>
+        {
+            out.push(json!({"CNT?": context.qualified_choice_labels[name]}));
         }
         Condition::Expression(Expression::Variable(name))
             if context.top_flow_names.contains(name) || scope.child_flow_names.contains(name) =>
