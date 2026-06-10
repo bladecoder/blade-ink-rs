@@ -131,6 +131,17 @@ fn strip_block_comments(source: &str) -> String {
             } else if ch == '\n' {
                 result.push('\n');
             }
+        } else if ch == '/' && chars.peek() == Some(&'/') {
+            // Inline comment — copy verbatim until end of line so that
+            // sequences like `//*` inside inline comments are not mistaken
+            // for block-comment openers.
+            result.push(ch);
+            for c in chars.by_ref() {
+                result.push(c);
+                if c == '\n' {
+                    break;
+                }
+            }
         } else if ch == '/' && chars.peek() == Some(&'*') {
             chars.next();
             in_block = true;
