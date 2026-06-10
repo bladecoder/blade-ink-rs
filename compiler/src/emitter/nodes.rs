@@ -489,7 +489,8 @@ fn emit_nodes_with_continuation(
                         replace_self_divert_with_done(&mut value, &hoisted_path);
                         out.insert_named(key, value);
                     }
-                    let count_flags = context.count_all_visits.then_some(5);
+                    let gather_path = format!("{}.{}", scope.path, label);
+                    let count_flags = gather_count_flags(&gather_path, context);
                     out.push(sub_container.into_json_array(Some(label), count_flags)?);
                     break;
                 }
@@ -577,7 +578,8 @@ fn emit_nodes_with_continuation(
                         out.insert_named(key, value);
                     }
 
-                    let count_flags = context.count_all_visits.then_some(5);
+                    let gather_path = format!("{}.{}", scope.path, gather_label);
+                    let count_flags = gather_count_flags(&gather_path, context);
                     if is_first {
                         out.push(
                             sub_container

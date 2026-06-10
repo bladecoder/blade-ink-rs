@@ -119,6 +119,26 @@ fn flow_count_flags(path: &str, context: &EmitContext) -> i32 {
     flags
 }
 
+/// Compute count flags for a gather container at the given runtime path.
+/// Returns `Some(flags)` when the container needs visit/turn counting, or `None`.
+/// Gather containers need the CountStartOnly bit (4) in addition to visit/turn flags.
+fn gather_count_flags(path: &str, context: &EmitContext) -> Option<i32> {
+    const COUNT_START_ONLY: i32 = 4;
+    let mut flags = context
+        .flow_count_flags
+        .get(path)
+        .copied()
+        .unwrap_or_default();
+    if context.count_all_visits {
+        flags |= COUNT_VISITS;
+    }
+    if flags > 0 {
+        Some(flags | COUNT_START_ONLY)
+    } else {
+        None
+    }
+}
+
 fn prepend_parameters(container: &mut EmittedContainer, parameters: &[String]) {
     if parameters.is_empty() {
         return;

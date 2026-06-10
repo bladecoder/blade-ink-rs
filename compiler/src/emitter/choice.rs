@@ -146,10 +146,9 @@ fn emit_choice(
         branch_container.into_json_array(
             None,
             Some(
-                if choice
-                    .label
-                    .as_deref()
-                    .and_then(|label| context.flow_count_flags.get(label))
+                if context
+                    .flow_count_flags
+                    .get(&choice_ptr)
                     .is_some_and(|flags| flags & COUNT_TURNS != 0)
                 {
                     7 // VISITS | TURNS | COUNT_START_ONLY

@@ -125,8 +125,8 @@ fn emit_choice_block(
             ) {
                 gather_container.push(token);
             }
-            let count_flags = if gather_label.is_some() && context.count_all_visits {
-                Some(5)
+            let count_flags = if gather_label.is_some() {
+                gather_count_flags(&g_n_path, context)
             } else {
                 None
             };

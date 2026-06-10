@@ -21,7 +21,7 @@ use std::time::Instant;
 
 pub const EXIT_CODE_ERROR: i32 = 1;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Options {
     pub verbose: bool,
     pub play_mode: bool,
@@ -33,6 +33,23 @@ pub struct Options {
     pub keep_open_after_story_finish: bool,
     /// Plugin directories — accepted for interface compatibility but ignored.
     pub plugin_directories: Vec<String>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            verbose: false,
+            play_mode: false,
+            stats: false,
+            json_output: false,
+            input_file: None,
+            output_file: None,
+            // Match inklecate: always count visits by default.
+            count_all_visits: true,
+            keep_open_after_story_finish: false,
+            plugin_directories: Vec::new(),
+        }
+    }
 }
 
 fn main() {

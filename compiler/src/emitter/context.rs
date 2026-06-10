@@ -291,6 +291,12 @@ fn collect_flow_count_flags_from_expr(expr: &Expression, targets: &mut BTreeMap<
                 }
             }
         }
+        // A bare variable used as a condition (e.g., {label_name}) is treated as
+        // a visit-count check at emission time (CNT?).  Flag the target so that
+        // it gets COUNT_VISITS even when count_all_visits is false.
+        Expression::Variable(name) => {
+            add_flow_count_flags(targets, name, COUNT_VISITS);
+        }
         Expression::Negate(inner) | Expression::Not(inner) => {
             collect_flow_count_flags_from_expr(inner, targets);
         }
@@ -320,11 +326,29 @@ impl EmitContext {
         collect_flow_count_flags_from_flows_into(story.flows(), &mut raw_flow_count_flags);
         let mut flow_count_flags = BTreeMap::new();
         for (target, flags) in raw_flow_count_flags {
-            let resolved = unqualified_flow_targets
-                .get(&target)
-                .cloned()
-                .unwrap_or(target);
-            add_flow_count_flags(&mut flow_count_flags, &resolved, flags);
+            // First try unqualified flow targets (knots/stitches)
+            if let Some(resolved) = unqualified_flow_targets.get(&target) {
+                add_flow_count_flags(&mut flow_count_flags, resolved, flags);
+            } else if target.contains('.') {
+                // Already qualified path
+                add_flow_count_flags(&mut flow_count_flags, &target, flags);
+            } else {
+                // Try to resolve through qualified choice labels (gather labels).
+                // A bare name like "ans_agent" may correspond to one or more
+                // qualified keys like "interrogation.0.ans_agent".
+                let mut resolved_any = false;
+                let suffix = format!(".{target}");
+                for (qualified_key, runtime_path) in &qualified_choice_labels {
+                    if qualified_key.ends_with(&suffix) || qualified_key == &target {
+                        add_flow_count_flags(&mut flow_count_flags, runtime_path, flags);
+                        resolved_any = true;
+                    }
+                }
+                if !resolved_any {
+                    // Unresolved — store as-is (may be a global variable, not a flow).
+                    add_flow_count_flags(&mut flow_count_flags, &target, flags);
+                }
+            }
         }
         let function_ref_param_positions = story
             .flows()
