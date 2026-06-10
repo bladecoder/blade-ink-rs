@@ -141,22 +141,24 @@ fn emit_choice(
     ) {
         branch_container.push(token);
     }
+    let extra_flags = context
+        .flow_count_flags
+        .get(&choice_ptr)
+        .copied()
+        .unwrap_or(0);
+    let mut flags = 0;
+    if choice.once_only || context.count_all_visits || (extra_flags & COUNT_VISITS != 0) {
+        flags |= COUNT_VISITS;
+    }
+    if extra_flags & COUNT_TURNS != 0 {
+        flags |= COUNT_TURNS;
+    }
+    // CountStartOnly (4) is always set for choices but only serialized when
+    // accompanied by Visits or Turns (lone CountStartOnly is meaningless).
+    let count_flags = if flags > 0 { Some(flags | 4) } else { None };
     out.insert_named(
         branch_name,
-        branch_container.into_json_array(
-            None,
-            Some(
-                if context
-                    .flow_count_flags
-                    .get(&choice_ptr)
-                    .is_some_and(|flags| flags & COUNT_TURNS != 0)
-                {
-                    7 // VISITS | TURNS | COUNT_START_ONLY
-                } else {
-                    5 // VISITS | COUNT_START_ONLY
-                },
-            ),
-        )?,
+        branch_container.into_json_array(None, count_flags)?,
     );
 
     Ok(())

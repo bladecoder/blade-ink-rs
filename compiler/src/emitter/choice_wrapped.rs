@@ -290,7 +290,19 @@ fn emit_wrapped_loop_choice_body(
         branch_container.push(token);
     }
 
-    let branch_count_flags = if choice.once_only { Some(5) } else { None };
+    let extra_flags = context
+        .flow_count_flags
+        .get(&branch_scope.path)
+        .copied()
+        .unwrap_or(0);
+    let mut flags = 0;
+    if choice.once_only || context.count_all_visits || (extra_flags & COUNT_VISITS != 0) {
+        flags |= COUNT_VISITS;
+    }
+    if extra_flags & COUNT_TURNS != 0 {
+        flags |= COUNT_TURNS;
+    }
+    let branch_count_flags = if flags > 0 { Some(flags | 4) } else { None };
     if !choice.has_start_content {
         return branch_container.into_json_array(None, branch_count_flags);
     }
