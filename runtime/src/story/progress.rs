@@ -53,6 +53,13 @@ impl Story {
         self.continue_internal(millisecs_limit_async)
     }
 
+    /// Whether a time-limited [`continue_async`](Story::continue_async) call
+    /// is still evaluating. Call `continue_async` again until this returns
+    /// `false`, then retrieve the completed text and tags.
+    pub fn is_async_continue_active(&self) -> bool {
+        self.async_continue_active
+    }
+
     pub(crate) fn if_async_we_cant(&self, activity_str: &str) -> Result<(), StoryError> {
         if self.async_continue_active {
             return Err(StoryError::InvalidStoryState(format!(

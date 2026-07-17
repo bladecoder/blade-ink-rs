@@ -44,6 +44,8 @@ pub struct Story {
 }
 mod misc {
     use crate::{
+        ink_list::InkList,
+        ink_list_item::InkListItem,
         json::{json_read, json_read_stream},
         object::{Object, RTObject},
         path::Path,
@@ -106,6 +108,40 @@ mod misc {
                 .build_string_of_hierarchy(&mut sb, 0, cp);
 
             sb
+        }
+
+        /// Creates an empty Ink list associated with the named list origin.
+        ///
+        /// The returned value retains the origin definition, so operations such
+        /// as `LIST_ALL` and `LIST_INVERT` continue to behave correctly when it
+        /// is assigned back to the story.
+        pub fn list_from_origin(&self, origin_name: &str) -> Result<InkList, StoryError> {
+            InkList::from_single_origin(origin_name.to_owned(), &self.list_definitions)
+        }
+
+        /// Creates a one-item Ink list using the value declared by the story's
+        /// list definition.
+        pub fn list_from_item(&self, full_item_name: &str) -> Result<InkList, StoryError> {
+            let item = InkListItem::from_full_name(full_item_name);
+            let Some(origin_name) = item.get_origin_name() else {
+                return Err(StoryError::BadArgument(format!(
+                    "List item '{full_item_name}' must use the 'origin.item' format."
+                )));
+            };
+            let Some(definition) = self.list_definitions.get_list_definition(origin_name) else {
+                return Err(StoryError::BadArgument(format!(
+                    "List origin '{origin_name}' does not exist."
+                )));
+            };
+            let Some(value) = definition.get_value_for_item(&item) else {
+                return Err(StoryError::BadArgument(format!(
+                    "List item '{full_item_name}' does not exist."
+                )));
+            };
+
+            let mut list = self.list_from_origin(origin_name)?;
+            list.items.insert(item, *value);
+            Ok(list)
         }
 
         pub(crate) fn is_truthy(&self, obj: Rc<dyn RTObject>) -> Result<bool, StoryError> {
@@ -192,3 +228,41 @@ mod progress;
 mod state;
 mod tags;
 pub mod variable_observer;
+
+#[cfg(test)]
+mod tests {
+    use super::Story;
+
+    const STORY_WITH_LIST: &str = r#"{
+        "inkVersion": 21,
+        "root": [["done", null], "done", {
+            "global decl": ["ev", {"list": {}, "origins": ["items"]}, {"VAR=": "items"}, "/ev", "end", null]
+        }],
+        "listDefs": {"items": {"one": 1, "two": 2}}
+    }"#;
+
+    #[test]
+    fn constructs_lists_with_story_definitions() {
+        let story = Story::new(STORY_WITH_LIST).expect("story should load");
+
+        let empty = story
+            .list_from_origin("items")
+            .expect("origin should exist");
+        assert!(empty.items.is_empty());
+        assert_eq!(empty.get_origin_names(), vec!["items"]);
+
+        let item = story
+            .list_from_item("items.two")
+            .expect("item should exist");
+        assert_eq!(item.items.len(), 1);
+        assert_eq!(item.get_origin_names(), vec!["items"]);
+    }
+
+    #[test]
+    fn rejects_unknown_list_items() {
+        let story = Story::new(STORY_WITH_LIST).expect("story should load");
+        assert!(story.list_from_origin("unknown").is_err());
+        assert!(story.list_from_item("items.unknown").is_err());
+        assert!(story.list_from_item("two").is_err());
+    }
+}
