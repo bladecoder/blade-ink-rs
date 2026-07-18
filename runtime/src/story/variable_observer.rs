@@ -1,108 +1,170 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{collections::HashSet, error::Error, fmt};
 
 use crate::{story::Story, story_error::StoryError, value_type::ValueType};
 
-/// Defines the method that will be called when an observed global variable
-/// changes.
-pub trait VariableObserver {
-    fn changed(&mut self, variable_name: &str, value: &ValueType);
+/// An error returned by a client-provided variable observer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariableObserverError(String);
+
+impl VariableObserverError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
+    }
 }
 
-/// # Variable Observers
-/// Methods dealing with variable observer callbacks that will be called while
-/// the [`Story`] is processing.
+impl fmt::Display for VariableObserverError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl Error for VariableObserverError {}
+
+pub type VariableObserverResult = Result<(), VariableObserverError>;
+
+/// Defines a callback invoked when an observed global variable changes.
+pub trait VariableObserver {
+    fn changed(&mut self, variable_name: &str, value: &ValueType) -> VariableObserverResult;
+}
+
+impl<F> VariableObserver for F
+where
+    F: FnMut(&str, &ValueType) -> VariableObserverResult,
+{
+    fn changed(&mut self, variable_name: &str, value: &ValueType) -> VariableObserverResult {
+        self(variable_name, value)
+    }
+}
+
+/// Identifies a registered variable observer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct VariableObserverHandle(pub(crate) u64);
+
+pub(crate) struct VariableObserverDef {
+    observer: Box<dyn VariableObserver>,
+}
+
 impl Story {
-    /// When the specified global variable changes it's value, the observer will
-    /// be called to notify it of the change. Note that if the value changes
-    /// multiple times within the ink, the observer will only be called
-    /// once, at the end of the ink's evaluation. If, during the evaluation,
-    /// it changes and then changes back again to its original value, it
-    /// will still be called. Note that the observer will also be fired if
-    /// the value of the variable is changed externally to the ink, by
-    /// directly setting a value in
-    /// [`story.set_variable`](Story::set_variable).
-    pub fn observe_variable(
+    /// Observes one global variable and returns a handle that can unsubscribe it.
+    pub fn observe_variable<F>(
         &mut self,
         variable_name: &str,
-        observer: Rc<RefCell<dyn VariableObserver>>,
-    ) -> Result<(), StoryError> {
-        self.if_async_we_cant("observe a new variable")?;
-
-        if !self
-            .get_state()
-            .variables_state
-            .global_variable_exists_with_name(variable_name)
-        {
-            return Err(StoryError::BadArgument(format!(
-                "Cannot observe variable '{variable_name}' because it wasn't declared in the ink story."
-            )));
-        }
-
-        match self.variable_observers.get_mut(variable_name) {
-            Some(v) => {
-                v.push(observer);
-            }
-            None => {
-                let v: Vec<Rc<RefCell<dyn VariableObserver>>> = vec![observer];
-                self.variable_observers.insert(variable_name.to_string(), v);
-            }
-        }
-
-        Ok(())
+        observer: F,
+    ) -> Result<VariableObserverHandle, StoryError>
+    where
+        F: FnMut(&str, &ValueType) -> VariableObserverResult + 'static,
+    {
+        self.observe_variables(&[variable_name], observer)
     }
 
-    /// Removes a variable observer, to stop getting variable change
-    /// notifications. If you pass a specific variable name, it will stop
-    /// observing that particular one. If you pass None, then the observer
-    /// will be removed from all variables that it's subscribed to.
+    /// Observes several global variables with one callback and returns one handle.
+    ///
+    /// Every variable is validated before registration, so an invalid name
+    /// leaves no partial subscription behind. Duplicate names are observed once.
+    pub fn observe_variables<F>(
+        &mut self,
+        variable_names: &[&str],
+        observer: F,
+    ) -> Result<VariableObserverHandle, StoryError>
+    where
+        F: FnMut(&str, &ValueType) -> VariableObserverResult + 'static,
+    {
+        self.observe_variables_box(variable_names, Box::new(observer))
+    }
+
+    /// Observes one global variable with a [`VariableObserver`] implementation.
+    pub fn observe_variable_handler<F>(
+        &mut self,
+        variable_name: &str,
+        observer: F,
+    ) -> Result<VariableObserverHandle, StoryError>
+    where
+        F: VariableObserver + 'static,
+    {
+        self.observe_variables_handler(&[variable_name], observer)
+    }
+
+    /// Observes several global variables with a [`VariableObserver`] implementation.
+    pub fn observe_variables_handler<F>(
+        &mut self,
+        variable_names: &[&str],
+        observer: F,
+    ) -> Result<VariableObserverHandle, StoryError>
+    where
+        F: VariableObserver + 'static,
+    {
+        self.observe_variables_box(variable_names, Box::new(observer))
+    }
+
+    fn observe_variables_box(
+        &mut self,
+        variable_names: &[&str],
+        observer: Box<dyn VariableObserver>,
+    ) -> Result<VariableObserverHandle, StoryError> {
+        self.if_async_we_cant("observe a new variable")?;
+        let variable_names = variable_names.iter().copied().collect::<HashSet<_>>();
+        for variable_name in &variable_names {
+            if !self
+                .get_state()
+                .variables_state
+                .global_variable_exists_with_name(variable_name)
+            {
+                return Err(StoryError::BadArgument(format!(
+                    "Cannot observe variable '{variable_name}' because it wasn't declared in the ink story."
+                )));
+            }
+        }
+
+        let handle = VariableObserverHandle(self.next_variable_observer_id);
+        self.next_variable_observer_id = self.next_variable_observer_id.wrapping_add(1);
+        self.variable_observer_defs
+            .insert(handle, VariableObserverDef { observer });
+        for variable_name in variable_names {
+            self.variable_observers
+                .entry(variable_name.to_owned())
+                .or_default()
+                .push(handle);
+        }
+        Ok(handle)
+    }
+
+    /// Removes all subscriptions associated with a variable observer handle.
     pub fn remove_variable_observer(
         &mut self,
-        observer: &Rc<RefCell<dyn VariableObserver>>,
-        specific_variable_name: Option<&str>,
-    ) -> Result<(), StoryError> {
+        handle: VariableObserverHandle,
+    ) -> Result<bool, StoryError> {
         self.if_async_we_cant("remove a variable observer")?;
-
-        // Remove observer for this specific variable
-        match specific_variable_name {
-            Some(specific_variable_name) => {
-                if let Some(v) = self.variable_observers.get_mut(specific_variable_name) {
-                    let index = v.iter().position(|x| Rc::ptr_eq(x, observer)).unwrap();
-                    v.remove(index);
-
-                    if v.is_empty() {
-                        self.variable_observers.remove(specific_variable_name);
-                    }
-                }
-            }
-            None => {
-                // Remove observer for all variables
-                let mut keys_to_remove = Vec::new();
-
-                for (k, v) in self.variable_observers.iter_mut() {
-                    let index = v.iter().position(|x| Rc::ptr_eq(x, observer)).unwrap();
-                    v.remove(index);
-
-                    if v.is_empty() {
-                        keys_to_remove.push(k.to_string());
-                    }
-                }
-
-                for key_to_remove in keys_to_remove.iter() {
-                    self.variable_observers.remove(key_to_remove);
-                }
-            }
+        if self.variable_observer_defs.remove(&handle).is_none() {
+            return Ok(false);
         }
-
-        Ok(())
+        self.variable_observers.retain(|_, handles| {
+            handles.retain(|registered| *registered != handle);
+            !handles.is_empty()
+        });
+        Ok(true)
     }
 
-    pub(crate) fn notify_variable_changed(&self, variable_name: &str, value: &ValueType) {
-        let observers = self.variable_observers.get(variable_name);
-
-        if let Some(observers) = observers {
-            for o in observers.iter() {
-                o.borrow_mut().changed(variable_name, value);
+    pub(crate) fn notify_variable_changed(
+        &mut self,
+        variable_name: &str,
+        value: &ValueType,
+    ) -> Result<(), StoryError> {
+        let handles = self
+            .variable_observers
+            .get(variable_name)
+            .cloned()
+            .unwrap_or_default();
+        for handle in handles {
+            if let Some(observer) = self.variable_observer_defs.get_mut(&handle) {
+                observer
+                    .observer
+                    .changed(variable_name, value)
+                    .map_err(|error| StoryError::VariableObserverFailed {
+                        variable_name: variable_name.to_owned(),
+                        error,
+                    })?;
             }
         }
+        Ok(())
     }
 }

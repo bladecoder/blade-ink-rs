@@ -56,7 +56,7 @@ impl Story {
             .set(variable_name, value_type.clone())?;
 
         if notify_observers {
-            self.notify_variable_changed(variable_name, value_type);
+            self.notify_variable_changed(variable_name, value_type)?;
         }
 
         Ok(())

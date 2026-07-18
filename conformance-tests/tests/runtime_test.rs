@@ -1,8 +1,7 @@
-use core::panic;
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use bladeink::{
-    story::{Story, external_functions::ExternalFunction, variable_observer::VariableObserver},
+    story::{Story, external_functions::ExternalFunction},
     story_error::StoryError,
     value_type::ValueType,
 };
@@ -25,82 +24,118 @@ struct CallCounter {
 }
 
 impl ExternalFunction for ExtFunc1 {
-    fn call(&mut self, func_name: &str, args: Vec<ValueType>) -> Option<ValueType> {
+    fn call(
+        &mut self,
+        func_name: &str,
+        args: &[ValueType],
+    ) -> bladeink::story::external_functions::ExternalFunctionResult {
         println!("Calling {func_name}...");
 
         let x = args[0].coerce_to_int().unwrap_or_default();
         let y = args[1].coerce_to_int().unwrap_or_default();
 
-        Some(ValueType::Int(x - y))
+        Ok(Some(ValueType::Int(x - y)))
     }
 }
 
 impl ExternalFunction for ExtFunc3 {
-    fn call(&mut self, _: &str, args: Vec<ValueType>) -> Option<ValueType> {
-        Some(ValueType::Bool(args[0].get::<i32>().unwrap() != 1))
+    fn call(
+        &mut self,
+        _: &str,
+        args: &[ValueType],
+    ) -> bladeink::story::external_functions::ExternalFunctionResult {
+        Ok(Some(ValueType::Bool(args[0].get::<i32>().unwrap() != 1)))
     }
 }
 
 impl ExternalFunction for ExtFunc4 {
-    fn call(&mut self, _: &str, args: Vec<ValueType>) -> Option<ValueType> {
-        Some(ValueType::Bool(!args[0].coerce_to_bool().unwrap()))
+    fn call(
+        &mut self,
+        _: &str,
+        args: &[ValueType],
+    ) -> bladeink::story::external_functions::ExternalFunctionResult {
+        Ok(Some(ValueType::Bool(!args[0].coerce_to_bool().unwrap())))
     }
 }
 
 // ExternalFunction for 3-arg sum: x + y + z (as int)
 impl ExternalFunction for ExtFunc5 {
-    fn call(&mut self, _: &str, args: Vec<ValueType>) -> Option<ValueType> {
+    fn call(
+        &mut self,
+        _: &str,
+        args: &[ValueType],
+    ) -> bladeink::story::external_functions::ExternalFunctionResult {
         let x = args[0].coerce_to_int().unwrap_or_default();
         let y = args[1].coerce_to_int().unwrap_or_default();
         let z = args[2].coerce_to_int().unwrap_or_default();
-        Some(ValueType::Int(x + y + z))
+        Ok(Some(ValueType::Int(x + y + z)))
     }
 }
 
 // ExternalFunction for 3-arg sum with explicit coerce: same result
 impl ExternalFunction for ExtFunc6 {
-    fn call(&mut self, _: &str, args: Vec<ValueType>) -> Option<ValueType> {
+    fn call(
+        &mut self,
+        _: &str,
+        args: &[ValueType],
+    ) -> bladeink::story::external_functions::ExternalFunctionResult {
         let x = args[0].coerce_to_int().unwrap_or_default();
         let y = args[1].coerce_to_int().unwrap_or_default();
         let z = args[2].coerce_to_int().unwrap_or_default();
-        Some(ValueType::Int(x + y + z))
+        Ok(Some(ValueType::Int(x + y + z)))
     }
 }
 
 impl ExternalFunction for MessageRecorder {
-    fn call(&mut self, _: &str, args: Vec<ValueType>) -> Option<ValueType> {
+    fn call(
+        &mut self,
+        _: &str,
+        args: &[ValueType],
+    ) -> bladeink::story::external_functions::ExternalFunctionResult {
         *self.message.borrow_mut() = Some(format!(
             "MESSAGE: {}",
             args[0].coerce_to_string().unwrap_or_default()
         ));
-        None
+        Ok(None)
     }
 }
 
 impl ExternalFunction for MultiplyFunc {
-    fn call(&mut self, _: &str, args: Vec<ValueType>) -> Option<ValueType> {
+    fn call(
+        &mut self,
+        _: &str,
+        args: &[ValueType],
+    ) -> bladeink::story::external_functions::ExternalFunctionResult {
         let x = args[0].coerce_to_float().unwrap_or_default();
         let y = args[1].coerce_to_int().unwrap_or_default() as f32;
-        Some(ValueType::Float(x * y))
+        Ok(Some(ValueType::Float(x * y)))
     }
 }
 
 impl ExternalFunction for TimesFunc {
-    fn call(&mut self, _: &str, args: Vec<ValueType>) -> Option<ValueType> {
+    fn call(
+        &mut self,
+        _: &str,
+        args: &[ValueType],
+    ) -> bladeink::story::external_functions::ExternalFunctionResult {
         let times = args[0].coerce_to_int().unwrap_or_default();
         let text = args[1].coerce_to_string().unwrap_or_default();
         let mut result = String::new();
         for _ in 0..times {
             result.push_str(&text);
         }
-        Some(ValueType::new(result.as_str()))
+        Ok(Some(ValueType::new(result.as_str())))
     }
 }
 
 impl ExternalFunction for CallCounter {
-    fn call(&mut self, _: &str, _: Vec<ValueType>) -> Option<ValueType> {
+    fn call(
+        &mut self,
+        _: &str,
+        _: &[ValueType],
+    ) -> bladeink::story::external_functions::ExternalFunctionResult {
         *self.count.borrow_mut() += 1;
-        None
+        Ok(None)
     }
 }
 
@@ -111,7 +146,7 @@ fn external_function() -> Result<(), Box<dyn Error>> {
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
-    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc1 {})), true)?;
+    story.bind_external_function_handler("externalFunction", ExtFunc1, true)?;
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
@@ -226,15 +261,15 @@ EXTERNAL times(i,str)
     let mut story = Story::new(&json)?;
     let message = Rc::new(RefCell::new(None));
 
-    story.bind_external_function(
+    story.bind_external_function_handler(
         "message",
-        Rc::new(RefCell::new(MessageRecorder {
+        MessageRecorder {
             message: message.clone(),
-        })),
+        },
         true,
     )?;
-    story.bind_external_function("multiply", Rc::new(RefCell::new(MultiplyFunc)), true)?;
-    story.bind_external_function("times", Rc::new(RefCell::new(TimesFunc)), true)?;
+    story.bind_external_function_handler("multiply", MultiplyFunc, true)?;
+    story.bind_external_function_handler("times", TimesFunc, true)?;
 
     assert_eq!("15\n", story.cont()?);
     assert_eq!("knock knock knock\n", story.cont()?);
@@ -260,11 +295,11 @@ Two
     let mut story = Story::new(&json)?;
     let safe_count = Rc::new(RefCell::new(0));
 
-    story.bind_external_function(
+    story.bind_external_function_handler(
         "myAction",
-        Rc::new(RefCell::new(CallCounter {
+        CallCounter {
             count: safe_count.clone(),
-        })),
+        },
         true,
     )?;
     story.continue_maximally()?;
@@ -274,11 +309,11 @@ Two
     story.unbind_external_function("myAction")?;
 
     let unsafe_count = Rc::new(RefCell::new(0));
-    story.bind_external_function(
+    story.bind_external_function_handler(
         "myAction",
-        Rc::new(RefCell::new(CallCounter {
+        CallCounter {
             count: unsafe_count.clone(),
-        })),
+        },
         false,
     )?;
     story.continue_maximally()?;
@@ -293,11 +328,11 @@ One
 "#;
     let json = Compiler::new().compile(glue_ink).unwrap();
     let mut story = Story::new(&json)?;
-    story.bind_external_function(
+    story.bind_external_function_handler(
         "myAction",
-        Rc::new(RefCell::new(CallCounter {
+        CallCounter {
             count: Rc::new(RefCell::new(0)),
-        })),
+        },
         false,
     )?;
     assert_eq!("One\nTwo\n", story.continue_maximally()?);
@@ -312,7 +347,7 @@ fn external_function_one_arguments() -> Result<(), Box<dyn Error>> {
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
-    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc3 {})), true)?;
+    story.bind_external_function_handler("externalFunction", ExtFunc3, true)?;
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
@@ -328,7 +363,7 @@ fn external_function_coerce_test() -> Result<(), Box<dyn Error>> {
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
-    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc4 {})), true)?;
+    story.bind_external_function_handler("externalFunction", ExtFunc4, true)?;
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
@@ -353,26 +388,6 @@ fn external_function_fallback_test() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-struct VObserver {
-    expected_value: i32,
-}
-
-impl VariableObserver for VObserver {
-    fn changed(&mut self, variable_name: &str, new_value: &ValueType) {
-        if !"x".eq(variable_name) {
-            panic!();
-        }
-
-        if let ValueType::Int(v) = new_value {
-            assert_eq!(self.expected_value, *v);
-        } else {
-            panic!();
-        }
-
-        self.expected_value = 10;
-    }
-}
-
 #[test]
 fn variable_observers_test() -> Result<(), Box<dyn Error>> {
     let ink_source = common::get_file_string("inkfiles/runtime/variable-observers.ink")?;
@@ -380,16 +395,21 @@ fn variable_observers_test() -> Result<(), Box<dyn Error>> {
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
-    let observer = Rc::new(RefCell::new(VObserver { expected_value: 5 }));
-    story.observe_variable("x", observer.clone())?;
+    let expected_value = Rc::new(RefCell::new(5));
+    let observed_value = expected_value.clone();
+    story.observe_variable("x", move |variable_name, new_value| {
+        assert_eq!("x", variable_name);
+        assert_eq!(Some(*observed_value.borrow()), new_value.get::<i32>());
+        *observed_value.borrow_mut() = 10;
+        Ok(())
+    })?;
 
     common::next_all(&mut story, &mut text)?;
     story.choose_choice_index(0)?;
     common::next_all(&mut story, &mut text)?;
     assert_eq!(10, story.get_variable("x").unwrap().get::<i32>().unwrap());
 
-    // Check that the observer's expected_value is now 10
-    assert_eq!(observer.borrow().expected_value, 10);
+    assert_eq!(*expected_value.borrow(), 10);
 
     Ok(())
 }
@@ -445,6 +465,107 @@ fn set_non_existant_variable_test() -> Result<(), Box<dyn Error>> {
     assert_eq!(1, text.len());
     assert_eq!("OK", text[0]);
 
+    Ok(())
+}
+
+#[test]
+fn external_function_closure_and_error_test() -> Result<(), Box<dyn Error>> {
+    let json = Compiler::new()
+        .compile("EXTERNAL increment(x)\n{increment(4)}")
+        .unwrap();
+    let mut story = Story::new(&json)?;
+    let calls = Rc::new(RefCell::new(0));
+    let callback_calls = calls.clone();
+    story.bind_external_function(
+        "increment",
+        move |_, args| {
+            *callback_calls.borrow_mut() += 1;
+            Ok(Some(ValueType::Int(
+                args[0].coerce_to_int().map_err(|error| {
+                    bladeink::story::external_functions::ExternalFunctionError::new(
+                        error.to_string(),
+                    )
+                })? + 1,
+            )))
+        },
+        true,
+    )?;
+
+    assert_eq!("5\n", story.cont()?);
+    assert_eq!(1, *calls.borrow());
+
+    let json = Compiler::new()
+        .compile("EXTERNAL fail()\n~ fail()")
+        .unwrap();
+    let mut story = Story::new(&json)?;
+    story.bind_external_function(
+        "fail",
+        |_, _| {
+            Err(
+                bladeink::story::external_functions::ExternalFunctionError::new(
+                    "game service unavailable",
+                ),
+            )
+        },
+        true,
+    )?;
+
+    assert!(matches!(
+        story.cont(),
+        Err(StoryError::ExternalFunctionFailed { function_name, error })
+            if function_name == "fail" && error.to_string() == "game service unavailable"
+    ));
+    Ok(())
+}
+
+#[test]
+fn variable_observer_handles_and_errors_test() -> Result<(), Box<dyn Error>> {
+    let json = Compiler::new()
+        .compile("VAR x = 1\nVAR y = 2\n-> DONE")
+        .unwrap();
+    let mut story = Story::new(&json)?;
+    let notifications = Rc::new(RefCell::new(Vec::new()));
+    let callback_notifications = notifications.clone();
+    let handle = story.observe_variables(&["x", "y"], move |name, value| {
+        callback_notifications
+            .borrow_mut()
+            .push((name.to_owned(), value.get::<i32>().unwrap()));
+        Ok(())
+    })?;
+
+    story.set_variable("x", &ValueType::Int(1))?;
+    story.set_variable("x", &ValueType::Int(3))?;
+    story.set_variable("y", &ValueType::Int(4))?;
+    assert_eq!(
+        vec![("x".to_owned(), 3), ("y".to_owned(), 4)],
+        *notifications.borrow()
+    );
+    assert!(story.remove_variable_observer(handle)?);
+    assert!(!story.remove_variable_observer(handle)?);
+    story.set_variable("x", &ValueType::Int(5))?;
+    assert_eq!(2, notifications.borrow().len());
+
+    let notification_count = Rc::new(RefCell::new(0));
+    let callback_count = notification_count.clone();
+    assert!(
+        story
+            .observe_variables(&["x", "missing"], move |_, _| {
+                *callback_count.borrow_mut() += 1;
+                Ok(())
+            })
+            .is_err()
+    );
+    story.set_variable("x", &ValueType::Int(6))?;
+    assert_eq!(0, *notification_count.borrow());
+
+    story.observe_variable("x", |_, _| {
+        Err(bladeink::story::variable_observer::VariableObserverError::new("save failed"))
+    })?;
+    assert!(matches!(
+        story.set_variable("x", &ValueType::Int(7)),
+        Err(StoryError::VariableObserverFailed { variable_name, error })
+            if variable_name == "x" && error.to_string() == "save failed"
+    ));
     Ok(())
 }
 
@@ -592,7 +713,7 @@ fn external_function_two_arguments_test() -> Result<(), Box<dyn Error>> {
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
-    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc1 {})), true)?;
+    story.bind_external_function_handler("externalFunction", ExtFunc1, true)?;
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
@@ -609,7 +730,7 @@ fn external_function_two_arguments_coerce_override_test() -> Result<(), Box<dyn 
     let mut text: Vec<String> = Vec::new();
 
     // Uses coerce_to_int explicitly for both args — same result
-    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc1 {})), true)?;
+    story.bind_external_function_handler("externalFunction", ExtFunc1, true)?;
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
@@ -625,7 +746,7 @@ fn external_function_three_arguments_test() -> Result<(), Box<dyn Error>> {
     let mut story = Story::new(&json_string)?;
     let mut text: Vec<String> = Vec::new();
 
-    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc5 {})), true)?;
+    story.bind_external_function_handler("externalFunction", ExtFunc5, true)?;
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());
@@ -642,7 +763,7 @@ fn external_function_three_arguments_coerce_override_test() -> Result<(), Box<dy
     let mut text: Vec<String> = Vec::new();
 
     // Uses explicit coerce_to_int for all args — same result
-    story.bind_external_function("externalFunction", Rc::new(RefCell::new(ExtFunc6 {})), true)?;
+    story.bind_external_function_handler("externalFunction", ExtFunc6, true)?;
 
     common::next_all(&mut story, &mut text)?;
     assert_eq!(1, text.len());

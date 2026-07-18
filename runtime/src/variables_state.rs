@@ -300,7 +300,7 @@ impl VariablesState {
                 .insert(name.to_string(), value.clone());
         }
 
-        if old_value.is_none() || !Rc::ptr_eq(old_value.as_ref().unwrap(), &value) {
+        if old_value.is_none() || old_value.as_ref().unwrap().value != value.value {
             if self.batch_observing_variable_changes {
                 if let Some(patch) = &mut self.patch {
                     patch.add_changed_variable(name);

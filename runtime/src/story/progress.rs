@@ -111,13 +111,19 @@ impl Story {
         };
 
         let mut output_stream_ends_in_newline = false;
+        let mut callback_error = None;
         self.saw_lookahead_unsafe_function_after_new_line = false;
 
         loop {
             match self.continue_single_step() {
                 Ok(r) => output_stream_ends_in_newline = r,
                 Err(e) => {
-                    self.add_error(e.get_message(), false);
+                    if matches!(e, StoryError::ExternalFunctionFailed { .. }) {
+                        callback_error = Some(e);
+                        self.get_state_mut().force_end();
+                    } else {
+                        self.add_error(&e.get_message(), false);
+                    }
                     break;
                 }
             }
@@ -204,6 +210,10 @@ impl Story {
 
         self.recursive_continue_count -= 1;
 
+        if let Some(error) = callback_error {
+            return Err(error);
+        }
+
         // Report any errors that occured during evaluation.
         // This may either have been StoryExceptions that were thrown
         // and caught during evaluation, or directly added with AddError.
@@ -265,7 +275,7 @@ impl Story {
         // Send out variable observation events at the last second, since it might trigger new ink to be run
         if let Some(changed) = changed_variables_to_observe {
             for (variable_name, value) in changed {
-                self.notify_variable_changed(&variable_name, &value);
+                self.notify_variable_changed(&variable_name, &value)?;
             }
         }
 

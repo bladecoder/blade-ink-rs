@@ -3,7 +3,7 @@ use crate::{ink_list::InkList, path::Path, story_error::StoryError};
 
 /// An Ink value, tagged with its type.
 #[repr(u8)]
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum ValueType {
     Bool(bool),
     Int(i32),
@@ -184,7 +184,7 @@ impl ValueType {
 }
 
 /// Ink runtime representation of a string.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct StringValue {
     /// The internal string value.
     pub string: String,
