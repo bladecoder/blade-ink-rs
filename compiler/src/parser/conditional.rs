@@ -581,7 +581,7 @@ fn parse_switch_conditional(
 
 /// If `trimmed` is exactly `}` or starts with `} ` / `}<>` etc., return the tail after `}`.
 /// Returns `None` if the line is not a closing brace line.
-fn closing_brace_tail(trimmed: &str) -> Option<&str> {
+pub(super) fn closing_brace_tail(trimmed: &str) -> Option<&str> {
     if trimmed == "}" {
         return Some("");
     }

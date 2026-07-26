@@ -19,6 +19,14 @@ fn json_has_assignment_token(value: &Value, key: &str, var_name: &str) -> bool {
     }
 }
 
+fn choice_texts(story: &Story) -> Vec<String> {
+    story
+        .get_current_choices()
+        .iter()
+        .map(|c| c.text.clone())
+        .collect()
+}
+
 #[test]
 fn error_includes_line_number() {
     // VAR with a bad assignment — error should reference line 3
@@ -306,4 +314,126 @@ Response.
         !options.contains_key("response"),
         "response gather must not be nested inside options: {json}"
     );
+}
+
+#[test]
+fn column_zero_choice_body_keeps_siblings() {
+    let ink = r#"
+-> k.main
+== k ==
+= main
+* (a) [A]
+x
+-> k.main
+* (b) [B]
+  y
+  -> k.main
++ [C]
+  z
+  -> DONE
+"#;
+
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json).unwrap();
+
+    story.continue_maximally().unwrap();
+    assert_eq!(vec!["A", "B", "C"], choice_texts(&story));
+
+    story.choose_choice_index(0).unwrap();
+    let text = story.continue_maximally().unwrap();
+    assert!(text.contains('x'), "got: {text:?}");
+    assert_eq!(vec!["B", "C"], choice_texts(&story));
+}
+
+#[test]
+fn indented_choice_marker_stays_sibling() {
+    let ink = r#"
+-> k.main
+== k ==
+= main
+* (a) [A]
+  x
+  -> k.main
+  * (b) [B]
+  y
+  -> k.main
++ [C]
+  z
+  -> DONE
+"#;
+
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json).unwrap();
+
+    story.continue_maximally().unwrap();
+    assert_eq!(vec!["A", "B", "C"], choice_texts(&story));
+
+    story.choose_choice_index(1).unwrap();
+    let text = story.continue_maximally().unwrap();
+    assert!(text.contains('y'), "got: {text:?}");
+    assert_eq!(vec!["A", "C"], choice_texts(&story));
+}
+
+#[test]
+fn column_zero_nested_weave_by_marker_count() {
+    let ink = r#"
+-> k
+== k ==
+* [A]
+* * [Sub1]
+s1
+* * [Sub2]
+s2
+- - subs gathered
+after
+* [B]
+b
+- done
+-> END
+"#;
+
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json).unwrap();
+
+    story.continue_maximally().unwrap();
+    assert_eq!(vec!["A", "B"], choice_texts(&story));
+
+    story.choose_choice_index(0).unwrap();
+    story.continue_maximally().unwrap();
+    assert_eq!(vec!["Sub1", "Sub2"], choice_texts(&story));
+
+    story.choose_choice_index(1).unwrap();
+    let text = story.continue_maximally().unwrap();
+    assert!(
+        text.contains("s2") && text.contains("subs gathered") && text.contains("after"),
+        "got: {text:?}"
+    );
+    assert!(text.contains("done"), "got: {text:?}");
+}
+
+#[test]
+fn choice_body_stops_at_conditional_closing_brace() {
+    let ink = r#"
+-> start
+== start ==
+{ true:
+* [Heads]
+Heads it is.
+-> END
+- else:
+* [Tails]
+Tails it is.
+-> END
+}
+"#;
+
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json).unwrap();
+
+    story.continue_maximally().unwrap();
+    assert_eq!(vec!["Heads"], choice_texts(&story));
+
+    story.choose_choice_index(0).unwrap();
+    let text = story.continue_maximally().unwrap();
+    assert!(text.contains("Heads it is."), "got: {text:?}");
 }
