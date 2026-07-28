@@ -307,3 +307,64 @@ Response.
         "response gather must not be nested inside options: {json}"
     );
 }
+
+/// A weave label referenced from a *different* stitch of the same knot must
+/// resolve as a read count, mirroring inklecate's ancestry walk
+/// (`Path.TryGetChildFromContext` finds a labelled weave point in any stitch of
+/// the enclosing knot). Covers the bare, stitch-qualified and fully-qualified
+/// reference styles.
+#[test]
+fn cross_stitch_label_reference_resolves_as_read_count() {
+    let ink = r#"
+-> k.s1
+== k ==
+= s1
+* (lbl) [pick me]
+  Picked.
+  -> s2
+= s2
+* {lbl} [bare]
+  -> DONE
+* {s1.lbl} [stitch-qualified]
+  -> DONE
+* {k.s1.lbl} [fully-qualified]
+  -> DONE
+"#;
+
+    let json = Compiler::new().compile(ink).unwrap();
+    assert!(
+        !json.contains("VAR?"),
+        "label references must compile to read counts, not variable reads: {json}"
+    );
+
+    let mut story = Story::new(&json).unwrap();
+    while story.can_continue() {
+        story.cont().unwrap();
+    }
+    story.choose_choice_index(0).unwrap();
+    while story.can_continue() {
+        story.cont().unwrap();
+    }
+    let choices: Vec<String> = story
+        .get_current_choices()
+        .iter()
+        .map(|choice| choice.text.clone())
+        .collect();
+    assert_eq!(
+        choices,
+        vec!["bare", "stitch-qualified", "fully-qualified"],
+        "all three reference styles must see the visited label"
+    );
+}
+
+/// A global variable must not be shadowed by a same-named weave label in
+/// another stitch of the enclosing knot.
+#[test]
+fn global_variable_wins_over_cross_stitch_label() {
+    let ink = "VAR count = 0\n== k ==\n= s1\n* (count) [x]\n  -> DONE\n= s2\n{count}\n-> DONE\n";
+    let json = Compiler::new().compile(ink).unwrap();
+    assert!(
+        json.contains(r#"{"VAR?":"count"}"#),
+        "global must resolve as a variable read: {json}"
+    );
+}

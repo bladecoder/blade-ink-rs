@@ -551,6 +551,37 @@ impl EmitScope {
         self.choice_label_targets.get(label).map(String::as_str)
     }
 
+    /// Deep-search the enclosing knot for a weave label with this bare name.
+    /// Mirrors inklecate's ancestry walk (`Path.TryGetChildFromContext`): a bare
+    /// name used anywhere in a knot may address a label in any of its stitches.
+    fn resolve_knot_choice_label<'ctx>(
+        &self,
+        name: &str,
+        context: &'ctx EmitContext,
+    ) -> Option<&'ctx str> {
+        let knot_prefix = format!("{}.", self.top_flow_name.as_deref()?);
+        let suffix = format!(".{name}");
+        context
+            .qualified_choice_labels
+            .iter()
+            .find(|(key, _)| key.starts_with(&knot_prefix) && key.ends_with(&suffix))
+            .map(|(_, path)| path.as_str())
+    }
+
+    /// Resolve a `stitch.label` reference made from elsewhere in the same knot
+    /// by qualifying it with the enclosing knot name.
+    fn resolve_knot_qualified_choice_label<'ctx>(
+        &self,
+        name: &str,
+        context: &'ctx EmitContext,
+    ) -> Option<&'ctx str> {
+        let knot = self.top_flow_name.as_deref()?;
+        context
+            .qualified_choice_labels
+            .get(&format!("{knot}.{name}"))
+            .map(String::as_str)
+    }
+
     fn resolve_qualified_choice_label(
         &self,
         target: &str,
