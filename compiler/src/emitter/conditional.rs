@@ -6,9 +6,15 @@ fn emit_condition(
 ) -> Result<(), CompilerError> {
     match condition {
         Condition::Bool(value) => out.push(json!(value)),
-        Condition::FunctionCall(name) => {
-            out.push(json!({"f()": name}));
-        }
+        Condition::FunctionCall(name) => emit_expression_ctx(
+            &Expression::FunctionCall {
+                name: name.clone(),
+                args: Vec::new(),
+            },
+            out,
+            Some(context),
+            Some(scope),
+        ),
         Condition::Expression(Expression::Variable(name))
             if scope.resolve_choice_label(name).is_some() =>
         {

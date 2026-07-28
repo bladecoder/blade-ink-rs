@@ -307,3 +307,87 @@ Response.
         "response gather must not be nested inside options: {json}"
     );
 }
+
+#[test]
+fn external_as_conditional_test_emits_external_call() {
+    let ink = "EXTERNAL has_key()\n{has_key(): Unlocked.|Locked.}\n-> DONE\n";
+
+    let json = Compiler::new().compile(ink).unwrap();
+
+    assert!(
+        json.contains(r#"{"x()":"has_key"}"#),
+        "conditional test on an EXTERNAL should emit an external call: {json}"
+    );
+    assert!(
+        !json.contains(r#"{"f()":"has_key"}"#),
+        "conditional test on an EXTERNAL must not emit an internal call: {json}"
+    );
+}
+
+#[test]
+fn function_as_conditional_test_still_emits_internal_call() {
+    let ink = "== function has_key() ==\n~ return true\n\
+               === main ===\n{has_key(): Unlocked.|Locked.}\n-> DONE\n";
+
+    let json = Compiler::new().compile(ink).unwrap();
+
+    assert!(
+        json.contains(r#"{"f()":"has_key"}"#),
+        "conditional test on an ink function should emit an internal call: {json}"
+    );
+}
+
+#[test]
+fn external_conditional_test_selects_the_branch_at_runtime() {
+    let ink = "EXTERNAL has_key()\n{has_key(): Unlocked.|Locked.}\n-> DONE\n";
+    let json = Compiler::new().compile(ink).unwrap();
+
+    for (value, expected) in [(true, "Unlocked."), (false, "Locked.")] {
+        let mut story = Story::new(&json).unwrap();
+        story
+            .bind_external_function(
+                "has_key",
+                move |_: &str, _: &[bladeink::value_type::ValueType]| {
+                    Ok(Some(bladeink::value_type::ValueType::Bool(value)))
+                },
+                false,
+            )
+            .unwrap();
+        assert_eq!(story.cont().unwrap().trim(), expected);
+    }
+}
+
+#[test]
+fn external_conditional_test_keeps_gated_and_sibling_choices() {
+    let ink = "EXTERNAL show_extra()\n\
+               -> main\n\
+               === main ===\n\
+               <- base_choices\n\
+               { show_extra(): <- extra_choices }\n\
+               + [Leave]\n    -> DONE\n\
+               -> DONE\n\
+               == base_choices ==\n+ [Stay]\n    -> DONE\n\
+               == extra_choices ==\n+ [Open the safe]\n    -> DONE\n";
+    let json = Compiler::new().compile(ink).unwrap();
+
+    let mut story = Story::new(&json).unwrap();
+    story
+        .bind_external_function(
+            "show_extra",
+            |_: &str, _: &[bladeink::value_type::ValueType]| {
+                Ok(Some(bladeink::value_type::ValueType::Bool(true)))
+            },
+            false,
+        )
+        .unwrap();
+    while story.can_continue() {
+        story.cont().unwrap();
+    }
+
+    let labels: Vec<String> = story
+        .get_current_choices()
+        .iter()
+        .map(|choice| choice.text.clone())
+        .collect();
+    assert_eq!(labels, vec!["Stay", "Open the safe", "Leave"]);
+}
