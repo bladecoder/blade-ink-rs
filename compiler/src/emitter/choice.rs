@@ -73,15 +73,17 @@ fn emit_choice(
         }
         branch_nodes.extend(choice.selected_tags.iter().cloned().map(Node::Tag));
         if !body_already_emitted {
-            // Skip the auto-newline for terminal diverts, and also for inline diverts that are
-            // authored after inline selected text on the same source line (the selected text keeps
-            // the trailing whitespace needed to join the diverted content).
-            let body_is_terminal_divert = matches!(
-                choice.body.as_slice(),
-                [Node::Divert(d)] if d.target == "END" || d.target == "DONE"
-            );
-            let body_is_inline_divert = matches!(choice.body.as_slice(), [Node::Divert(_)])
-                && selected_text.ends_with(char::is_whitespace);
+            // Skip the auto-newline only for diverts authored inline on the choice's own
+            // source line: terminal ones, and ones following selected text that keeps the
+            // trailing whitespace needed to join the diverted content. A divert on its own
+            // line always gets the newline.
+            let body_is_terminal_divert = choice.body_divert_is_inline
+                && matches!(
+                    choice.body.first(),
+                    Some(Node::Divert(d)) if d.target == "END" || d.target == "DONE"
+                );
+            let body_is_inline_divert =
+                choice.body_divert_is_inline && selected_text.ends_with(char::is_whitespace);
             if !body_is_terminal_divert && !body_is_inline_divert {
                 branch_nodes.push(Node::Newline);
             }
