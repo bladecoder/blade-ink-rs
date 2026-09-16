@@ -1,3 +1,6 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct InkListItem {
     origin_name: Option<String>,
@@ -51,8 +54,8 @@ impl InkListItem {
     }
 }
 
-impl std::fmt::Display for InkListItem {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl crate::compat::fmt::Display for InkListItem {
+    fn fmt(&self, f: &mut crate::compat::fmt::Formatter<'_>) -> crate::compat::fmt::Result {
         write!(f, "{}", self.get_full_name())
     }
 }

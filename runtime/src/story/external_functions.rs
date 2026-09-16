@@ -1,4 +1,7 @@
-use std::{collections::HashSet, error::Error, fmt, rc::Rc};
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{collections::HashSet, error::Error, fmt, rc::Rc};
 
 use crate::{
     container::Container, divert::Divert, object::RTObject, pointer::Pointer,

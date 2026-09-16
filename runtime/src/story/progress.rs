@@ -1,3 +1,7 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::rc::Rc;
 use crate::{
     choice::Choice,
     choice_point::ChoicePoint,
@@ -12,11 +16,21 @@ use crate::{
     value_type::VariablePointerValue,
     void::Void,
 };
-use std::{self, rc::Rc};
 
 /// # Story Progress
 /// Methods to move the story forwards.
 impl Story {
+    fn current_time(&mut self) -> Result<core::time::Duration, StoryError> {
+        let now = self.time_source.as_ref().unwrap().now();
+        if self.last_time.is_some_and(|last| now < last) {
+            return Err(StoryError::InvalidStoryState(
+                "TimeSource moved backwards during continue_async".to_owned(),
+            ));
+        }
+        self.last_time = Some(now);
+        Ok(now)
+    }
+
     /// `true` if the story is not waiting for user input from
     /// [`choose_choice_index`](Story::choose_choice_index).
     pub fn can_continue(&self) -> bool {
@@ -46,6 +60,12 @@ impl Story {
     /// Continues running the story code for the specified number of
     /// milliseconds.
     pub fn continue_async(&mut self, millisecs_limit_async: f32) -> Result<(), StoryError> {
+        if millisecs_limit_async > 0.0 && self.time_source.is_none() {
+            return Err(StoryError::BadArgument(
+                "time-limited continuation requires a TimeSource".to_owned(),
+            ));
+        }
+
         if !self.has_validated_externals {
             self.validate_external_bindings()?;
         }
@@ -76,6 +96,11 @@ impl Story {
         millisecs_limit_async: f32,
     ) -> Result<(), StoryError> {
         let is_async_time_limited = millisecs_limit_async > 0.0;
+        let start_time = if is_async_time_limited {
+            Some(self.current_time()?)
+        } else {
+            None
+        };
 
         self.recursive_continue_count += 1;
 
@@ -104,12 +129,6 @@ impl Story {
             self.async_continue_active = false;
         }
 
-        // Start timing (only when necessary)
-        let duration_stopwatch = match self.async_continue_active {
-            true => Some(web_time::Instant::now()),
-            false => None,
-        };
-
         let mut output_stream_ends_in_newline = false;
         let mut callback_error = None;
         self.saw_lookahead_unsafe_function_after_new_line = false;
@@ -133,11 +152,23 @@ impl Story {
             }
 
             // Run out of async time?
-            if self.async_continue_active
-                && duration_stopwatch.as_ref().unwrap().elapsed().as_millis() as f32
-                    > millisecs_limit_async
-            {
-                break;
+            if self.async_continue_active {
+                let now = match self.current_time() {
+                    Ok(now) => now,
+                    Err(error) => {
+                        self.recursive_continue_count -= 1;
+                        return Err(error);
+                    }
+                };
+                let Some(elapsed) = now.checked_sub(start_time.unwrap()) else {
+                    self.recursive_continue_count -= 1;
+                    return Err(StoryError::InvalidStoryState(
+                        "TimeSource moved backwards during continue_async".to_owned(),
+                    ));
+                };
+                if elapsed.as_secs_f32() * 1_000.0 > millisecs_limit_async {
+                    break;
+                }
             }
 
             if !self.can_continue() {

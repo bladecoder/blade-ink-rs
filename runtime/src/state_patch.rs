@@ -1,4 +1,7 @@
-use std::{
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{
     collections::{HashMap, HashSet},
     rc::Rc,
 };

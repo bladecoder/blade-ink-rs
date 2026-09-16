@@ -1,3 +1,6 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::{
     path::Path, story::Story, story_error::StoryError, story_state::StoryState,
     value_type::ValueType,
@@ -92,7 +95,7 @@ impl Story {
     pub(crate) fn state_snapshot(&mut self) {
         // tmp_state contains the new state and current state is stored in snapshot
         let mut tmp_state = self.state.copy_and_start_patching(false);
-        std::mem::swap(&mut tmp_state, &mut self.state);
+        core::mem::swap(&mut tmp_state, &mut self.state);
         self.state_snapshot_at_last_new_line = Some(tmp_state);
     }
 
@@ -118,7 +121,7 @@ impl Story {
 
     /// Writes the current state as JSON without first building the complete
     /// document in memory.
-    pub fn save_state_to_writer(&self, writer: impl std::io::Write) -> Result<(), StoryError> {
+    pub fn save_state_to_writer(&self, writer: impl crate::io::Write) -> Result<(), StoryError> {
         self.get_state().write_json_to(writer)
     }
 
@@ -128,7 +131,10 @@ impl Story {
     }
 
     /// Loads a previously saved state from a JSON reader.
-    pub fn load_state_from_reader(&mut self, reader: impl std::io::Read) -> Result<(), StoryError> {
+    pub fn load_state_from_reader(
+        &mut self,
+        reader: impl crate::io::Read,
+    ) -> Result<(), StoryError> {
         self.get_state_mut().load_json_from_reader(reader)
     }
 
@@ -136,9 +142,21 @@ impl Story {
     pub fn reset_state(&mut self) -> Result<(), StoryError> {
         self.if_async_we_cant("ResetState")?;
 
+        let seed = match self.fixed_seed {
+            Some(seed) => seed,
+            #[cfg(feature = "std")]
+            None => {
+                use rand::RngExt;
+                rand::rng().random_range(0..100)
+            }
+            #[cfg(not(feature = "std"))]
+            None => unreachable!("no_std stories always have a fixed seed"),
+        };
+
         self.state = StoryState::new(
             self.main_content_container.clone(),
             self.list_definitions.clone(),
+            seed,
         );
 
         self.reset_globals()?;

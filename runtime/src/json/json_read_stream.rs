@@ -2,7 +2,10 @@
 //! This is useful for large JSON files that don't fit in memory hence the JSON is not loaded all at once as Serde does.
 //! This parser has been used to load 'The Intercept' example story in an ESP32-s2 microcontroller with an external RAM of 2MB. With the Serde based parser, it is impossible, it does not have enogh memory to load the story.
 
-use std::{collections::HashMap, io::Read, rc::Rc};
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{collections::HashMap, io::Read, rc::Rc};
 
 use crate::{
     choice_point::ChoicePoint,

@@ -1,4 +1,7 @@
-use std::{fmt, rc::Rc};
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{fmt, rc::Rc};
 
 use crate::{
     ink_list::InkList,
@@ -628,15 +631,17 @@ impl NativeFunctionCall {
     fn pow_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match params[0].value {
             ValueType::Int(op1) => match params[1].value {
-                ValueType::Int(op2) => {
-                    Ok(Rc::new(Value::new::<f32>((op1 as f32).powf(op2 as f32))))
-                }
+                ValueType::Int(op2) => Ok(Rc::new(Value::new::<f32>(crate::math::powf(
+                    op1 as f32, op2 as f32,
+                )))),
                 _ => Err(StoryError::InvalidStoryState(
                     "Operation not available for type.".to_owned(),
                 )),
             },
             ValueType::Float(op1) => match params[1].value {
-                ValueType::Float(op2) => Ok(Rc::new(Value::new::<f32>(op1.powf(op2)))),
+                ValueType::Float(op2) => {
+                    Ok(Rc::new(Value::new::<f32>(crate::math::powf(op1, op2))))
+                }
                 _ => Err(StoryError::InvalidStoryState(
                     "Operation not available for type.".to_owned(),
                 )),
@@ -995,7 +1000,7 @@ impl NativeFunctionCall {
     fn floor_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => Ok(Rc::new(Value::new::<i32>(*op1))),
-            ValueType::Float(op1) => Ok(Rc::new(Value::new::<f32>(op1.floor()))),
+            ValueType::Float(op1) => Ok(Rc::new(Value::new::<f32>(crate::math::floor(*op1)))),
             _ => Err(StoryError::InvalidStoryState(
                 "Operation not available for type.".to_owned(),
             )),
@@ -1005,7 +1010,7 @@ impl NativeFunctionCall {
     fn ceiling_op(&self, params: &[Rc<Value>]) -> Result<Rc<dyn RTObject>, StoryError> {
         match &params[0].value {
             ValueType::Int(op1) => Ok(Rc::new(Value::new::<i32>(*op1))),
-            ValueType::Float(op1) => Ok(Rc::new(Value::new::<f32>(op1.ceil()))),
+            ValueType::Float(op1) => Ok(Rc::new(Value::new::<f32>(crate::math::ceil(*op1)))),
             _ => Err(StoryError::InvalidStoryState(
                 "Operation not available for type.".to_owned(),
             )),

@@ -1,4 +1,7 @@
-use std::{fmt, rc::Rc};
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{fmt, rc::Rc};
 
 use crate::{
     container::Container,

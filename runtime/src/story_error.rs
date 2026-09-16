@@ -1,4 +1,6 @@
 //! Errors that happen at runtime, when running a [`Story`](crate::story::Story).
+#[allow(unused_imports)]
+use crate::prelude::*;
 use core::fmt;
 
 use crate::{
@@ -41,10 +43,10 @@ impl StoryError {
     }
 }
 
-impl std::error::Error for StoryError {}
+impl crate::compat::error::Error for StoryError {}
 
-impl std::convert::From<std::io::Error> for StoryError {
-    fn from(err: std::io::Error) -> StoryError {
+impl crate::compat::convert::From<crate::compat::io::Error> for StoryError {
+    fn from(err: crate::compat::io::Error) -> StoryError {
         StoryError::BadJson(err.to_string())
     }
 }

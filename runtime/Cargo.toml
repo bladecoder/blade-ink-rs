@@ -18,15 +18,19 @@ path = "src/lib.rs"
 
 [dependencies]
 serde_json = { workspace = true, optional = true }
-strum = { version = "0.28", features = ["derive"] }
+strum = { version = "0.28", default-features = false, features = ["derive"] }
 as-any = "0.3.0"
 rand = { workspace = true, features = ["std_rng"] }
-web-time = "1.1.0"
+web-time = { version = "1.1.0", optional = true }
+hashbrown = "0.16"
+libm = "0.2"
+core3 = { version = "0.1", default-features = false, features = ["alloc"] }
 
 [features]
-default = ["serde-json-parser"]
+default = ["std", "serde-json-parser"]
+std = ["dep:web-time", "dep:getrandom", "core3/std", "rand/thread_rng"]
 serde-json-parser = ["dep:serde_json"]
 stream-json-parser = []
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
-getrandom = { version = "0.4", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"], optional = true }
