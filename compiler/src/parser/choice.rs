@@ -124,9 +124,6 @@ pub fn parse_choice(
     }
 
     let mut body = Vec::new();
-    // Once we absorb a same-level gather, everything that follows at our indent
-    // (choices, text, etc.) becomes part of this choice's body continuation.
-    let mut absorbed_gather = false;
 
     for node in choice_text.inline_body_nodes.clone() {
         body.push(node);
@@ -135,6 +132,9 @@ pub fn parse_choice(
         body.push(Node::Divert(divert));
     }
 
+    // Collect the choice body. Indentation is cosmetic: the body extends
+    // until a choice or gather whose marker count places it at our weave
+    // level or shallower, or a knot/stitch header.
     while *line_index < lines.len() {
         let body_line = &lines[*line_index];
         let body_trimmed = body_line.content.trim();
@@ -146,56 +146,23 @@ pub fn parse_choice(
 
         // A choice line whose marker nesting level is <= ours starts a sibling choice
         // block, even if it's indented deeper (Ink weave semantics).
-        if !absorbed_gather
-            && let Some(body_choice_level) = choice_marker_nesting_level(body_trimmed_start)
+        if let Some(body_choice_level) = choice_marker_nesting_level(body_trimmed_start)
             && body_choice_level <= nesting_level
         {
             break;
         }
 
-        // Blank lines should not prematurely terminate a choice body when the next
-        // non-blank line is still indented as body content.
-        if body_trimmed.is_empty() {
-            let mut lookahead = *line_index + 1;
-            while lookahead < lines.len() && lines[lookahead].content.trim().is_empty() {
-                lookahead += 1;
-            }
-            if lookahead < lines.len()
-                && super::parse_header(lines[lookahead].content).is_none()
-                && lines[lookahead].indent > choice_indent
-            {
-                let statement = parse_stmt(lines, line_index, true)?;
-                if let ParsedStatement::Nodes(mut nodes) = statement {
-                    body.append(&mut nodes)
-                }
-                continue;
-            }
-        }
-
+        // A gather at our weave level or shallower belongs to an enclosing weave and
+        // terminates the choice body. Deeper gathers close nested sub-choice blocks
+        // within the body and are absorbed into it.
         let gather_level = gather_nesting_level(body_trimmed);
-
-        // A gather whose nesting level matches ours AND which is indented deeper than the
-        // choice itself is the "end of sub-choices / start of continuation" boundary for
-        // this weave level.  Absorb it so the emitter sees it as a GatherPoint separating
-        // the inner choice block from the post-gather continuation.
-        if gather_level == nesting_level && body_line.indent > choice_indent {
-            let statement = parse_stmt(lines, line_index, true)?;
-            if let ParsedStatement::Nodes(mut nodes) = statement {
-                body.append(&mut nodes)
-            }
-            absorbed_gather = true;
-            continue;
-        }
-
-        // A gather at or shallower than our choice indent terminates the choice body.
-        if gather_level > 0 && body_line.indent <= choice_indent {
+        if gather_level > 0 && gather_level <= nesting_level {
             break;
         }
 
-        // Non-gather line at or shallower than our indent:
-        // - If we haven't absorbed a same-level gather yet, this is a sibling — stop.
-        // - If we have absorbed a gather, it's the post-gather continuation — include it.
-        if gather_level == 0 && body_line.indent <= choice_indent && !absorbed_gather {
+        // A closing brace line ends an enclosing conditional/sequence block, and with
+        // it this choice's body.
+        if super::conditional::closing_brace_tail(body_trimmed).is_some() {
             break;
         }
 
