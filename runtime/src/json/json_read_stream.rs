@@ -2,7 +2,7 @@
 //! This is useful for large JSON files that don't fit in memory hence the JSON is not loaded all at once as Serde does.
 //! This parser has been used to load 'The Intercept' example story in an ESP32-s2 microcontroller with an external RAM of 2MB. With the Serde based parser, it is impossible, it does not have enogh memory to load the story.
 
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, io::Read, rc::Rc};
 
 use crate::{
     choice_point::ChoicePoint,
@@ -29,28 +29,76 @@ use crate::{
 
 use super::json_tokenizer::{JsonTokenizer, JsonValue};
 
+#[cfg(test)]
 pub fn load_from_string(
     s: &str,
 ) -> Result<(i32, Rc<Container>, Rc<ListDefinitionsOrigin>), StoryError> {
-    let mut tok = JsonTokenizer::new_from_str(s);
-
-    parse(&mut tok)
+    load_from_reader(s.as_bytes())
 }
 
-fn parse(
-    tok: &mut JsonTokenizer,
+pub fn load_from_reader<R: Read>(
+    reader: R,
+) -> Result<(i32, Rc<Container>, Rc<ListDefinitionsOrigin>), StoryError> {
+    let mut tok = JsonTokenizer::new(reader);
+    let parsed = parse(&mut tok)?;
+    tok.expect_eof()?;
+    Ok(parsed)
+}
+
+fn parse<R: Read>(
+    tok: &mut JsonTokenizer<R>,
 ) -> Result<(i32, Rc<Container>, Rc<ListDefinitionsOrigin>), StoryError> {
     tok.expect('{')?;
+    let mut version = None;
+    let mut main_content_container = None;
+    let mut list_defs = None;
 
-    let version_key = tok.read_obj_key()?;
-
-    if version_key != "inkVersion" {
-        return Err(StoryError::BadJson(
-            "ink version number not found. Are you sure it's a valid .ink.json file?".to_owned(),
-        ));
+    while tok.peek()? != '}' {
+        let key = tok.read_obj_key()?;
+        match key.as_str() {
+            "inkVersion" => {
+                if version.is_some() {
+                    return Err(StoryError::BadJson("duplicate inkVersion".to_owned()));
+                }
+                version = Some(read_i32(tok, "inkVersion")?);
+            }
+            "root" => {
+                if main_content_container.is_some() {
+                    return Err(StoryError::BadJson("duplicate root".to_owned()));
+                }
+                let value = tok.read_value()?;
+                let object = match jtoken_to_runtime_object(tok, value, None)? {
+                    ArrayElement::RTObject(object) => object,
+                    _ => {
+                        return Err(StoryError::BadJson(
+                            "Root node for ink is not a container".to_owned(),
+                        ));
+                    }
+                };
+                main_content_container =
+                    Some(object.into_any().downcast::<Container>().map_err(|_| {
+                        StoryError::BadJson("Root node for ink is not a container".to_owned())
+                    })?);
+            }
+            "listDefs" => {
+                if list_defs.is_some() {
+                    return Err(StoryError::BadJson("duplicate listDefs".to_owned()));
+                }
+                list_defs = Some(Rc::new(jtoken_to_list_definitions(tok)?));
+            }
+            _ => tok.skip_value()?,
+        }
+        if tok.peek()? != '}' {
+            tok.expect(',')?;
+        }
     }
+    tok.expect('}')?;
 
-    let version: i32 = tok.read_number().unwrap().as_integer().unwrap();
+    let version = version.ok_or_else(|| {
+        StoryError::BadJson(
+            "ink version number not found. Are you sure it's a valid .ink.json file?".to_owned(),
+        )
+    })?;
 
     if version > INK_VERSION_CURRENT {
         return Err(StoryError::BadJson(
@@ -63,51 +111,38 @@ fn parse(
         ));
     }
 
-    tok.expect(',')?;
+    Ok((
+        version,
+        main_content_container.ok_or_else(|| {
+            StoryError::BadJson(
+                "Root node for ink not found. Are you sure it's a valid .ink.json file?".to_owned(),
+            )
+        })?,
+        list_defs.ok_or_else(|| {
+            StoryError::BadJson(
+                "List Definitions node for ink not found. Are you sure it's a valid .ink.json file?"
+                    .to_owned(),
+            )
+        })?,
+    ))
+}
 
-    let root_key = tok.read_obj_key()?;
+fn read_i32<R: Read>(tok: &mut JsonTokenizer<R>, field: &str) -> Result<i32, StoryError> {
+    tok.read_number()?
+        .as_integer()
+        .ok_or_else(|| StoryError::BadJson(format!("{field} must be an integer")))
+}
 
-    if root_key != "root" {
-        return Err(StoryError::BadJson(
-            "Root node for ink not found. Are you sure it's a valid .ink.json file?".to_owned(),
-        ));
-    }
+fn string_value<'a>(value: &'a JsonValue, field: &str) -> Result<&'a str, StoryError> {
+    value
+        .as_str()
+        .ok_or_else(|| StoryError::BadJson(format!("{field} must be a string")))
+}
 
-    let root_value = tok.read_value()?;
-    let main_content_container = match jtoken_to_runtime_object(tok, root_value, None)? {
-        ArrayElement::RTObject(rt_obj) => rt_obj,
-        _ => {
-            return Err(StoryError::BadJson(
-                "Root node for ink is not a container?".to_owned(),
-            ));
-        }
-    };
-
-    let main_content_container = main_content_container.into_any().downcast::<Container>();
-
-    if main_content_container.is_err() {
-        return Err(StoryError::BadJson(
-            "Root node for ink is not a container?".to_owned(),
-        ));
-    };
-
-    let main_content_container = main_content_container.unwrap(); // unwrap: checked for err above
-
-    tok.expect(',')?;
-    let list_defs_key = tok.read_obj_key()?;
-
-    if list_defs_key != "listDefs" {
-        return Err(StoryError::BadJson(
-            "List Definitions node for ink not found. Are you sure it's a valid .ink.json file?"
-                .to_owned(),
-        ));
-    }
-
-    let list_defs = Rc::new(jtoken_to_list_definitions(tok)?);
-
-    tok.expect('}')?;
-
-    Ok((version, main_content_container, list_defs))
+fn integer_value(value: &JsonValue, field: &str) -> Result<i32, StoryError> {
+    value
+        .as_integer()
+        .ok_or_else(|| StoryError::BadJson(format!("{field} must be an integer")))
 }
 
 enum ArrayElement {
@@ -119,8 +154,38 @@ enum ArrayElement {
 type RuntimeObjectList = Vec<Rc<dyn RTObject>>;
 type RuntimeObjectListResult = Result<(RuntimeObjectList, Option<ArrayElement>), StoryError>;
 
-fn jtoken_to_runtime_object(
-    tok: &mut JsonTokenizer,
+pub(super) fn read_runtime_object<R: Read>(
+    tok: &mut JsonTokenizer<R>,
+) -> Result<Rc<dyn RTObject>, StoryError> {
+    let value = tok.read_value()?;
+    match jtoken_to_runtime_object(tok, value, None)? {
+        ArrayElement::RTObject(object) => Ok(object),
+        ArrayElement::NullElement => Err(StoryError::BadJson(
+            "null is not a runtime object".to_owned(),
+        )),
+        ArrayElement::LastElement(_, _, _) => Err(StoryError::BadJson(
+            "container terminator outside a container".to_owned(),
+        )),
+    }
+}
+
+pub(super) fn read_runtime_object_list<R: Read>(
+    tok: &mut JsonTokenizer<R>,
+) -> Result<Vec<Rc<dyn RTObject>>, StoryError> {
+    tok.expect('[')?;
+    let mut objects = Vec::new();
+    while tok.peek()? != ']' {
+        objects.push(read_runtime_object(tok)?);
+        if tok.peek()? != ']' {
+            tok.expect(',')?;
+        }
+    }
+    tok.expect(']')?;
+    Ok(objects)
+}
+
+fn jtoken_to_runtime_object<R: Read>(
+    tok: &mut JsonTokenizer<R>,
     value: JsonValue,
     name: Option<String>,
 ) -> Result<ArrayElement, StoryError> {
@@ -129,10 +194,12 @@ fn jtoken_to_runtime_object(
         JsonValue::Boolean(value) => Ok(ArrayElement::RTObject(Rc::new(Value::new::<bool>(value)))),
         JsonValue::Number(value) => {
             if value.is_integer() {
-                let val: i32 = value.as_integer().unwrap();
+                let val = value.as_integer().ok_or_else(|| {
+                    StoryError::BadJson("integer is outside the supported range".to_owned())
+                })?;
                 Ok(ArrayElement::RTObject(Rc::new(Value::new::<i32>(val))))
             } else {
-                let val: f32 = value.as_float().unwrap();
+                let val: f32 = value.as_float();
                 Ok(ArrayElement::RTObject(Rc::new(Value::new::<f32>(val))))
             }
         }
@@ -140,7 +207,9 @@ fn jtoken_to_runtime_object(
             let str = value.as_str();
 
             // String value
-            let first_char = str.chars().next().unwrap();
+            let first_char = str.chars().next().ok_or_else(|| {
+                StoryError::BadJson("empty string is not a runtime object".to_owned())
+            })?;
             if first_char == '^' {
                 return Ok(ArrayElement::RTObject(Rc::new(Value::new::<&str>(
                     &str[1..],
@@ -195,13 +264,13 @@ fn jtoken_to_runtime_object(
 
             // // VariablePointerValue
             if prop == "^var" {
-                let variable_name = prop_value.as_str().unwrap();
+                let variable_name = string_value(&prop_value, "^var")?;
                 let mut contex_index = -1;
 
                 if tok.peek()? == ',' {
                     tok.expect(',')?;
                     tok.expect_obj_key("ci")?;
-                    contex_index = tok.read_number().unwrap().as_integer().unwrap();
+                    contex_index = read_i32(tok, "ci")?;
                 }
 
                 let var_ptr = Rc::new(Value::new_variable_pointer(variable_name, contex_index));
@@ -233,7 +302,7 @@ fn jtoken_to_runtime_object(
             }
 
             if is_divert {
-                let target = prop_value.as_str().unwrap().to_string();
+                let target = string_value(&prop_value, &prop)?.to_string();
 
                 let mut var_divert_name: Option<String> = None;
                 let mut target_path: Option<String> = None;
@@ -252,7 +321,10 @@ fn jtoken_to_runtime_object(
                     } else if prop == "c" {
                         conditional = true;
                     } else if prop == "exArgs" {
-                        external_args = prop_value.as_integer().unwrap() as usize;
+                        external_args = usize::try_from(integer_value(&prop_value, "exArgs")?)
+                            .map_err(|_| {
+                                StoryError::BadJson("exArgs must be non-negative".to_owned())
+                            })?;
                     }
                 }
 
@@ -275,12 +347,12 @@ fn jtoken_to_runtime_object(
             // Choice
             if prop == "*" {
                 let mut flags = 0;
-                let path_string_on_choice = prop_value.as_str().unwrap();
+                let path_string_on_choice = string_value(&prop_value, "*")?;
 
                 if tok.peek()? == ',' {
                     tok.expect(',')?;
                     tok.expect_obj_key("flg")?;
-                    flags = tok.read_number().unwrap().as_integer().unwrap();
+                    flags = read_i32(tok, "flg")?;
                 }
 
                 tok.expect('}')?;
@@ -294,14 +366,14 @@ fn jtoken_to_runtime_object(
             if prop == "VAR?" {
                 tok.expect('}')?;
                 return Ok(ArrayElement::RTObject(Rc::new(VariableReference::new(
-                    prop_value.as_str().unwrap(),
+                    string_value(&prop_value, "VAR?")?,
                 ))));
             }
 
             if prop == "CNT?" {
                 tok.expect('}')?;
                 return Ok(ArrayElement::RTObject(Rc::new(
-                    VariableReference::from_path_for_count(prop_value.as_str().unwrap()),
+                    VariableReference::from_path_for_count(string_value(&prop_value, "CNT?")?),
                 )));
             }
 
@@ -318,7 +390,7 @@ fn jtoken_to_runtime_object(
             }
 
             if is_var_ass {
-                let var_name = prop_value.as_str().unwrap();
+                let var_name = string_value(&prop_value, &prop)?;
                 let mut is_new_decl = true;
 
                 if tok.peek()? == ',' {
@@ -340,9 +412,10 @@ fn jtoken_to_runtime_object(
             // // Legacy Tag
             if prop == "#" {
                 tok.expect('}')?;
-                return Ok(ArrayElement::RTObject(Rc::new(Tag::new(
-                    prop_value.as_str().unwrap(),
-                ))));
+                return Ok(ArrayElement::RTObject(Rc::new(Tag::new(string_value(
+                    &prop_value,
+                    "#",
+                )?))));
             }
 
             // List value
@@ -385,8 +458,9 @@ fn jtoken_to_runtime_object(
 
             // Used when serialising save state only
             if prop == "originalChoicePath" {
-                todo!("originalChoicePath");
-                // return jobject_to_choice(obj); // TODO
+                return Err(StoryError::BadJson(
+                    "choice object found outside currentChoices".to_owned(),
+                ));
             }
 
             // Last Element
@@ -399,9 +473,9 @@ fn jtoken_to_runtime_object(
 
             loop {
                 if p == "#f" {
-                    flags = pv.as_integer().unwrap();
+                    flags = integer_value(&pv, "#f")?;
                 } else if p == "#n" {
-                    name = Some(pv.as_str().unwrap().to_string());
+                    name = Some(string_value(&pv, "#n")?.to_string());
                 } else {
                     let named_content_item = jtoken_to_runtime_object(tok, pv, Some(p.clone()))?;
 
@@ -417,7 +491,9 @@ fn jtoken_to_runtime_object(
                     let named_sub_container = named_content_item
                         .into_any()
                         .downcast::<Container>()
-                        .unwrap();
+                        .map_err(|_| {
+                            StoryError::BadJson(format!("named content '{p}' is not a container"))
+                        })?;
 
                     named_only_content.insert(p, named_sub_container);
                 }
@@ -442,12 +518,12 @@ fn jtoken_to_runtime_object(
     }
 }
 
-fn parse_list(tok: &mut JsonTokenizer) -> Result<HashMap<String, i32>, StoryError> {
+fn parse_list<R: Read>(tok: &mut JsonTokenizer<R>) -> Result<HashMap<String, i32>, StoryError> {
     let mut list_content: HashMap<String, i32> = HashMap::new();
 
     while tok.peek()? != '}' {
         let key = tok.read_obj_key()?;
-        let value = tok.read_number().unwrap().as_integer().unwrap();
+        let value = read_i32(tok, &key)?;
         list_content.insert(key, value);
 
         if tok.peek()? != '}' {
@@ -460,8 +536,8 @@ fn parse_list(tok: &mut JsonTokenizer) -> Result<HashMap<String, i32>, StoryErro
     Ok(list_content)
 }
 
-fn jarray_to_container(
-    tok: &mut JsonTokenizer,
+fn jarray_to_container<R: Read>(
+    tok: &mut JsonTokenizer<R>,
     name: Option<String>,
 ) -> Result<Rc<dyn RTObject>, StoryError> {
     let (content, named) = jarray_to_runtime_obj_list(tok)?;
@@ -490,7 +566,7 @@ fn jarray_to_container(
     Ok(container)
 }
 
-fn jarray_to_runtime_obj_list(tok: &mut JsonTokenizer) -> RuntimeObjectListResult {
+fn jarray_to_runtime_obj_list<R: Read>(tok: &mut JsonTokenizer<R>) -> RuntimeObjectListResult {
     let mut list: RuntimeObjectList = Vec::new();
     let mut last_element: Option<ArrayElement> = None;
 
@@ -524,8 +600,8 @@ fn jarray_to_runtime_obj_list(tok: &mut JsonTokenizer) -> RuntimeObjectListResul
     Ok((list, last_element))
 }
 
-fn jtoken_to_list_definitions(
-    tok: &mut JsonTokenizer,
+fn jtoken_to_list_definitions<R: Read>(
+    tok: &mut JsonTokenizer<R>,
 ) -> Result<ListDefinitionsOrigin, StoryError> {
     let mut all_defs: Vec<ListDefinition> = Vec::with_capacity(0);
 

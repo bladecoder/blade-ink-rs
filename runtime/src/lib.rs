@@ -45,6 +45,9 @@
 //! all the examples can be found in the `runtime/tests` folder in the source code
 //! of this crate.
 
+#[cfg(not(any(feature = "serde-json-parser", feature = "stream-json-parser")))]
+compile_error!("enable either the `serde-json-parser` or `stream-json-parser` feature");
+
 mod callstack;
 pub mod choice;
 mod choice_point;

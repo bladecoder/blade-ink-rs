@@ -1,36 +1,34 @@
-//! Tokenizer for the streamed JSON parser.
-use std::io::{self, Read};
+//! Pull-based JSON lexer used by the streamed codecs.
 
-#[derive(Debug)]
+use std::io::{self, BufReader, Read};
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Number {
     Int(i32),
     Float(f32),
 }
 
 impl Number {
-    pub(super) fn as_integer(&self) -> Option<i32> {
+    pub(super) fn as_integer(self) -> Option<i32> {
         match self {
-            Number::Int(n) => Some(*n),
-            Number::Float(n) => Some(*n as i32),
+            Self::Int(value) => Some(value),
+            Self::Float(_) => None,
         }
     }
 
-    pub(super) fn as_float(&self) -> Option<f32> {
+    pub(super) fn as_float(self) -> f32 {
         match self {
-            Number::Int(n) => Some(*n as f32),
-            Number::Float(n) => Some(*n),
+            Self::Int(value) => value as f32,
+            Self::Float(value) => value,
         }
     }
 
-    pub(super) fn is_integer(&self) -> bool {
-        match self {
-            Number::Int(_) => true,
-            Number::Float(_) => false,
-        }
+    pub(super) fn is_integer(self) -> bool {
+        matches!(self, Self::Int(_))
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(super) enum JsonValue {
     Array,
     Object,
@@ -43,267 +41,418 @@ pub(super) enum JsonValue {
 impl JsonValue {
     pub(super) fn as_str(&self) -> Option<&str> {
         match self {
-            JsonValue::String(s) => Some(s),
+            Self::String(value) => Some(value),
             _ => None,
         }
     }
 
     pub(super) fn as_integer(&self) -> Option<i32> {
         match self {
-            JsonValue::Number(n) => n.as_integer(),
+            Self::Number(value) => value.as_integer(),
             _ => None,
         }
     }
 }
 
-pub(super) struct JsonTokenizer<'a> {
-    json: &'a [u8],
-    lookahead: Option<char>,
-    skip_whitespaces: bool,
+pub(super) struct JsonTokenizer<R: Read> {
+    reader: BufReader<R>,
+    lookahead: Option<u8>,
+    offset: usize,
+    line: usize,
+    column: usize,
 }
 
-impl<'a> JsonTokenizer<'a> {
-    pub(super) fn new_from_str(s: &'a str) -> JsonTokenizer<'a> {
-        JsonTokenizer {
-            json: s.as_bytes(),
+impl<R: Read> JsonTokenizer<R> {
+    pub(super) fn new(reader: R) -> Self {
+        Self {
+            reader: BufReader::new(reader),
             lookahead: None,
-            skip_whitespaces: true,
+            offset: 0,
+            line: 1,
+            column: 1,
         }
     }
 
-    pub(super) fn read(&mut self) -> io::Result<char> {
-        let c = match self.lookahead {
-            Some(c) => {
-                self.lookahead = None;
-                c
-            }
-            None => self.read_no_lookahead()?,
-        };
-
-        Ok(c)
+    fn invalid(&self, message: impl AsRef<str>) -> io::Error {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "{} at line {}, column {} (byte {})",
+                message.as_ref(),
+                self.line,
+                self.column,
+                self.offset
+            ),
+        )
     }
 
-    fn read_no_lookahead(&mut self) -> io::Result<char> {
-        let c = loop {
-            let c = self.read_utf8_char()?;
-
-            if !self.skip_whitespaces || !c.is_whitespace() {
-                break c;
+    fn read_raw(&mut self) -> io::Result<Option<u8>> {
+        let byte = if let Some(byte) = self.lookahead.take() {
+            Some(byte)
+        } else {
+            let mut byte = [0_u8; 1];
+            match self.reader.read(&mut byte)? {
+                0 => None,
+                _ => Some(byte[0]),
             }
         };
-
-        Ok(c)
-    }
-
-    fn read_utf8_char(&mut self) -> io::Result<char> {
-        let mut temp_buf = [0; 1];
-        let mut utf8_char = Vec::new();
-
-        // Read bytes until a valid UTF-8 character is formed
-        loop {
-            self.json.read_exact(&mut temp_buf)?;
-            utf8_char.push(temp_buf[0]);
-
-            if let Ok(utf8_str) = std::str::from_utf8(&utf8_char)
-                && let Some(ch) = utf8_str.chars().next()
-            {
-                return Ok(ch);
-            }
-
-            // If we have read 4 bytes and still not a valid character, return an error
-            if utf8_char.len() >= 4 {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "Invalid UTF-8 sequence",
-                ));
+        if let Some(byte) = byte {
+            self.offset += 1;
+            if byte == b'\n' {
+                self.line += 1;
+                self.column = 1;
+            } else {
+                self.column += 1;
             }
         }
+        Ok(byte)
+    }
+
+    fn peek_raw(&mut self) -> io::Result<Option<u8>> {
+        if self.lookahead.is_none() {
+            let mut byte = [0_u8; 1];
+            if self.reader.read(&mut byte)? != 0 {
+                self.lookahead = Some(byte[0]);
+            }
+        }
+        Ok(self.lookahead)
+    }
+
+    fn skip_whitespace(&mut self) -> io::Result<()> {
+        while matches!(self.peek_raw()?, Some(b' ' | b'\n' | b'\r' | b'\t')) {
+            self.read_raw()?;
+        }
+        Ok(())
     }
 
     pub(super) fn peek(&mut self) -> io::Result<char> {
-        match self.lookahead {
-            Some(c) => Ok(c),
-            None => {
-                let c = self.read_no_lookahead()?;
-                self.lookahead = Some(c);
-                Ok(c)
-            }
+        self.skip_whitespace()?;
+        self.peek_raw()?
+            .map(char::from)
+            .ok_or_else(|| self.invalid("unexpected end of input"))
+    }
+
+    pub(super) fn expect(&mut self, expected: char) -> io::Result<()> {
+        self.skip_whitespace()?;
+        let Some(found) = self.read_raw()? else {
+            return Err(self.invalid(format!("expected '{expected}', found end of input")));
+        };
+        if found == expected as u8 {
+            Ok(())
+        } else {
+            Err(self.invalid(format!(
+                "expected '{expected}', found '{}'",
+                char::from(found)
+            )))
         }
     }
 
-    pub(super) fn read_boolean(&mut self) -> io::Result<bool> {
-        let string = self.read_until_separator()?;
+    fn expect_bytes(&mut self, expected: &[u8]) -> io::Result<()> {
+        for expected_byte in expected {
+            let found = self
+                .read_raw()?
+                .ok_or_else(|| self.invalid("unexpected end of input"))?;
+            if found != *expected_byte {
+                return Err(self.invalid("invalid JSON literal"));
+            }
+        }
+        if matches!(
+            self.peek_raw()?,
+            Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')
+        ) {
+            return Err(self.invalid("invalid character after JSON literal"));
+        }
+        Ok(())
+    }
 
-        match string.trim() {
-            "true" => Ok(true),
-            "false" => Ok(false),
-            _ => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Invalid boolean format",
-            )),
+    pub(super) fn read_boolean(&mut self) -> io::Result<bool> {
+        self.skip_whitespace()?;
+        match self.peek_raw()? {
+            Some(b't') => {
+                self.expect_bytes(b"true")?;
+                Ok(true)
+            }
+            Some(b'f') => {
+                self.expect_bytes(b"false")?;
+                Ok(false)
+            }
+            _ => Err(self.invalid("expected boolean")),
         }
     }
 
     pub(super) fn read_null(&mut self) -> io::Result<()> {
-        let string = self.read_until_separator()?;
-
-        if string.trim() == "null" {
-            Ok(())
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Invalid null format",
-            ))
-        }
+        self.skip_whitespace()?;
+        self.expect_bytes(b"null")
     }
 
-    pub(super) fn read_number(&mut self) -> io::Result<Number> {
-        let number_str = self.read_until_separator()?;
-        let number_str = number_str.trim();
-
-        // Check if the number is an integer
-        if let Ok(num) = number_str.parse::<i32>() {
-            return Ok(Number::Int(num));
+    fn read_hex_quad(&mut self) -> io::Result<u16> {
+        let mut value = 0_u16;
+        for _ in 0..4 {
+            let byte = self
+                .read_raw()?
+                .ok_or_else(|| self.invalid("unterminated Unicode escape"))?;
+            let digit = char::from(byte)
+                .to_digit(16)
+                .ok_or_else(|| self.invalid("invalid Unicode escape"))?;
+            value = (value << 4) | digit as u16;
         }
+        Ok(value)
+    }
 
-        // Convert the accumulated string to a f32
-        match number_str.parse::<f32>() {
-            Ok(num) => Ok(Number::Float(num)),
-            Err(_) => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Invalid number format: '{}'", number_str),
-            )),
-        }
+    fn read_unicode_escape(&mut self) -> io::Result<char> {
+        let first = self.read_hex_quad()?;
+        let scalar = if (0xD800..=0xDBFF).contains(&first) {
+            if self.read_raw()? != Some(b'\\') || self.read_raw()? != Some(b'u') {
+                return Err(self.invalid("high surrogate without a low surrogate"));
+            }
+            let second = self.read_hex_quad()?;
+            if !(0xDC00..=0xDFFF).contains(&second) {
+                return Err(self.invalid("invalid low surrogate"));
+            }
+            0x10000 + (((u32::from(first) - 0xD800) << 10) | (u32::from(second) - 0xDC00))
+        } else if (0xDC00..=0xDFFF).contains(&first) {
+            return Err(self.invalid("unexpected low surrogate"));
+        } else {
+            u32::from(first)
+        };
+        char::from_u32(scalar).ok_or_else(|| self.invalid("invalid Unicode scalar value"))
     }
 
     pub(super) fn read_string(&mut self) -> io::Result<String> {
-        let mut result = String::new();
-        let mut escape = false;
-
+        self.skip_whitespace()?;
         self.expect('"')?;
-        self.skip_whitespaces = false;
-
-        while let Ok(c) = self.read() {
-            if escape {
-                // Handle escape sequences
-                match c {
-                    '\\' => result.push('\\'),
-                    '"' => result.push('"'),
-                    'n' => result.push('\n'),
-                    // 't' => result.push('\t'),
-                    // 'r' => result.push('\r'),
-                    // Add other escape sequences as needed
-                    // _ => result.push(c), // Push the character as is if unknown escape
-                    _ => {}
+        let mut bytes = Vec::new();
+        loop {
+            let byte = self
+                .read_raw()?
+                .ok_or_else(|| self.invalid("unterminated string"))?;
+            match byte {
+                b'"' => break,
+                b'\\' => {
+                    let escaped = self
+                        .read_raw()?
+                        .ok_or_else(|| self.invalid("unterminated escape sequence"))?;
+                    match escaped {
+                        b'"' | b'\\' | b'/' => bytes.push(escaped),
+                        b'b' => bytes.push(0x08),
+                        b'f' => bytes.push(0x0c),
+                        b'n' => bytes.push(b'\n'),
+                        b'r' => bytes.push(b'\r'),
+                        b't' => bytes.push(b'\t'),
+                        b'u' => {
+                            let ch = self.read_unicode_escape()?;
+                            let mut encoded = [0_u8; 4];
+                            bytes.extend_from_slice(ch.encode_utf8(&mut encoded).as_bytes());
+                        }
+                        _ => return Err(self.invalid("invalid escape sequence")),
+                    }
                 }
-                escape = false;
-            } else if c == '\\' {
-                escape = true;
-            } else if c == '"' {
-                self.skip_whitespaces = true;
-                break; // End of the quoted string
-            } else {
-                result.push(c);
+                0x00..=0x1f => return Err(self.invalid("unescaped control character in string")),
+                _ => bytes.push(byte),
             }
         }
+        String::from_utf8(bytes).map_err(|_| self.invalid("invalid UTF-8 in string"))
+    }
 
-        if !escape {
-            Ok(result)
+    pub(super) fn read_number(&mut self) -> io::Result<Number> {
+        self.skip_whitespace()?;
+        let mut bytes = Vec::new();
+        if self.peek_raw()? == Some(b'-') {
+            bytes.push(self.read_raw()?.expect("peeked byte must be available"));
+        }
+        match self.peek_raw()? {
+            Some(b'0') => {
+                bytes.push(self.read_raw()?.expect("peeked byte must be available"));
+                if matches!(self.peek_raw()?, Some(b'0'..=b'9')) {
+                    return Err(self.invalid("leading zero in number"));
+                }
+            }
+            Some(b'1'..=b'9') => {
+                while matches!(self.peek_raw()?, Some(b'0'..=b'9')) {
+                    bytes.push(self.read_raw()?.expect("peeked byte must be available"));
+                }
+            }
+            _ => return Err(self.invalid("invalid number")),
+        }
+        let mut is_float = false;
+        if self.peek_raw()? == Some(b'.') {
+            is_float = true;
+            bytes.push(self.read_raw()?.expect("peeked byte must be available"));
+            if !matches!(self.peek_raw()?, Some(b'0'..=b'9')) {
+                return Err(self.invalid("fraction requires at least one digit"));
+            }
+            while matches!(self.peek_raw()?, Some(b'0'..=b'9')) {
+                bytes.push(self.read_raw()?.expect("peeked byte must be available"));
+            }
+        }
+        if matches!(self.peek_raw()?, Some(b'e' | b'E')) {
+            is_float = true;
+            bytes.push(self.read_raw()?.expect("peeked byte must be available"));
+            if matches!(self.peek_raw()?, Some(b'+' | b'-')) {
+                bytes.push(self.read_raw()?.expect("peeked byte must be available"));
+            }
+            if !matches!(self.peek_raw()?, Some(b'0'..=b'9')) {
+                return Err(self.invalid("exponent requires at least one digit"));
+            }
+            while matches!(self.peek_raw()?, Some(b'0'..=b'9')) {
+                bytes.push(self.read_raw()?.expect("peeked byte must be available"));
+            }
+        }
+        if !matches!(
+            self.peek_raw()?,
+            None | Some(b' ' | b'\n' | b'\r' | b'\t' | b',' | b']' | b'}' | b':')
+        ) {
+            return Err(self.invalid("invalid character after number"));
+        }
+        let text = std::str::from_utf8(&bytes).map_err(|_| self.invalid("invalid number"))?;
+        if !is_float {
+            return text
+                .parse::<i32>()
+                .map(Number::Int)
+                .map_err(|_| self.invalid(format!("integer out of range: {text}")));
+        }
+        let value = text
+            .parse::<f32>()
+            .map_err(|_| self.invalid(format!("number out of range: {text}")))?;
+        if value.is_finite() {
+            Ok(Number::Float(value))
         } else {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Unterminated string",
-            ))
+            Err(self.invalid("non-finite number"))
         }
-    }
-
-    fn read_until_separator(&mut self) -> io::Result<String> {
-        let mut result = String::new();
-
-        self.skip_whitespaces = false;
-
-        while !self.next_is_separator() {
-            let c = self.read()?;
-            result.push(c);
-        }
-
-        self.skip_whitespaces = true;
-
-        Ok(result)
-    }
-
-    fn next_is_separator(&mut self) -> bool {
-        match self.peek() {
-            Ok(c) => c == ',' || c == '}' || c == ']',
-            Err(_) => true,
-        }
-    }
-
-    pub(super) fn expect(&mut self, c: char) -> io::Result<()> {
-        while let Ok(c2) = self.read() {
-            if !c2.is_whitespace() {
-                if c2 == c {
-                    return Ok(());
-                } else {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("Expected '{}', found '{}'", c, c2),
-                    ));
-                }
-            }
-        }
-
-        Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "Unexpected end of file",
-        ))
     }
 
     pub(super) fn read_obj_key(&mut self) -> io::Result<String> {
-        let s = self.read_string();
+        let key = self.read_string()?;
         self.expect(':')?;
-        s
+        Ok(key)
     }
 
     pub(super) fn expect_obj_key(&mut self, expected: &str) -> io::Result<()> {
-        let s = self.read_string()?;
-        if s != expected {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Expected '{}', found '{}'", expected, s),
-            ));
+        let key = self.read_obj_key()?;
+        if key == expected {
+            Ok(())
+        } else {
+            Err(self.invalid(format!("expected object key '{expected}', found '{key}'")))
         }
-        let _ = self.expect(':');
-        Ok(())
     }
 
     pub(super) fn read_value(&mut self) -> io::Result<JsonValue> {
-        //self.skip_whitespaces()?;
-        match self.peek()? {
-            '[' => {
-                self.read()?;
+        self.skip_whitespace()?;
+        match self.peek_raw()? {
+            Some(b'[') => {
+                self.read_raw()?;
                 Ok(JsonValue::Array)
             }
-            '{' => {
-                self.read()?;
+            Some(b'{') => {
+                self.read_raw()?;
                 Ok(JsonValue::Object)
             }
-            '"' => {
-                let s = self.read_string()?;
-                Ok(JsonValue::String(s))
-            }
-            't' | 'f' => {
-                let b = self.read_boolean()?;
-                Ok(JsonValue::Boolean(b))
-            }
-            'n' => {
+            Some(b'"') => self.read_string().map(JsonValue::String),
+            Some(b't' | b'f') => self.read_boolean().map(JsonValue::Boolean),
+            Some(b'n') => {
                 self.read_null()?;
                 Ok(JsonValue::Null)
             }
-            _ => {
-                let n = self.read_number()?;
-                Ok(JsonValue::Number(n))
+            Some(b'-' | b'0'..=b'9') => self.read_number().map(JsonValue::Number),
+            Some(other) => Err(self.invalid(format!(
+                "unexpected character '{}' while reading a value",
+                char::from(other)
+            ))),
+            None => Err(self.invalid("unexpected end of input")),
+        }
+    }
+
+    pub(super) fn expect_eof(&mut self) -> io::Result<()> {
+        self.skip_whitespace()?;
+        if self.peek_raw()?.is_none() {
+            Ok(())
+        } else {
+            Err(self.invalid("trailing data after JSON document"))
+        }
+    }
+
+    pub(super) fn skip_value(&mut self) -> io::Result<()> {
+        match self.read_value()? {
+            JsonValue::Array => {
+                if self.peek()? != ']' {
+                    loop {
+                        self.skip_value()?;
+                        if self.peek()? == ']' {
+                            break;
+                        }
+                        self.expect(',')?;
+                    }
+                }
+                self.expect(']')
             }
+            JsonValue::Object => {
+                if self.peek()? != '}' {
+                    loop {
+                        self.read_obj_key()?;
+                        self.skip_value()?;
+                        if self.peek()? == '}' {
+                            break;
+                        }
+                        self.expect(',')?;
+                    }
+                }
+                self.expect('}')
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct OneByteReader<'a>(&'a [u8]);
+
+    impl Read for OneByteReader<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.0.is_empty() || buf.is_empty() {
+                return Ok(0);
+            }
+            buf[0] = self.0[0];
+            self.0 = &self.0[1..];
+            Ok(1)
+        }
+    }
+
+    #[test]
+    fn decodes_strings_across_fragmented_input() {
+        let input = br#""a\b\f\n\r\t\/\\\" \u00f1 \ud83d\ude00""#;
+        let mut tokenizer = JsonTokenizer::new(OneByteReader(input));
+        assert_eq!(
+            tokenizer.read_string().unwrap(),
+            "a\u{8}\u{c}\n\r\t/\\\" ñ 😀"
+        );
+        tokenizer.expect_eof().unwrap();
+    }
+
+    #[test]
+    fn validates_number_grammar() {
+        for valid in ["0", "-1", "1.5", "2e3", "-2.5E-2"] {
+            JsonTokenizer::new(valid.as_bytes()).read_number().unwrap();
+        }
+        for invalid in ["01", "1.", "1e", "--1", "+1", "2147483648"] {
+            assert!(
+                JsonTokenizer::new(invalid.as_bytes())
+                    .read_number()
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_strings() {
+        for invalid in [r#""\x""#, r#""\ud800""#, "\"line\nfeed\""] {
+            assert!(
+                JsonTokenizer::new(invalid.as_bytes())
+                    .read_string()
+                    .is_err()
+            );
         }
     }
 }

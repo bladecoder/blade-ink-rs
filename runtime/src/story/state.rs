@@ -116,9 +116,20 @@ impl Story {
         self.get_state().to_json()
     }
 
+    /// Writes the current state as JSON without first building the complete
+    /// document in memory.
+    pub fn save_state_to_writer(&self, writer: impl std::io::Write) -> Result<(), StoryError> {
+        self.get_state().write_json_to(writer)
+    }
+
     /// Loads a previously saved state in JSON format.
     pub fn load_state(&mut self, json_state: &str) -> Result<(), StoryError> {
         self.get_state_mut().load_json(json_state)
+    }
+
+    /// Loads a previously saved state from a JSON reader.
+    pub fn load_state_from_reader(&mut self, reader: impl std::io::Read) -> Result<(), StoryError> {
+        self.get_state_mut().load_json_from_reader(reader)
     }
 
     /// Reset the Story back to its initial state as it was when it was first constructed.

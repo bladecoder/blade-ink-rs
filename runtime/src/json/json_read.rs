@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, io::Read, rc::Rc};
 
 use serde_json::Map;
 
@@ -26,10 +26,10 @@ use crate::{
     void::Void,
 };
 
-pub fn load_from_string(
-    s: &str,
+pub fn load_from_reader<R: Read>(
+    reader: R,
 ) -> Result<(i32, Rc<Container>, Rc<ListDefinitionsOrigin>), StoryError> {
-    let json: serde_json::Value = match serde_json::from_str(s) {
+    let json: serde_json::Value = match serde_json::from_reader(reader) {
         Ok(value) => value,
         Err(_) => return Err(StoryError::BadJson("Story not in JSON format.".to_owned())),
     };
