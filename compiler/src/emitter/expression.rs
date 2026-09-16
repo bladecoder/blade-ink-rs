@@ -292,7 +292,10 @@ fn emit_expression_ctx(
             {
                 out.push(json!({"CNT?": path}))
             } else if name.contains('.') {
-                out.push(json!({"CNT?": name}))
+                let knot_qualified = scope
+                    .zip(context)
+                    .and_then(|(s, ctx)| s.resolve_knot_qualified_choice_label(name, ctx));
+                out.push(json!({"CNT?": knot_qualified.unwrap_or(name)}))
             } else if let (Some(s), Some(ctx)) = (scope, context)
                 && (ctx.top_flow_names.contains(name)
                     || s.child_flow_names.contains(name)
@@ -301,6 +304,12 @@ fn emit_expression_ctx(
                 out.push(json!({"CNT?": s.resolve_divert_target(name, ctx)}))
             } else if context.is_some_and(|ctx| ctx.top_flow_names.contains(name)) {
                 out.push(json!({"CNT?": name}))
+            } else if let (Some(s), Some(ctx)) = (scope, context)
+                && !ctx.global_variables.contains(name)
+                && !s.temp_param_names.contains(name)
+                && let Some(path) = s.resolve_knot_choice_label(name, ctx)
+            {
+                out.push(json!({"CNT?": path}))
             } else {
                 out.push(json!({"VAR?": name}))
             }

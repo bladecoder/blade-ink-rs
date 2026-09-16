@@ -114,11 +114,21 @@ struct EmitContext {
     /// Fully-qualified authored label targets (e.g. `knot.stitch.choice`) mapped
     /// to their emitted runtime paths (e.g. `knot.stitch.c-0`).
     qualified_choice_labels: BTreeMap<String, String>,
+    /// First authored target for each bare label within an enclosing knot.
+    /// The nested maps provide logarithmic lookup while preserving source-order
+    /// precedence when the same label name appears in multiple stitches.
+    knot_choice_labels: BTreeMap<String, BTreeMap<String, String>>,
     /// For each function, whether each parameter position is `ref`.
     function_ref_param_positions: BTreeMap<String, Vec<bool>>,
     /// Unqualified flow/stitch target names mapped to their absolute path
     /// when the name is unique across the story.
     unqualified_flow_targets: BTreeMap<String, String>,
+}
+
+#[derive(Default)]
+struct ChoiceLabelIndex {
+    qualified: BTreeMap<String, String>,
+    by_knot: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 fn register_unqualified_flow_target(
@@ -319,7 +329,10 @@ impl EmitContext {
                 .collect();
             list_items.insert(list_decl.name.clone(), items);
         }
-        let qualified_choice_labels = collect_story_choice_labels(story);
+        let ChoiceLabelIndex {
+            qualified: qualified_choice_labels,
+            by_knot: knot_choice_labels,
+        } = collect_story_choice_labels(story);
         let unqualified_flow_targets = collect_unqualified_flow_targets(story);
         let mut raw_flow_count_flags = BTreeMap::new();
         collect_flow_count_flags_from_nodes(story.root(), &mut raw_flow_count_flags);
@@ -377,6 +390,7 @@ impl EmitContext {
             external_functions: story.external_functions.iter().cloned().collect(),
             flow_count_flags,
             qualified_choice_labels,
+            knot_choice_labels,
             function_ref_param_positions,
             unqualified_flow_targets,
         }
@@ -549,6 +563,36 @@ impl EmitScope {
 
     fn resolve_choice_label(&self, label: &str) -> Option<&str> {
         self.choice_label_targets.get(label).map(String::as_str)
+    }
+
+    /// Deep-search the enclosing knot for a weave label with this bare name.
+    /// Mirrors inklecate's ancestry walk (`Path.TryGetChildFromContext`): a bare
+    /// name used anywhere in a knot may address a label in any of its stitches.
+    fn resolve_knot_choice_label<'ctx>(
+        &self,
+        name: &str,
+        context: &'ctx EmitContext,
+    ) -> Option<&'ctx str> {
+        let knot = self.top_flow_name.as_deref()?;
+        context
+            .knot_choice_labels
+            .get(knot)?
+            .get(name)
+            .map(String::as_str)
+    }
+
+    /// Resolve a `stitch.label` reference made from elsewhere in the same knot
+    /// by qualifying it with the enclosing knot name.
+    fn resolve_knot_qualified_choice_label<'ctx>(
+        &self,
+        name: &str,
+        context: &'ctx EmitContext,
+    ) -> Option<&'ctx str> {
+        let knot = self.top_flow_name.as_deref()?;
+        context
+            .qualified_choice_labels
+            .get(&format!("{knot}.{name}"))
+            .map(String::as_str)
     }
 
     fn resolve_qualified_choice_label(

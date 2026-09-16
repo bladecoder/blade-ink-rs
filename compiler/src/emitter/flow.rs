@@ -162,13 +162,18 @@ fn collect_all_choice_labels(nodes: &[Node], scope: &EmitScope) -> BTreeMap<Stri
     labels
 }
 
-fn collect_story_choice_labels(story: &ParsedStory) -> BTreeMap<String, String> {
-    let mut labels = BTreeMap::new();
+fn collect_story_choice_labels(story: &ParsedStory) -> ChoiceLabelIndex {
+    let mut labels = ChoiceLabelIndex::default();
     let root_scope = EmitScope::root(story.flows());
 
     collect_qualified_choice_labels_for_scope(story.root(), &root_scope, &mut labels);
     for flow in story.flows() {
-        collect_qualified_choice_labels_for_flow(flow, &root_scope, &mut labels);
+        collect_qualified_choice_labels_for_flow(
+            flow,
+            &root_scope,
+            &mut labels,
+            &flow.name,
+        );
     }
 
     labels
@@ -177,7 +182,8 @@ fn collect_story_choice_labels(story: &ParsedStory) -> BTreeMap<String, String> 
 fn collect_qualified_choice_labels_for_flow(
     flow: &Flow,
     parent_scope: &EmitScope,
-    labels: &mut BTreeMap<String, String>,
+    labels: &mut ChoiceLabelIndex,
+    knot_name: &str,
 ) {
     let scope = parent_scope.child_flow(flow);
     let nodes_scope = if flow
@@ -190,24 +196,34 @@ fn collect_qualified_choice_labels_for_flow(
         scope.clone()
     };
     for (label, path) in collect_all_choice_labels(&flow.nodes, &nodes_scope) {
-        labels.insert(format!("{}.{}", scope.path, label), path);
+        labels
+            .qualified
+            .insert(format!("{}.{}", scope.path, label), path.clone());
+        labels
+            .by_knot
+            .entry(knot_name.to_owned())
+            .or_default()
+            .entry(label)
+            .or_insert(path);
     }
 
     for child in &flow.children {
-        collect_qualified_choice_labels_for_flow(child, &scope, labels);
+        collect_qualified_choice_labels_for_flow(child, &scope, labels, knot_name);
     }
 }
 
 fn collect_qualified_choice_labels_for_scope(
     nodes: &[Node],
     scope: &EmitScope,
-    labels: &mut BTreeMap<String, String>,
+    labels: &mut ChoiceLabelIndex,
 ) {
     for (label, path) in collect_all_choice_labels(nodes, scope) {
         if scope.path == "0" {
-            labels.insert(label, path);
+            labels.qualified.insert(label, path);
         } else {
-            labels.insert(format!("{}.{}", scope.path, label), path);
+            labels
+                .qualified
+                .insert(format!("{}.{}", scope.path, label), path);
         }
     }
 }

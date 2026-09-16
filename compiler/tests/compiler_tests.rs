@@ -19,6 +19,23 @@ fn json_has_assignment_token(value: &Value, key: &str, var_name: &str) -> bool {
     }
 }
 
+fn count_string_property(value: &Value, key: &str, expected: &str) -> usize {
+    match value {
+        Value::Object(map) => {
+            usize::from(map.get(key).and_then(Value::as_str) == Some(expected))
+                + map
+                    .values()
+                    .map(|child| count_string_property(child, key, expected))
+                    .sum::<usize>()
+        }
+        Value::Array(items) => items
+            .iter()
+            .map(|child| count_string_property(child, key, expected))
+            .sum(),
+        _ => 0,
+    }
+}
+
 fn choice_texts(story: &Story) -> Vec<String> {
     story
         .get_current_choices()
@@ -313,6 +330,114 @@ Response.
     assert!(
         !options.contains_key("response"),
         "response gather must not be nested inside options: {json}"
+    );
+}
+
+/// A weave label referenced from a *different* stitch of the same knot must
+/// resolve as a read count, mirroring inklecate's ancestry walk
+/// (`Path.TryGetChildFromContext` finds a labelled weave point in any stitch of
+/// the enclosing knot). Covers the bare, stitch-qualified and fully-qualified
+/// reference styles.
+#[test]
+fn cross_stitch_label_reference_resolves_as_read_count() {
+    let ink = r#"
+-> k.s1
+== k ==
+= s1
+* (lbl) [pick me]
+  Picked.
+  -> s2
+= s2
+* {lbl} [bare]
+  -> DONE
+* {s1.lbl} [stitch-qualified]
+  -> DONE
+* {k.s1.lbl} [fully-qualified]
+  -> DONE
+"#;
+
+    let json = Compiler::new().compile(ink).unwrap();
+    let value: Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        count_string_property(&value, "CNT?", "k.s1.c-0"),
+        3,
+        "all three label references must compile to the same read-count target: {json}"
+    );
+
+    let mut story = Story::new(&json).unwrap();
+    while story.can_continue() {
+        story.cont().unwrap();
+    }
+    story.choose_choice_index(0).unwrap();
+    while story.can_continue() {
+        story.cont().unwrap();
+    }
+    let choices: Vec<String> = story
+        .get_current_choices()
+        .iter()
+        .map(|choice| choice.text.clone())
+        .collect();
+    assert_eq!(
+        choices,
+        vec!["bare", "stitch-qualified", "fully-qualified"],
+        "all three reference styles must see the visited label"
+    );
+}
+
+/// A global variable must not be shadowed by a same-named weave label in
+/// another stitch of the enclosing knot.
+#[test]
+fn global_variable_wins_over_cross_stitch_label() {
+    let ink = "VAR count = 0\n== k ==\n= s1\n* (count) [x]\n  -> DONE\n= s2\n{count}\n-> DONE\n";
+    let json = Compiler::new().compile(ink).unwrap();
+    assert!(
+        json.contains(r#"{"VAR?":"count"}"#),
+        "global must resolve as a variable read: {json}"
+    );
+}
+
+#[test]
+fn bare_cross_stitch_label_uses_first_authored_match() {
+    let ink = r#"
+-> k.z
+== k ==
+= z
+* (flag) [z]
+  -> m
+= a
+* (flag) [a]
+  -> DONE
+= m
+{flag:visited|not visited}
+-> END
+"#;
+
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json).unwrap();
+    story.continue_maximally().unwrap();
+    story.choose_choice_index(0).unwrap();
+
+    assert_eq!("visited\n", story.continue_maximally().unwrap());
+}
+
+#[test]
+fn temp_cannot_reuse_cross_stitch_label_name() {
+    let ink = r#"
+-> k.s3
+== k ==
+= s1
+* (flag) [flag]
+  -> DONE
+= s3
+~ temp flag = 7
+{flag}
+-> END
+"#;
+
+    let error = Compiler::new().compile(ink).unwrap_err().to_string();
+    assert!(
+        error.contains("flag") && error.contains("label"),
+        "expected a label-name collision error, got: {error}"
     );
 }
 

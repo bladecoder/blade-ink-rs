@@ -15,26 +15,8 @@ fn emit_condition(
             Some(context),
             Some(scope),
         ),
-        Condition::Expression(Expression::Variable(name))
-            if scope.resolve_choice_label(name).is_some() =>
-        {
-            // Labels are stored as absolute paths now
-            out.push(json!({"CNT?": scope.resolve_choice_label(name).unwrap()}));
-        }
-        Condition::Expression(Expression::Variable(name))
-            if context.qualified_choice_labels.contains_key(name) =>
-        {
-            out.push(json!({"CNT?": context.qualified_choice_labels[name]}));
-        }
-        Condition::Expression(Expression::Variable(name))
-            if context.top_flow_names.contains(name) || scope.child_flow_names.contains(name) =>
-        {
-            out.push(json!({"CNT?": scope.resolve_divert_target(name, context)}));
-        }
-        // Fully-qualified path like knot.stitch.label — treat as CNT? visit count
-        Condition::Expression(Expression::Variable(name)) if name.contains('.') => {
-            out.push(json!({"CNT?": name}));
-        }
+        // Labels, flow names and read-count paths all resolve through the
+        // shared variable ladder in `emit_expression_ctx`.
         Condition::Expression(expression) => {
             emit_expression_ctx(expression, out, Some(context), Some(scope))
         }

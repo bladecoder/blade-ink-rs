@@ -123,21 +123,23 @@ impl ValidationContext {
     }
 
     // -----------------------------------------------------------------------
-    // Temp variable name collision with function names
+    // Temp variable name collisions
     // -----------------------------------------------------------------------
 
     fn validate_temp_names(
         &self,
         nodes: &[Node],
         params: &BTreeSet<String>,
+        label_names: &BTreeSet<String>,
     ) -> Result<(), CompilerError> {
-        self.check_temps_in_nodes(nodes, params)
+        self.check_temps_in_nodes(nodes, params, label_names)
     }
 
     fn check_temps_in_nodes(
         &self,
         nodes: &[Node],
         params: &BTreeSet<String>,
+        label_names: &BTreeSet<String>,
     ) -> Result<(), CompilerError> {
         for node in nodes {
             match node {
@@ -158,26 +160,34 @@ impl ValidationContext {
                             variable_name
                         )));
                     }
+                    if label_names.contains(variable_name.as_str()) {
+                        return Err(CompilerError::invalid_source(format!(
+                            "The name '{}' has already been used for a choice or gather label.",
+                            variable_name
+                        )));
+                    }
                 }
-                Node::Choice(c) => self.check_temps_in_nodes(&c.body, params)?,
+                Node::Choice(c) => {
+                    self.check_temps_in_nodes(&c.body, params, label_names)?;
+                }
                 Node::Conditional {
                     when_true,
                     when_false,
                     ..
                 } => {
-                    self.check_temps_in_nodes(when_true, params)?;
+                    self.check_temps_in_nodes(when_true, params, label_names)?;
                     if let Some(wf) = when_false {
-                        self.check_temps_in_nodes(wf, params)?;
+                        self.check_temps_in_nodes(wf, params, label_names)?;
                     }
                 }
                 Node::SwitchConditional { branches, .. } => {
                     for (_, body) in branches {
-                        self.check_temps_in_nodes(body, params)?;
+                        self.check_temps_in_nodes(body, params, label_names)?;
                     }
                 }
                 Node::Sequence(seq) => {
                     for branch in &seq.branches {
-                        self.check_temps_in_nodes(branch, params)?;
+                        self.check_temps_in_nodes(branch, params, label_names)?;
                     }
                 }
                 _ => {}
