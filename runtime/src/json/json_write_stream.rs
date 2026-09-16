@@ -1,4 +1,7 @@
-use std::{collections::HashMap, io::Write, rc::Rc};
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{collections::HashMap, io::Write, rc::Rc};
 
 use crate::{
     choice::Choice,

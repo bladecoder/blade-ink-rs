@@ -1,4 +1,7 @@
-use std::{collections::HashMap, rc::Rc};
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{collections::HashMap, rc::Rc};
 
 #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
 use serde_json::{Map, json};
@@ -12,14 +15,14 @@ use crate::{
     value::Value,
 };
 
+#[cfg(feature = "stream-json-parser")]
+use crate::compat::io::Write;
 #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
 use crate::json::{json_read, json_write};
 #[cfg(feature = "stream-json-parser")]
 use crate::json::{json_write_stream, json_writer::JsonWriter};
 #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
 use crate::{path::Path, story::Story};
-#[cfg(feature = "stream-json-parser")]
-use std::io::Write;
 
 #[derive(Clone)]
 pub struct Element {

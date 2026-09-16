@@ -1,8 +1,11 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::rc::Rc;
 use crate::{
     choice::Choice, choice_point::ChoicePoint, object::Object, path::Path, story::Story,
     story_error::StoryError, tag::Tag, value::Value, value_type::StringValue,
 };
-use std::rc::Rc;
 /// # Choices
 /// Methods to get and select choices.
 impl Story {

@@ -1,4 +1,7 @@
-use std::{cell::RefCell, rc::Rc};
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{cell::RefCell, rc::Rc};
 
 #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
 use serde_json::Map;
@@ -11,12 +14,12 @@ use crate::{
     story_error::StoryError,
 };
 
+#[cfg(feature = "stream-json-parser")]
+use crate::compat::{collections::BTreeMap, collections::HashMap, io::Write};
 #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
 use crate::json::{json_read, json_write};
 #[cfg(feature = "stream-json-parser")]
 use crate::json::{json_write_stream, json_writer::JsonWriter};
-#[cfg(feature = "stream-json-parser")]
-use std::{collections::BTreeMap, collections::HashMap, io::Write};
 
 #[derive(Clone)]
 pub(crate) struct Flow {

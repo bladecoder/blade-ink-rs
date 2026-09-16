@@ -14,6 +14,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
       with:
         components: rustfmt, clippy
+        targets: thumbv7em-none-eabihf
 
     - name: Build
       run: cargo build
@@ -22,7 +23,12 @@ jobs:
       run: cargo fmt -- --check
 
     - name: Check Clippy
-      run: cargo clippy -- -D warnings
+      run: |
+        cargo clippy --workspace --all-targets --all-features -- -D warnings
+        cargo clippy -p bladeink --lib --no-default-features --features stream-json-parser -- -D warnings
+
+    - name: Check no_std target
+      run: cargo check -p bladeink --lib --no-default-features --features stream-json-parser --target thumbv7em-none-eabihf
 
     - name: Test
       run: |

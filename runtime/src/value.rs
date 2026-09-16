@@ -1,4 +1,7 @@
-use std::fmt;
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::fmt;
 
 use crate::{
     ink_list::InkList,

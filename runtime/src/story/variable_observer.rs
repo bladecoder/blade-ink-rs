@@ -1,4 +1,7 @@
-use std::{collections::HashSet, error::Error, fmt};
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{collections::HashSet, error::Error, fmt};
 
 use crate::{story::Story, story_error::StoryError, value_type::ValueType};
 

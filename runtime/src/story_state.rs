@@ -1,4 +1,7 @@
-use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
 
 use crate::{
     callstack::CallStack,
@@ -23,7 +26,6 @@ use crate::{
     void::Void,
 };
 
-use rand::RngExt;
 #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
 use serde_json::{Map, json};
 
@@ -65,12 +67,10 @@ impl StoryState {
     pub fn new(
         main_content_container: Rc<Container>,
         list_definitions: Rc<ListDefinitionsOrigin>,
+        story_seed: i32,
     ) -> StoryState {
         let current_flow = Flow::new(DEFAULT_FLOW_NAME, main_content_container.clone());
         let callstack = current_flow.callstack.clone();
-
-        let mut rng = rand::rng();
-        let story_seed = rng.random_range(0..100);
 
         let state = StoryState {
             current_flow,
@@ -375,7 +375,12 @@ impl StoryState {
 
             for name in &origin_names {
                 let def = self.list_definitions.get_list_definition(name).unwrap();
-                if !list.origins.borrow().iter().any(|e| std::ptr::eq(e, def)) {
+                if !list
+                    .origins
+                    .borrow()
+                    .iter()
+                    .any(|e| crate::compat::ptr::eq(e, def))
+                {
                     list.origins.borrow_mut().push(def.clone());
                 }
             }
@@ -767,6 +772,7 @@ impl StoryState {
         let mut copy = StoryState::new(
             self.main_content_container.clone(),
             self.list_definitions.clone(),
+            self.story_seed,
         );
 
         copy.patch = Some(self.patch.clone().unwrap_or_else(StatePatch::new));
@@ -1158,7 +1164,7 @@ impl StoryState {
             }
         };
 
-        std::mem::swap(&mut self.current_flow, &mut next_flow);
+        crate::compat::mem::swap(&mut self.current_flow, &mut next_flow);
         named_flows.insert(next_flow.name.clone(), next_flow);
 
         self.variables_state
@@ -1207,7 +1213,10 @@ impl StoryState {
         self.load_json_from_reader(save_string.as_bytes())
     }
 
-    pub fn load_json_from_reader(&mut self, reader: impl std::io::Read) -> Result<(), StoryError> {
+    pub fn load_json_from_reader(
+        &mut self,
+        reader: impl crate::compat::io::Read,
+    ) -> Result<(), StoryError> {
         #[cfg(feature = "stream-json-parser")]
         return json_state_stream::load_state(self, reader);
 

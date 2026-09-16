@@ -14,7 +14,7 @@
 //! # let read_input = |_:&_| 0;
 //! // story is the entry point of the `bladeink` lib.
 //! // json_string is a string with all the contents of the .ink.json file.
-//! let mut story = Story::new(json_string)?;
+//! let mut story = Story::new_with_seed(json_string, 1)?;
 //!
 //! loop {
 //!     while story.can_continue() {
@@ -45,8 +45,101 @@
 //! all the examples can be found in the `runtime/tests` folder in the source code
 //! of this crate.
 
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+#[cfg(test)]
+#[macro_use]
+extern crate std;
+
+mod compat {
+    #[allow(unused_imports)]
+    pub use core::{any, cell, cmp, convert, error, fmt, hash, mem, ptr, str};
+
+    pub mod collections {
+        #[allow(unused_imports)]
+        pub use crate::collections::{HashMap, HashSet};
+        #[allow(unused_imports)]
+        pub use alloc::collections::{BTreeMap, VecDeque};
+    }
+
+    pub mod io {
+        #[allow(unused_imports)]
+        pub use core3::io::*;
+    }
+
+    pub mod rc {
+        #[allow(unused_imports)]
+        pub use alloc::rc::*;
+    }
+}
+
 #[cfg(not(any(feature = "serde-json-parser", feature = "stream-json-parser")))]
 compile_error!("enable either the `serde-json-parser` or `stream-json-parser` feature");
+#[cfg(all(feature = "serde-json-parser", not(feature = "std")))]
+compile_error!("the `serde-json-parser` feature requires the `std` feature");
+
+/// Collection types used by the public runtime API.
+pub mod collections {
+    #[cfg(not(feature = "std"))]
+    pub use hashbrown::{HashMap, HashSet};
+    #[cfg(feature = "std")]
+    pub use std::collections::{HashMap, HashSet};
+}
+
+/// I/O traits used by the streaming JSON API.
+pub mod io {
+    pub use core3::io::{Read, Write};
+}
+
+mod prelude {
+    #[allow(unused_imports)]
+    pub use alloc::{
+        borrow::ToOwned,
+        boxed::Box,
+        format,
+        rc::{Rc, Weak},
+        string::{String, ToString},
+        vec,
+        vec::Vec,
+    };
+}
+
+mod math {
+    #[inline]
+    pub(crate) fn powf(value: f32, exponent: f32) -> f32 {
+        #[cfg(feature = "std")]
+        return value.powf(exponent);
+        #[cfg(not(feature = "std"))]
+        return libm::powf(value, exponent);
+    }
+
+    #[inline]
+    pub(crate) fn floor(value: f32) -> f32 {
+        #[cfg(feature = "std")]
+        return value.floor();
+        #[cfg(not(feature = "std"))]
+        return libm::floorf(value);
+    }
+
+    #[inline]
+    pub(crate) fn ceil(value: f32) -> f32 {
+        #[cfg(feature = "std")]
+        return value.ceil();
+        #[cfg(not(feature = "std"))]
+        return libm::ceilf(value);
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn floating_point_helpers_match_ink_operations() {
+            assert_eq!(super::powf(2.0, 3.0), 8.0);
+            assert_eq!(super::floor(-1.25), -2.0);
+            assert_eq!(super::ceil(-1.25), -1.0);
+        }
+    }
+}
 
 mod callstack;
 pub mod choice;
