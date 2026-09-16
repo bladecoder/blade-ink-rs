@@ -41,7 +41,7 @@ pub fn parse_choice(
         .ok_or_else(|| CompilerError::invalid_source("expected choice marker".to_owned()))?;
     let once_only = marker == '*';
     // Count nesting level and strip all leading choice markers (e.g. "* * text" for nested
-    // choices) — nesting is handled by indentation.
+    // choices). Marker count determines nesting; indentation is cosmetic.
     let after_first_marker = trimmed_start[marker.len_utf8()..].trim_start();
     let mut nesting_level: usize = 1;
     let mut remainder = after_first_marker;
