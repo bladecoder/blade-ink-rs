@@ -46,10 +46,13 @@ pub struct Story {
     pub(crate) externals: HashMap<String, ExternalFunctionDef>,
 }
 mod misc {
+    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    use crate::json::json_read;
+    #[cfg(feature = "stream-json-parser")]
+    use crate::json::json_read_stream;
     use crate::{
         ink_list::InkList,
         ink_list_item::InkListItem,
-        json::{json_read, json_read_stream},
         object::{Object, RTObject},
         path::Path,
         story::{INK_VERSION_CURRENT, Story},
@@ -58,18 +61,25 @@ mod misc {
         value::Value,
     };
     use rand::{RngExt, SeedableRng, rngs::StdRng};
-    use std::{collections::HashMap, rc::Rc};
+    use std::{collections::HashMap, io::Read, rc::Rc};
 
     impl Story {
         /// Construct a `Story` out of a JSON string that was compiled with
         /// `inklecate`.
         pub fn new(json_string: &str) -> Result<Self, StoryError> {
+            Self::new_from_reader(json_string.as_bytes())
+        }
+
+        /// Construct a `Story` from a JSON reader without requiring an
+        /// additional in-memory copy of the source document.
+        pub fn new_from_reader(reader: impl Read) -> Result<Self, StoryError> {
+            #[cfg(feature = "stream-json-parser")]
             let (version, main_content_container, list_definitions) =
-                if cfg!(feature = "stream-json-parser") {
-                    json_read_stream::load_from_string(json_string)?
-                } else {
-                    json_read::load_from_string(json_string)?
-                };
+                json_read_stream::load_from_reader(reader)?;
+
+            #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+            let (version, main_content_container, list_definitions) =
+                json_read::load_from_reader(reader)?;
 
             let mut story = Story {
                 main_content_container: main_content_container.clone(),
@@ -238,6 +248,21 @@ pub mod variable_observer;
 mod tests {
     use super::Story;
 
+    #[cfg(feature = "stream-json-parser")]
+    struct OneByteReader<'a>(&'a [u8]);
+
+    #[cfg(feature = "stream-json-parser")]
+    impl std::io::Read for OneByteReader<'_> {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            if self.0.is_empty() || buffer.is_empty() {
+                return Ok(0);
+            }
+            buffer[0] = self.0[0];
+            self.0 = &self.0[1..];
+            Ok(1)
+        }
+    }
+
     const STORY_WITH_LIST: &str = r#"{
         "inkVersion": 21,
         "root": [["done", null], "done", {
@@ -269,5 +294,33 @@ mod tests {
         assert!(story.list_from_origin("unknown").is_err());
         assert!(story.list_from_item("items.unknown").is_err());
         assert!(story.list_from_item("two").is_err());
+    }
+
+    #[cfg(feature = "stream-json-parser")]
+    #[test]
+    fn streams_reordered_story_and_state_documents() {
+        let json = br#"{
+            "unknown": {"nested": [1, true, null]},
+            "listDefs": {},
+            "root": ["done", null],
+            "inkVersion": 21
+        }"#;
+        let mut story = Story::new_from_reader(OneByteReader(json)).unwrap();
+
+        let mut state = Vec::new();
+        story.save_state_to_writer(&mut state).unwrap();
+        story.load_state_from_reader(OneByteReader(&state)).unwrap();
+    }
+
+    #[cfg(feature = "stream-json-parser")]
+    #[test]
+    fn malformed_json_returns_an_error() {
+        for json in [
+            r#"{"inkVersion":21,"root":[],"listDefs":{} trailing"#,
+            r#"{"inkVersion":21.5,"root":["done",null],"listDefs":{}}"#,
+            r#"{"inkVersion":21,"root":["",null],"listDefs":{}}"#,
+        ] {
+            assert!(Story::new(json).is_err(), "input should fail: {json}");
+        }
     }
 }

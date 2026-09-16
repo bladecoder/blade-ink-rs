@@ -17,14 +17,15 @@ name = "bladeink"
 path = "src/lib.rs"
 
 [dependencies]
-serde = { version = "1.0.152", features = ["derive"] }
-serde_json.workspace = true
+serde_json = { workspace = true, optional = true }
 strum = { version = "0.28", features = ["derive"] }
 as-any = "0.3.0"
 rand = { workspace = true, features = ["std_rng"] }
 web-time = "1.1.0"
 
 [features]
+default = ["serde-json-parser"]
+serde-json-parser = ["dep:serde_json"]
 stream-json-parser = []
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]

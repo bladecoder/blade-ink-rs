@@ -28,3 +28,5 @@ jobs:
       run: |
         cargo test
         cargo test -p bladeink --features stream-json-parser
+        cargo test -p bladeink --no-default-features --features stream-json-parser
+        cargo test -p conformance-tests --features bladeink/stream-json-parser

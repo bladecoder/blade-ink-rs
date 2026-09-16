@@ -44,6 +44,16 @@ loop {
 
 The `bladeink` library supports all the **Ink** language features, including threads, multi-flows, variable set/get from code, variable observing, external functions, tags on choices, etc. Examples of uses of all these features can be found in the `conformance-tests/tests` folder in the [source code](https://github.com/bladecoder/blade-ink-rs/tree/main/conformance-tests/tests).
 
+### Streaming JSON on memory-constrained targets
+
+Serde is the default JSON backend. For targets such as ESP32, the streaming backend parses stories and saved states directly into the runtime model and can read or write incrementally:
+
+```toml
+bladeink = { version = "2", default-features = false, features = ["stream-json-parser"] }
+```
+
+Use `Story::new_from_reader`, `Story::load_state_from_reader`, and `Story::save_state_to_writer` to avoid an additional full-document buffer. The existing string-based methods remain available as convenience wrappers.
+
 ## Using the `bladeink-compiler` crate
 
 The `bladeink-compiler` crate compiles `.ink` source files into the JSON format expected by the runtime.

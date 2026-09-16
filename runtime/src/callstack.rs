@@ -1,18 +1,25 @@
 use std::{collections::HashMap, rc::Rc};
 
+#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
 use serde_json::{Map, json};
 
 use crate::{
     container::Container,
-    json::{json_read, json_write},
     object::Object,
-    path::Path,
     pointer::{self, Pointer},
     push_pop::PushPopType,
-    story::Story,
     story_error::StoryError,
     value::Value,
 };
+
+#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+use crate::json::{json_read, json_write};
+#[cfg(feature = "stream-json-parser")]
+use crate::json::{json_write_stream, json_writer::JsonWriter};
+#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+use crate::{path::Path, story::Story};
+#[cfg(feature = "stream-json-parser")]
+use std::io::Write;
 
 #[derive(Clone)]
 pub struct Element {
@@ -39,6 +46,23 @@ impl Element {
             function_start_in_output_stream: 0,
         }
     }
+
+    #[cfg(feature = "stream-json-parser")]
+    pub(crate) fn from_json_parts(
+        push_pop_type: PushPopType,
+        current_pointer: Pointer,
+        in_expression_evaluation: bool,
+        temporary_variables: HashMap<String, Rc<Value>>,
+    ) -> Self {
+        Self {
+            current_pointer,
+            in_expression_evaluation,
+            temporary_variables,
+            push_pop_type,
+            evaluation_stack_height_when_pushed: 0,
+            function_start_in_output_stream: 0,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -57,6 +81,20 @@ impl Thread {
         }
     }
 
+    #[cfg(feature = "stream-json-parser")]
+    pub(crate) fn from_json_parts(
+        callstack: Vec<Element>,
+        previous_pointer: Pointer,
+        thread_index: usize,
+    ) -> Self {
+        Self {
+            callstack,
+            previous_pointer,
+            thread_index,
+        }
+    }
+
+    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
     pub fn from_json(
         main_content_container: &Rc<Container>,
         j_obj: &Map<String, serde_json::Value>,
@@ -137,6 +175,7 @@ impl Thread {
         Ok(thread)
     }
 
+    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
     pub(crate) fn write_json(&self) -> Result<serde_json::Value, StoryError> {
         let mut thread: Map<String, serde_json::Value> = Map::new();
 
@@ -182,6 +221,49 @@ impl Thread {
 
         Ok(serde_json::Value::Object(thread))
     }
+
+    #[cfg(feature = "stream-json-parser")]
+    pub(crate) fn write_json_stream<W: Write>(
+        &self,
+        writer: &mut JsonWriter<W>,
+    ) -> Result<(), StoryError> {
+        writer.raw("{\"callstack\":[")?;
+        let mut first = true;
+        for element in &self.callstack {
+            writer.separator(&mut first)?;
+            writer.raw("{")?;
+            let mut first_property = true;
+            if !element.current_pointer.is_null() {
+                writer.key(&mut first_property, "cPath")?;
+                let container = element.current_pointer.container.as_ref().ok_or_else(|| {
+                    StoryError::InvalidStoryState("pointer has no container".to_owned())
+                })?;
+                writer.string(&Object::get_path(container.as_ref()).get_components_string())?;
+                writer.key(&mut first_property, "idx")?;
+                writer.integer(element.current_pointer.index)?;
+            }
+            writer.key(&mut first_property, "exp")?;
+            writer.boolean(element.in_expression_evaluation)?;
+            writer.key(&mut first_property, "type")?;
+            writer.integer(element.push_pop_type as u32)?;
+            if !element.temporary_variables.is_empty() {
+                writer.key(&mut first_property, "temp")?;
+                json_write_stream::write_dictionary_values(writer, &element.temporary_variables)?;
+            }
+            writer.raw("}")?;
+        }
+        writer.raw("],\"threadIndex\":")?;
+        writer.integer(self.thread_index)?;
+        if !self.previous_pointer.is_null() {
+            let previous = self.previous_pointer.resolve().ok_or_else(|| {
+                StoryError::InvalidStoryState("previous pointer does not resolve".to_owned())
+            })?;
+            writer.raw(",\"previousContentObject\":")?;
+            writer.string(&Object::get_path(previous.as_ref()).to_string())?;
+        }
+        writer.raw("}")?;
+        Ok(())
+    }
 }
 
 #[derive(Clone)]
@@ -202,6 +284,18 @@ impl CallStack {
         cs.reset();
 
         cs
+    }
+
+    #[cfg(feature = "stream-json-parser")]
+    pub(crate) fn load_stream_parts(
+        &mut self,
+        main_content_container: &Rc<Container>,
+        threads: Vec<Thread>,
+        thread_counter: usize,
+    ) {
+        self.threads = threads;
+        self.thread_counter = thread_counter;
+        self.start_of_root = Pointer::start_of(main_content_container.clone());
     }
 
     pub fn get_current_element(&self) -> &Element {
@@ -401,6 +495,7 @@ impl CallStack {
         self.get_callstack_mut().push(element);
     }
 
+    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
     pub(crate) fn write_json(&self) -> Result<serde_json::Value, StoryError> {
         let mut cs: Map<String, serde_json::Value> = Map::new();
 
@@ -416,10 +511,28 @@ impl CallStack {
         Ok(serde_json::Value::Object(cs))
     }
 
+    #[cfg(feature = "stream-json-parser")]
+    pub(crate) fn write_json_stream<W: Write>(
+        &self,
+        writer: &mut JsonWriter<W>,
+    ) -> Result<(), StoryError> {
+        writer.raw("{\"threads\":[")?;
+        let mut first = true;
+        for thread in &self.threads {
+            writer.separator(&mut first)?;
+            thread.write_json_stream(writer)?;
+        }
+        writer.raw("],\"threadCounter\":")?;
+        writer.integer(self.thread_counter)?;
+        writer.raw("}")?;
+        Ok(())
+    }
+
     pub fn get_thread_with_index(&self, index: usize) -> Option<&Thread> {
         self.threads.iter().find(|&t| t.thread_index == index)
     }
 
+    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
     pub fn load_json(
         &mut self,
         main_content_container: &Rc<Container>,

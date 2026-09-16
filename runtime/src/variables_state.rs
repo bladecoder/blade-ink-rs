@@ -4,11 +4,11 @@ use std::{
     rc::Rc,
 };
 
+#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
 use serde_json::Map;
 
 use crate::{
     callstack::CallStack,
-    json::{json_read, json_write},
     list_definitions_origin::ListDefinitionsOrigin,
     state_patch::StatePatch,
     story_error::StoryError,
@@ -16,6 +16,13 @@ use crate::{
     value_type::{ValueType, VariablePointerValue},
     variable_assigment::VariableAssignment,
 };
+
+#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+use crate::json::{json_read, json_write};
+#[cfg(feature = "stream-json-parser")]
+use crate::json::{json_write_stream, json_writer::JsonWriter};
+#[cfg(feature = "stream-json-parser")]
+use std::io::Write;
 
 #[derive(Clone)]
 pub(crate) struct VariablesState {
@@ -335,6 +342,7 @@ impl VariablesState {
         self.callstack = callstack;
     }
 
+    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
     pub(crate) fn write_json(&self) -> Result<serde_json::Value, StoryError> {
         let mut jobj: Map<String, serde_json::Value> = Map::new();
 
@@ -351,6 +359,30 @@ impl VariablesState {
         }
 
         Ok(serde_json::Value::Object(jobj))
+    }
+
+    #[cfg(feature = "stream-json-parser")]
+    pub(crate) fn write_json_stream<W: Write>(
+        &self,
+        writer: &mut JsonWriter<W>,
+    ) -> Result<(), StoryError> {
+        writer.raw("{")?;
+        let mut first = true;
+        let mut entries: Vec<_> = self.global_variables.iter().collect();
+        entries.sort_unstable_by(|left, right| left.0.cmp(right.0));
+        for (name, value) in entries {
+            if self
+                .default_global_variables
+                .get(name)
+                .is_some_and(|default| self.val_equal(value, default))
+            {
+                continue;
+            }
+            writer.key(&mut first, name)?;
+            json_write_stream::write_rtobject(writer, value.clone())?;
+        }
+        writer.raw("}")?;
+        Ok(())
     }
 
     fn val_equal(&self, val: &Value, default_val: &Value) -> bool {
@@ -386,6 +418,7 @@ impl VariablesState {
         }
     }
 
+    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
     pub(crate) fn load_json(
         &mut self,
         jobj: &Map<String, serde_json::Value>,
@@ -409,5 +442,16 @@ impl VariablesState {
         }
 
         Ok(())
+    }
+
+    #[cfg(feature = "stream-json-parser")]
+    pub(crate) fn load_stream_values(&mut self, loaded: HashMap<String, Rc<Value>>) {
+        self.global_variables.clear();
+        for (name, default) in &self.default_global_variables {
+            self.global_variables.insert(
+                name.clone(),
+                loaded.get(name).cloned().unwrap_or_else(|| default.clone()),
+            );
+        }
     }
 }

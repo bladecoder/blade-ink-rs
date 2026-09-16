@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, io::Write, rc::Rc};
 
 use crate::{
     callstack::CallStack,
@@ -8,7 +8,6 @@ use crate::{
     flow::Flow,
     glue::Glue,
     ink_list::InkList,
-    json::{json_read, json_write},
     list_definitions_origin::ListDefinitionsOrigin,
     object::{Object, RTObject},
     path::Path,
@@ -25,12 +24,18 @@ use crate::{
 };
 
 use rand::RngExt;
+#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
 use serde_json::{Map, json};
+
+#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+use crate::json::{json_read, json_write};
+#[cfg(feature = "stream-json-parser")]
+use crate::json::{json_state_stream, json_write_stream, json_writer::JsonWriter};
 
 pub const INK_SAVE_STATE_VERSION: u32 = 10;
 pub const MIN_COMPATIBLE_LOAD_VERSION: u32 = 8;
 
-static DEFAULT_FLOW_NAME: &str = "DEFAULT_FLOW";
+pub(crate) static DEFAULT_FLOW_NAME: &str = "DEFAULT_FLOW";
 
 pub(crate) struct StoryState {
     pub current_flow: Flow,
@@ -38,14 +43,14 @@ pub(crate) struct StoryState {
     output_stream_text_dirty: bool,
     output_stream_tags_dirty: bool,
     pub variables_state: VariablesState,
-    alive_flow_names_dirty: bool,
+    pub(crate) alive_flow_names_dirty: bool,
     pub evaluation_stack: Vec<Rc<dyn RTObject>>,
-    main_content_container: Rc<Container>,
+    pub(crate) main_content_container: Rc<Container>,
     current_errors: Vec<String>,
     current_warnings: Vec<String>,
     current_text: Option<String>,
     patch: Option<StatePatch>,
-    named_flows: Option<HashMap<String, Flow>>,
+    pub(crate) named_flows: Option<HashMap<String, Flow>>,
     pub diverted_pointer: Pointer,
     pub visit_counts: HashMap<String, i32>,
     pub turn_indices: HashMap<String, i32>,
@@ -179,7 +184,7 @@ impl StoryState {
         &mut self.current_flow.output_stream
     }
 
-    fn output_stream_dirty(&mut self) {
+    pub(crate) fn output_stream_dirty(&mut self) {
         self.output_stream_text_dirty = true;
         self.output_stream_tags_dirty = true;
     }
@@ -1193,16 +1198,36 @@ impl StoryState {
     }
 
     pub fn to_json(&self) -> Result<String, StoryError> {
-        Ok(self.write_json()?.to_string())
+        let mut output = Vec::new();
+        self.write_json_to(&mut output)?;
+        String::from_utf8(output).map_err(|error| StoryError::InvalidStoryState(error.to_string()))
     }
 
     pub fn load_json(&mut self, save_string: &str) -> Result<(), StoryError> {
-        match serde_json::from_str(save_string) {
+        self.load_json_from_reader(save_string.as_bytes())
+    }
+
+    pub fn load_json_from_reader(&mut self, reader: impl std::io::Read) -> Result<(), StoryError> {
+        #[cfg(feature = "stream-json-parser")]
+        return json_state_stream::load_state(self, reader);
+
+        #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+        match serde_json::from_reader(reader) {
             Ok(value) => self.load_json_obj(value),
             Err(_) => Err(StoryError::BadJson("State not in JSON format.".to_owned())),
         }
     }
 
+    pub fn write_json_to(&self, writer: impl Write) -> Result<(), StoryError> {
+        #[cfg(feature = "stream-json-parser")]
+        return self.write_json_stream(writer);
+
+        #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+        serde_json::to_writer(writer, &self.write_json()?)
+            .map_err(|error| StoryError::BadJson(error.to_string()))
+    }
+
+    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
     fn write_json(&self) -> Result<serde_json::Value, StoryError> {
         let mut obj: Map<String, serde_json::Value> = Map::new();
 
@@ -1267,6 +1292,57 @@ impl StoryState {
         Ok(serde_json::Value::Object(obj))
     }
 
+    #[cfg(feature = "stream-json-parser")]
+    fn write_json_stream(&self, output: impl Write) -> Result<(), StoryError> {
+        let mut writer = JsonWriter::new(output);
+        writer.raw("{\"flows\":{")?;
+        let mut flows: Vec<_> = self
+            .named_flows
+            .as_ref()
+            .into_iter()
+            .flat_map(|flows| flows.iter())
+            .collect();
+        flows.push((&self.current_flow.name, &self.current_flow));
+        flows.sort_unstable_by(|left, right| left.0.cmp(right.0));
+        let mut first = true;
+        for (name, flow) in flows {
+            writer.separator(&mut first)?;
+            writer.string(name)?;
+            writer.raw(":")?;
+            flow.write_json_stream(&mut writer)?;
+        }
+        writer.raw("},\"currentFlowName\":")?;
+        writer.string(&self.current_flow.name)?;
+        writer.raw(",\"variablesState\":")?;
+        self.variables_state.write_json_stream(&mut writer)?;
+        writer.raw(",\"evalStack\":")?;
+        json_write_stream::write_list_rt_objs(&mut writer, &self.evaluation_stack)?;
+        if !self.diverted_pointer.is_null() {
+            writer.raw(",\"currentDivertTarget\":")?;
+            let path = self.diverted_pointer.get_path().ok_or_else(|| {
+                StoryError::InvalidStoryState("diverted pointer has no path".to_owned())
+            })?;
+            writer.string(&path.get_components_string())?;
+        }
+        writer.raw(",\"visitCounts\":")?;
+        json_write_stream::write_int_dictionary(&mut writer, &self.visit_counts)?;
+        writer.raw(",\"turnIndices\":")?;
+        json_write_stream::write_int_dictionary(&mut writer, &self.turn_indices)?;
+        writer.raw(",\"turnIdx\":")?;
+        writer.integer(self.current_turn_index)?;
+        writer.raw(",\"storySeed\":")?;
+        writer.integer(self.story_seed)?;
+        writer.raw(",\"previousRandom\":")?;
+        writer.integer(self.previous_random)?;
+        writer.raw(",\"inkSaveVersion\":")?;
+        writer.integer(INK_SAVE_STATE_VERSION)?;
+        writer.raw(",\"inkFormatVersion\":")?;
+        writer.integer(INK_VERSION_CURRENT)?;
+        writer.raw("}")?;
+        Ok(())
+    }
+
+    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
     fn load_json_obj(&mut self, j_object: serde_json::Value) -> Result<(), StoryError> {
         let j_save_version = match j_object.get("inkSaveVersion") {
             Some(version) => version,
