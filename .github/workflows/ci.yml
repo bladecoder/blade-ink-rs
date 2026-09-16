@@ -13,6 +13,7 @@ jobs:
     - name: Set up Rust
       uses: dtolnay/rust-toolchain@stable
       with:
+        toolchain: "1.95"
         components: rustfmt, clippy
         targets: thumbv7em-none-eabihf
 
