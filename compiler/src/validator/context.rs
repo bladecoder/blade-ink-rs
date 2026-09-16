@@ -87,7 +87,9 @@ impl ValidationContext {
     fn validate_story(&self, story: &ParsedStory) -> Result<(), CompilerError> {
         // Validate root nodes
         let empty_params = BTreeSet::new();
-        self.validate_temp_names(story.root(), &empty_params)?;
+        let mut root_label_names = BTreeSet::new();
+        collect_labels_from_nodes(story.root(), "", &mut root_label_names);
+        self.validate_temp_names(story.root(), &empty_params, &root_label_names)?;
         self.validate_nodes_diverts(story.root(), "")?;
         self.validate_nodes_function_calls(story.root())?;
         self.validate_no_choice_in_conditional(story.root())?;
@@ -105,12 +107,17 @@ impl ValidationContext {
             let flow_divert_params: BTreeSet<String> =
                 flow.divert_parameters.iter().cloned().collect();
             let flow_temps = collect_temps_from_nodes(&flow.nodes);
+            let mut knot_label_names = BTreeSet::new();
+            collect_labels_from_nodes(&flow.nodes, "", &mut knot_label_names);
+            for stitch in &flow.children {
+                collect_labels_from_nodes(&stitch.nodes, "", &mut knot_label_names);
+            }
             let flow_scope = ScopeInfo {
                 forbidden: BTreeSet::new(),
             };
 
-            // Validate temp naming collisions with function names in this flow
-            self.validate_temp_names(&flow.nodes, &flow_params)?;
+            // Validate temp naming collisions within the enclosing knot.
+            self.validate_temp_names(&flow.nodes, &flow_params, &knot_label_names)?;
 
             self.validate_nodes_diverts(&flow.nodes, &flow.name)?;
             self.validate_nodes_function_calls(&flow.nodes)?;
@@ -141,7 +148,11 @@ impl ValidationContext {
                 let stitch_scope = ScopeInfo { forbidden };
 
                 // Validate temp naming collisions in stitch
-                self.validate_temp_names(&stitch.nodes, &stitch_params)?;
+                self.validate_temp_names(
+                    &stitch.nodes,
+                    &stitch_params,
+                    &knot_label_names,
+                )?;
 
                 let qualified = format!("{}.{}", flow.name, stitch.name);
                 self.validate_nodes_diverts(&stitch.nodes, &qualified)?;

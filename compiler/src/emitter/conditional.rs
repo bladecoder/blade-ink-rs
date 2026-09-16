@@ -6,9 +6,15 @@ fn emit_condition(
 ) -> Result<(), CompilerError> {
     match condition {
         Condition::Bool(value) => out.push(json!(value)),
-        Condition::FunctionCall(name) => {
-            out.push(json!({"f()": name}));
-        }
+        Condition::FunctionCall(name) => emit_expression_ctx(
+            &Expression::FunctionCall {
+                name: name.clone(),
+                args: Vec::new(),
+            },
+            out,
+            Some(context),
+            Some(scope),
+        ),
         // Labels, flow names and read-count paths all resolve through the
         // shared variable ladder in `emit_expression_ctx`.
         Condition::Expression(expression) => {

@@ -19,6 +19,31 @@ fn json_has_assignment_token(value: &Value, key: &str, var_name: &str) -> bool {
     }
 }
 
+fn count_string_property(value: &Value, key: &str, expected: &str) -> usize {
+    match value {
+        Value::Object(map) => {
+            usize::from(map.get(key).and_then(Value::as_str) == Some(expected))
+                + map
+                    .values()
+                    .map(|child| count_string_property(child, key, expected))
+                    .sum::<usize>()
+        }
+        Value::Array(items) => items
+            .iter()
+            .map(|child| count_string_property(child, key, expected))
+            .sum(),
+        _ => 0,
+    }
+}
+
+fn choice_texts(story: &Story) -> Vec<String> {
+    story
+        .get_current_choices()
+        .iter()
+        .map(|c| c.text.clone())
+        .collect()
+}
+
 #[test]
 fn error_includes_line_number() {
     // VAR with a bad assignment — error should reference line 3
@@ -332,9 +357,11 @@ fn cross_stitch_label_reference_resolves_as_read_count() {
 "#;
 
     let json = Compiler::new().compile(ink).unwrap();
-    assert!(
-        !json.contains("VAR?"),
-        "label references must compile to read counts, not variable reads: {json}"
+    let value: Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        count_string_property(&value, "CNT?", "k.s1.c-0"),
+        3,
+        "all three label references must compile to the same read-count target: {json}"
     );
 
     let mut story = Story::new(&json).unwrap();
@@ -367,4 +394,255 @@ fn global_variable_wins_over_cross_stitch_label() {
         json.contains(r#"{"VAR?":"count"}"#),
         "global must resolve as a variable read: {json}"
     );
+}
+
+#[test]
+fn bare_cross_stitch_label_uses_first_authored_match() {
+    let ink = r#"
+-> k.z
+== k ==
+= z
+* (flag) [z]
+  -> m
+= a
+* (flag) [a]
+  -> DONE
+= m
+{flag:visited|not visited}
+-> END
+"#;
+
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json).unwrap();
+    story.continue_maximally().unwrap();
+    story.choose_choice_index(0).unwrap();
+
+    assert_eq!("visited\n", story.continue_maximally().unwrap());
+}
+
+#[test]
+fn temp_cannot_reuse_cross_stitch_label_name() {
+    let ink = r#"
+-> k.s3
+== k ==
+= s1
+* (flag) [flag]
+  -> DONE
+= s3
+~ temp flag = 7
+{flag}
+-> END
+"#;
+
+    let error = Compiler::new().compile(ink).unwrap_err().to_string();
+    assert!(
+        error.contains("flag") && error.contains("label"),
+        "expected a label-name collision error, got: {error}"
+    );
+}
+
+#[test]
+fn external_as_conditional_test_emits_external_call() {
+    let ink = "EXTERNAL has_key()\n{has_key(): Unlocked.|Locked.}\n-> DONE\n";
+
+    let json = Compiler::new().compile(ink).unwrap();
+
+    assert!(
+        json.contains(r#"{"x()":"has_key"}"#),
+        "conditional test on an EXTERNAL should emit an external call: {json}"
+    );
+    assert!(
+        !json.contains(r#"{"f()":"has_key"}"#),
+        "conditional test on an EXTERNAL must not emit an internal call: {json}"
+    );
+}
+
+#[test]
+fn function_as_conditional_test_still_emits_internal_call() {
+    let ink = "== function has_key() ==\n~ return true\n\
+               === main ===\n{has_key(): Unlocked.|Locked.}\n-> DONE\n";
+
+    let json = Compiler::new().compile(ink).unwrap();
+
+    assert!(
+        json.contains(r#"{"f()":"has_key"}"#),
+        "conditional test on an ink function should emit an internal call: {json}"
+    );
+}
+
+#[test]
+fn external_conditional_test_selects_the_branch_at_runtime() {
+    let ink = "EXTERNAL has_key()\n{has_key(): Unlocked.|Locked.}\n-> DONE\n";
+    let json = Compiler::new().compile(ink).unwrap();
+
+    for (value, expected) in [(true, "Unlocked."), (false, "Locked.")] {
+        let mut story = Story::new(&json).unwrap();
+        story
+            .bind_external_function(
+                "has_key",
+                move |_: &str, _: &[bladeink::value_type::ValueType]| {
+                    Ok(Some(bladeink::value_type::ValueType::Bool(value)))
+                },
+                false,
+            )
+            .unwrap();
+        assert_eq!(story.cont().unwrap().trim(), expected);
+    }
+}
+
+#[test]
+fn external_conditional_test_keeps_gated_and_sibling_choices() {
+    let ink = "EXTERNAL show_extra()\n\
+               -> main\n\
+               === main ===\n\
+               <- base_choices\n\
+               { show_extra(): <- extra_choices }\n\
+               + [Leave]\n    -> DONE\n\
+               -> DONE\n\
+               == base_choices ==\n+ [Stay]\n    -> DONE\n\
+               == extra_choices ==\n+ [Open the safe]\n    -> DONE\n";
+    let json = Compiler::new().compile(ink).unwrap();
+
+    let mut story = Story::new(&json).unwrap();
+    story
+        .bind_external_function(
+            "show_extra",
+            |_: &str, _: &[bladeink::value_type::ValueType]| {
+                Ok(Some(bladeink::value_type::ValueType::Bool(true)))
+            },
+            false,
+        )
+        .unwrap();
+    while story.can_continue() {
+        story.cont().unwrap();
+    }
+
+    let labels: Vec<String> = story
+        .get_current_choices()
+        .iter()
+        .map(|choice| choice.text.clone())
+        .collect();
+    assert_eq!(labels, vec!["Stay", "Open the safe", "Leave"]);
+}
+
+#[test]
+fn column_zero_choice_body_keeps_siblings() {
+    let ink = r#"
+-> k.main
+== k ==
+= main
+* (a) [A]
+x
+-> k.main
+* (b) [B]
+  y
+  -> k.main
++ [C]
+  z
+  -> DONE
+"#;
+
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json).unwrap();
+
+    story.continue_maximally().unwrap();
+    assert_eq!(vec!["A", "B", "C"], choice_texts(&story));
+
+    story.choose_choice_index(0).unwrap();
+    let text = story.continue_maximally().unwrap();
+    assert!(text.contains('x'), "got: {text:?}");
+    assert_eq!(vec!["B", "C"], choice_texts(&story));
+}
+
+#[test]
+fn indented_choice_marker_stays_sibling() {
+    let ink = r#"
+-> k.main
+== k ==
+= main
+* (a) [A]
+  x
+  -> k.main
+  * (b) [B]
+  y
+  -> k.main
++ [C]
+  z
+  -> DONE
+"#;
+
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json).unwrap();
+
+    story.continue_maximally().unwrap();
+    assert_eq!(vec!["A", "B", "C"], choice_texts(&story));
+
+    story.choose_choice_index(1).unwrap();
+    let text = story.continue_maximally().unwrap();
+    assert!(text.contains('y'), "got: {text:?}");
+    assert_eq!(vec!["A", "C"], choice_texts(&story));
+}
+
+#[test]
+fn column_zero_nested_weave_by_marker_count() {
+    let ink = r#"
+-> k
+== k ==
+* [A]
+* * [Sub1]
+s1
+* * [Sub2]
+s2
+- - subs gathered
+after
+* [B]
+b
+- done
+-> END
+"#;
+
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json).unwrap();
+
+    story.continue_maximally().unwrap();
+    assert_eq!(vec!["A", "B"], choice_texts(&story));
+
+    story.choose_choice_index(0).unwrap();
+    story.continue_maximally().unwrap();
+    assert_eq!(vec!["Sub1", "Sub2"], choice_texts(&story));
+
+    story.choose_choice_index(1).unwrap();
+    let text = story.continue_maximally().unwrap();
+    assert!(
+        text.contains("s2") && text.contains("subs gathered") && text.contains("after"),
+        "got: {text:?}"
+    );
+    assert!(text.contains("done"), "got: {text:?}");
+}
+
+#[test]
+fn choice_body_stops_at_conditional_closing_brace() {
+    let ink = r#"
+-> start
+== start ==
+{ true:
+* [Heads]
+Heads it is.
+-> END
+- else:
+* [Tails]
+Tails it is.
+-> END
+}
+"#;
+
+    let json = Compiler::new().compile(ink).unwrap();
+    let mut story = Story::new(&json).unwrap();
+
+    story.continue_maximally().unwrap();
+    assert_eq!(vec!["Heads"], choice_texts(&story));
+
+    story.choose_choice_index(0).unwrap();
+    let text = story.continue_maximally().unwrap();
+    assert!(text.contains("Heads it is."), "got: {text:?}");
 }
