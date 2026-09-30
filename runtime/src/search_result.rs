@@ -1,4 +1,7 @@
-use std::rc::Rc;
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::rc::Rc;
 
 use crate::{container::Container, object::RTObject};
 

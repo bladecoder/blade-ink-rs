@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::collections::HashMap;
 
 use crate::ink_list_item::InkListItem;
 

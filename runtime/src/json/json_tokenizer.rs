@@ -1,6 +1,29 @@
 //! Pull-based JSON lexer used by the streamed codecs.
 
-use std::io::{self, BufReader, Read};
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::io::{self, Read};
+
+#[cfg(feature = "std")]
+use crate::compat::io::BufReader;
+
+#[cfg(not(feature = "std"))]
+struct BufReader<R>(R);
+
+#[cfg(not(feature = "std"))]
+impl<R> BufReader<R> {
+    fn new(reader: R) -> Self {
+        Self(reader)
+    }
+}
+
+#[cfg(not(feature = "std"))]
+impl<R: Read> Read for BufReader<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        self.0.read(buffer)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Number {
@@ -74,7 +97,8 @@ impl<R: Read> JsonTokenizer<R> {
     }
 
     fn invalid(&self, message: impl AsRef<str>) -> io::Error {
-        io::Error::new(
+        #[cfg(feature = "std")]
+        let error = io::Error::new(
             io::ErrorKind::InvalidData,
             format!(
                 "{} at line {}, column {} (byte {})",
@@ -83,7 +107,12 @@ impl<R: Read> JsonTokenizer<R> {
                 self.column,
                 self.offset
             ),
-        )
+        );
+        #[cfg(not(feature = "std"))]
+        let _ = message;
+        #[cfg(not(feature = "std"))]
+        let error = io::Error::new(io::ErrorKind::InvalidData, "invalid JSON input");
+        error
     }
 
     fn read_raw(&mut self) -> io::Result<Option<u8>> {
@@ -304,7 +333,8 @@ impl<R: Read> JsonTokenizer<R> {
         ) {
             return Err(self.invalid("invalid character after number"));
         }
-        let text = std::str::from_utf8(&bytes).map_err(|_| self.invalid("invalid number"))?;
+        let text =
+            crate::compat::str::from_utf8(&bytes).map_err(|_| self.invalid("invalid number"))?;
         if !is_float {
             return text
                 .parse::<i32>()

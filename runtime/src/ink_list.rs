@@ -1,5 +1,8 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{cell::RefCell, collections::HashMap};
 use core::fmt;
-use std::{cell::RefCell, collections::HashMap};
 
 use crate::{
     ink_list_item::InkListItem, list_definition::ListDefinition,

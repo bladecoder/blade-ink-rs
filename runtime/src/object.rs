@@ -1,4 +1,7 @@
-use std::{
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{
     any::Any,
     cell::RefCell,
     fmt::Display,
@@ -70,7 +73,7 @@ impl Object {
                                 .position(|r| {
                                     let a = r.as_ref() as *const _ as *const ();
                                     let b = child as *const _ as *const ();
-                                    std::ptr::eq(a, b)
+                                    crate::compat::ptr::eq(a, b)
                                 })
                                 .unwrap(),
                         ));
@@ -127,7 +130,8 @@ impl Object {
         // 2. Drill up using ".." style (actually represented as "^")
         // 3. Re-build downward chain from common ancestor
         let own_path = rtobject.get_object().path.borrow();
-        let min_path_length = std::cmp::min(global_path.len(), own_path.as_ref().unwrap().len());
+        let min_path_length =
+            crate::compat::cmp::min(global_path.len(), own_path.as_ref().unwrap().len());
         let mut last_shared_path_comp_index: i32 = -1;
 
         for i in 0..min_path_length {
@@ -221,7 +225,7 @@ pub trait RTObject: Display + IntoAny {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use crate::compat::collections::HashMap;
 
     use super::*;
 

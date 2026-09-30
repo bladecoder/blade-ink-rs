@@ -1,4 +1,7 @@
-use std::{collections::HashMap, io::Read, rc::Rc};
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{collections::HashMap, io::Read, rc::Rc};
 
 use serde_json::Map;
 

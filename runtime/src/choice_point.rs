@@ -1,5 +1,8 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{cell::RefCell, rc::Rc};
 use core::fmt;
-use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     container::Container,

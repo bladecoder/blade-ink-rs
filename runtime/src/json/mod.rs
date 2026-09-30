@@ -1,3 +1,6 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
 pub mod json_read;
 #[cfg(feature = "stream-json-parser")]

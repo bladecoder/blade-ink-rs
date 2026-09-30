@@ -1,4 +1,7 @@
-use std::{
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{
     cell::RefCell,
     fmt,
     rc::{Rc, Weak},
@@ -156,7 +159,7 @@ impl Divert {
 
     fn convert_path_to_relative(&self, global_path: &Path) -> Path {
         let own_path = Object::get_path(self);
-        let min_path_length = std::cmp::min(global_path.len(), own_path.len());
+        let min_path_length = crate::compat::cmp::min(global_path.len(), own_path.len());
         let mut last_shared_path_comp_index: i32 = -1;
 
         for i in 0..min_path_length {
@@ -240,7 +243,7 @@ impl fmt::Display for Divert {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use crate::compat::collections::HashMap;
 
     use super::*;
 

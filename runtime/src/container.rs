@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fmt, rc::Rc};
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{collections::HashMap, fmt, rc::Rc};
 
 use as_any::Downcast;
 
@@ -84,7 +87,7 @@ impl Container {
 
         if let Some(pointed_obj) = pointed_obj
             && let Some(c) = pointed_obj.downcast_ref::<Container>()
-            && std::ptr::eq(c, self)
+            && crate::compat::ptr::eq(c, self)
         {
             sb.push_str("  <---");
         }
@@ -118,7 +121,7 @@ impl Container {
             {
                 let a = obj.as_ref() as *const _ as *const ();
                 let b = pointed_obj as *const _ as *const ();
-                if std::ptr::eq(a, b) {
+                if crate::compat::ptr::eq(a, b) {
                     sb.push_str("  <---");
                 }
             }

@@ -1,4 +1,7 @@
-use std::{
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{
     cell::OnceCell,
     fmt,
     hash::{Hash, Hasher},

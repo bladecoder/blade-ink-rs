@@ -1,3 +1,10 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{
+    collections::{HashMap, VecDeque},
+    rc::Rc,
+};
 use crate::{
     container::Container,
     control_command::{CommandType, ControlCommand},
@@ -20,10 +27,6 @@ use crate::{
     void::Void,
 };
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-use std::{
-    collections::{HashMap, VecDeque},
-    rc::Rc,
-};
 
 /// # Control and Logic
 /// Methods for performing logic and flow control.

@@ -1,6 +1,8 @@
 //! A generated [`Choice`] from the story.
+use crate::compat::cell::RefCell;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use core::fmt;
-use std::cell::RefCell;
 
 use crate::{
     callstack::Thread,

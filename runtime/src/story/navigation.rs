@@ -1,3 +1,7 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::rc::Rc;
 use crate::{
     container::Container,
     object::{Object, RTObject},
@@ -9,7 +13,6 @@ use crate::{
     story_error::StoryError,
     value_type::ValueType,
 };
-use std::rc::Rc;
 
 /// # Navigation
 /// Methods to access specific sections of the story.

@@ -1,4 +1,7 @@
-use std::io::{self, Write};
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::io::{self, Write};
 
 pub(crate) struct JsonWriter<W: Write> {
     output: W,
@@ -56,7 +59,7 @@ impl<W: Write> JsonWriter<W> {
         }
     }
 
-    pub(crate) fn integer(&mut self, value: impl std::fmt::Display) -> io::Result<()> {
+    pub(crate) fn integer(&mut self, value: impl crate::compat::fmt::Display) -> io::Result<()> {
         write!(self.output, "{value}")
     }
 

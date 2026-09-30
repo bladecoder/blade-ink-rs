@@ -44,15 +44,39 @@ loop {
 
 The `bladeink` library supports all the **Ink** language features, including threads, multi-flows, variable set/get from code, variable observing, external functions, tags on choices, etc. Examples of uses of all these features can be found in the `conformance-tests/tests` folder in the [source code](https://github.com/bladecoder/blade-ink-rs/tree/main/conformance-tests/tests).
 
-### Streaming JSON on memory-constrained targets
+### Runtime features and `no_std`
 
-Serde is the default JSON backend. For targets such as ESP32, the streaming backend parses stories and saved states directly into the runtime model and can read or write incrementally:
+The default configuration remains `std` with the Serde JSON backend. The available combinations are:
+
+| Features | Supported | Notes |
+|---|---|---|
+| default (`std`, `serde-json-parser`) | Yes | Existing API, system-generated seeds and clock |
+| `std`, `stream-json-parser` | Yes | Incremental JSON I/O on standard-library targets |
+| `stream-json-parser` without defaults | Yes | `no_std + alloc`; an allocator is required |
+| `serde-json-parser` without `std` | No | Produces a compile-time error |
+
+For `no_std` targets such as embedded systems, disable defaults and enable only the streaming backend:
 
 ```toml
 bladeink = { version = "2", default-features = false, features = ["stream-json-parser"] }
 ```
 
-Use `Story::new_from_reader`, `Story::load_state_from_reader`, and `Story::save_state_to_writer` to avoid an additional full-document buffer. The existing string-based methods remain available as convenience wrappers.
+Construct stories with a fixed seed using `Story::new_with_seed` or `Story::new_from_reader_with_seed`. The reader and writer APIs use the traits re-exported by `bladeink::io`, while public hash collections are available through `bladeink::collections`. String-based loading and saving remain available and use allocated buffers.
+
+`Story::new` and `Story::new_from_reader` are available with `std` and generate their seed from the system. On `no_std`, a positive time limit passed to `continue_async` also requires an application clock:
+
+```rust
+use core::time::Duration;
+
+let mut story = bladeink::story::Story::new_with_seed(json, 42)?;
+story.set_time_source(|| Duration::from_millis(platform_millis()));
+```
+
+The clock must be monotonic. A zero time limit does not require one. Existing streaming users on standard-library targets that disable default features should now enable both features explicitly:
+
+```toml
+bladeink = { version = "2", default-features = false, features = ["std", "stream-json-parser"] }
+```
 
 ## Using the `bladeink-compiler` crate
 

@@ -1,3 +1,6 @@
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 use crate::story_error::StoryError;
 
 #[derive(PartialEq, Clone, Copy, Eq, Hash, Debug)]

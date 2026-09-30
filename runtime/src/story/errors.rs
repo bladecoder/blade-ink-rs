@@ -1,4 +1,7 @@
-use std::{cell::RefCell, rc::Rc};
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+use crate::compat::{cell::RefCell, rc::Rc};
 
 use crate::story::Story;
 

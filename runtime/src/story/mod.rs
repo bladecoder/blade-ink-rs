@@ -1,4 +1,7 @@
 //! [`Story`] is the entry point to load and run an Ink story.
+use crate::compat::{cell::RefCell, collections::HashMap, rc::Rc};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::{
     container::Container,
     list_definitions_origin::ListDefinitionsOrigin,
@@ -9,7 +12,21 @@ use crate::{
     },
     story_state::StoryState,
 };
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+
+/// Supplies elapsed time to time-limited story continuation.
+pub trait TimeSource {
+    /// Returns a monotonically increasing duration.
+    fn now(&self) -> core::time::Duration;
+}
+
+impl<F> TimeSource for F
+where
+    F: Fn() -> core::time::Duration,
+{
+    fn now(&self) -> core::time::Duration {
+        self()
+    }
+}
 
 /// The current version of the Ink story file format.
 pub const INK_VERSION_CURRENT: i32 = 21;
@@ -44,8 +61,15 @@ pub struct Story {
     pub(crate) allow_external_function_fallbacks: bool,
     pub(crate) saw_lookahead_unsafe_function_after_new_line: bool,
     pub(crate) externals: HashMap<String, ExternalFunctionDef>,
+    pub(crate) fixed_seed: Option<i32>,
+    pub(crate) time_source: Option<Rc<dyn TimeSource>>,
+    pub(crate) last_time: Option<core::time::Duration>,
 }
 mod misc {
+    #[allow(unused_imports)]
+    use crate::prelude::*;
+
+    use crate::compat::{collections::HashMap, io::Read, rc::Rc};
     #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
     use crate::json::json_read;
     #[cfg(feature = "stream-json-parser")]
@@ -61,18 +85,38 @@ mod misc {
         value::Value,
     };
     use rand::{RngExt, SeedableRng, rngs::StdRng};
-    use std::{collections::HashMap, io::Read, rc::Rc};
 
     impl Story {
         /// Construct a `Story` out of a JSON string that was compiled with
         /// `inklecate`.
+        #[cfg(feature = "std")]
         pub fn new(json_string: &str) -> Result<Self, StoryError> {
             Self::new_from_reader(json_string.as_bytes())
         }
 
         /// Construct a `Story` from a JSON reader without requiring an
         /// additional in-memory copy of the source document.
+        #[cfg(feature = "std")]
         pub fn new_from_reader(reader: impl Read) -> Result<Self, StoryError> {
+            let seed = rand::rng().random_range(0..100);
+            Self::new_from_reader_internal(reader, seed, None)
+        }
+
+        /// Construct a `Story` from JSON with a reproducible random seed.
+        pub fn new_with_seed(json_string: &str, seed: i32) -> Result<Self, StoryError> {
+            Self::new_from_reader_with_seed(json_string.as_bytes(), seed)
+        }
+
+        /// Construct a `Story` from a JSON reader with a reproducible random seed.
+        pub fn new_from_reader_with_seed(reader: impl Read, seed: i32) -> Result<Self, StoryError> {
+            Self::new_from_reader_internal(reader, seed, Some(seed))
+        }
+
+        fn new_from_reader_internal(
+            reader: impl Read,
+            seed: i32,
+            fixed_seed: Option<i32>,
+        ) -> Result<Self, StoryError> {
             #[cfg(feature = "stream-json-parser")]
             let (version, main_content_container, list_definitions) =
                 json_read_stream::load_from_reader(reader)?;
@@ -83,7 +127,11 @@ mod misc {
 
             let mut story = Story {
                 main_content_container: main_content_container.clone(),
-                state: StoryState::new(main_content_container.clone(), list_definitions.clone()),
+                state: StoryState::new(
+                    main_content_container.clone(),
+                    list_definitions.clone(),
+                    seed,
+                ),
                 temporary_evaluation_container: None,
                 recursive_continue_count: 0,
                 async_continue_active: false,
@@ -99,6 +147,9 @@ mod misc {
                 has_validated_externals: false,
                 allow_external_function_fallbacks: false,
                 externals: HashMap::with_capacity(0),
+                fixed_seed,
+                time_source: Self::default_time_source(),
+                last_time: None,
             };
 
             story.reset_globals()?;
@@ -108,6 +159,23 @@ mod misc {
             }
 
             Ok(story)
+        }
+
+        #[cfg(feature = "std")]
+        fn default_time_source() -> Option<Rc<dyn super::TimeSource>> {
+            let origin = web_time::Instant::now();
+            Some(Rc::new(move || origin.elapsed()))
+        }
+
+        #[cfg(not(feature = "std"))]
+        fn default_time_source() -> Option<Rc<dyn super::TimeSource>> {
+            None
+        }
+
+        /// Overrides the clock used by time-limited continuation.
+        pub fn set_time_source(&mut self, time_source: impl super::TimeSource + 'static) {
+            self.time_source = Some(Rc::new(time_source));
+            self.last_time = None;
         }
 
         /// Creates a string representing the hierarchy of objects and
@@ -247,19 +315,40 @@ pub mod variable_observer;
 #[cfg(test)]
 mod tests {
     use super::Story;
+    #[allow(unused_imports)]
+    use crate::prelude::*;
+    use core::{cell::Cell, time::Duration};
 
     #[cfg(feature = "stream-json-parser")]
     struct OneByteReader<'a>(&'a [u8]);
 
     #[cfg(feature = "stream-json-parser")]
-    impl std::io::Read for OneByteReader<'_> {
-        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+    impl crate::compat::io::Read for OneByteReader<'_> {
+        fn read(&mut self, buffer: &mut [u8]) -> crate::compat::io::Result<usize> {
             if self.0.is_empty() || buffer.is_empty() {
                 return Ok(0);
             }
             buffer[0] = self.0[0];
             self.0 = &self.0[1..];
             Ok(1)
+        }
+    }
+
+    #[cfg(feature = "stream-json-parser")]
+    struct OneByteWriter(Vec<u8>);
+
+    #[cfg(feature = "stream-json-parser")]
+    impl crate::compat::io::Write for OneByteWriter {
+        fn write(&mut self, buffer: &[u8]) -> crate::compat::io::Result<usize> {
+            if buffer.is_empty() {
+                return Ok(0);
+            }
+            self.0.push(buffer[0]);
+            Ok(1)
+        }
+
+        fn flush(&mut self) -> crate::compat::io::Result<()> {
+            Ok(())
         }
     }
 
@@ -273,7 +362,7 @@ mod tests {
 
     #[test]
     fn constructs_lists_with_story_definitions() {
-        let story = Story::new(STORY_WITH_LIST).expect("story should load");
+        let story = Story::new_with_seed(STORY_WITH_LIST, 1).expect("story should load");
 
         let empty = story
             .list_from_origin("items")
@@ -290,10 +379,87 @@ mod tests {
 
     #[test]
     fn rejects_unknown_list_items() {
-        let story = Story::new(STORY_WITH_LIST).expect("story should load");
+        let story = Story::new_with_seed(STORY_WITH_LIST, 1).expect("story should load");
         assert!(story.list_from_origin("unknown").is_err());
         assert!(story.list_from_item("items.unknown").is_err());
         assert!(story.list_from_item("two").is_err());
+    }
+
+    #[test]
+    fn fixed_seed_is_reproducible_across_reset() {
+        const RANDOM_STORY: &str = r##"{"inkVersion":21,"root":[["ev",1,100,"rnd","out","/ev","^,","ev",1,100,"rnd","out","/ev","^,","ev",1,100,"rnd","out","/ev",["done",{"#f":5,"#n":"g-0"}],null],"done",{"#f":1}],"listDefs":{}}"##;
+        let mut first = Story::new_with_seed(RANDOM_STORY, 42).unwrap();
+        let mut second = Story::new_with_seed(RANDOM_STORY, 42).unwrap();
+        let first_run = first.continue_maximally().unwrap();
+        assert_eq!(first_run, second.continue_maximally().unwrap());
+
+        first.reset_state().unwrap();
+        assert_eq!(first_run, first.continue_maximally().unwrap());
+    }
+
+    #[test]
+    fn positive_async_limit_requires_a_clock_before_mutating_state() {
+        let mut story = Story::new_with_seed(STORY_WITH_LIST, 1).unwrap();
+        story.time_source = None;
+
+        let error = story.continue_async(1.0).unwrap_err();
+        assert!(matches!(
+            error,
+            crate::story_error::StoryError::BadArgument(_)
+        ));
+        assert!(story.can_continue());
+        assert!(!story.is_async_continue_active());
+    }
+
+    #[test]
+    fn zero_async_limit_does_not_require_a_clock() {
+        let mut story = Story::new_with_seed(STORY_WITH_LIST, 1).unwrap();
+        story.time_source = None;
+        story.continue_async(0.0).unwrap();
+    }
+
+    #[test]
+    fn async_continuation_can_pause_and_resume_with_a_simulated_clock() {
+        const STORY: &str =
+            r#"{"inkVersion":21,"root":["^one","^two","^three","done",null],"listDefs":{}}"#;
+        let mut story = Story::new_with_seed(STORY, 1).unwrap();
+        let tick = Rc::new(Cell::new(0_u64));
+        let clock = tick.clone();
+        story.set_time_source(move || {
+            let next = clock.get() + 2;
+            clock.set(next);
+            Duration::from_millis(next)
+        });
+
+        story.continue_async(1.0).unwrap();
+        assert!(story.is_async_continue_active());
+        for _ in 0..16 {
+            if !story.is_async_continue_active() {
+                break;
+            }
+            story.continue_async(1.0).unwrap();
+        }
+        assert!(!story.is_async_continue_active());
+    }
+
+    #[test]
+    fn backwards_clock_is_rejected() {
+        const STORY: &str = r#"{"inkVersion":21,"root":["^text","done",null],"listDefs":{}}"#;
+        let mut story = Story::new_with_seed(STORY, 1).unwrap();
+        let first = Cell::new(true);
+        story.set_time_source(move || {
+            if first.replace(false) {
+                Duration::from_millis(2)
+            } else {
+                Duration::from_millis(1)
+            }
+        });
+
+        let error = story.continue_async(1.0).unwrap_err();
+        assert!(matches!(
+            error,
+            crate::story_error::StoryError::InvalidStoryState(_)
+        ));
     }
 
     #[cfg(feature = "stream-json-parser")]
@@ -305,11 +471,13 @@ mod tests {
             "root": ["done", null],
             "inkVersion": 21
         }"#;
-        let mut story = Story::new_from_reader(OneByteReader(json)).unwrap();
+        let mut story = Story::new_from_reader_with_seed(OneByteReader(json), 1).unwrap();
 
-        let mut state = Vec::new();
+        let mut state = OneByteWriter(Vec::new());
         story.save_state_to_writer(&mut state).unwrap();
-        story.load_state_from_reader(OneByteReader(&state)).unwrap();
+        story
+            .load_state_from_reader(OneByteReader(&state.0))
+            .unwrap();
     }
 
     #[cfg(feature = "stream-json-parser")]
@@ -320,7 +488,10 @@ mod tests {
             r#"{"inkVersion":21.5,"root":["done",null],"listDefs":{}}"#,
             r#"{"inkVersion":21,"root":["",null],"listDefs":{}}"#,
         ] {
-            assert!(Story::new(json).is_err(), "input should fail: {json}");
+            assert!(
+                Story::new_with_seed(json, 1).is_err(),
+                "input should fail: {json}"
+            );
         }
     }
 }
