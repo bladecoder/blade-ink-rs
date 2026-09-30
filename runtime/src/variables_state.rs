@@ -236,6 +236,19 @@ impl VariablesState {
         None
     }
 
+    /// Returns the names of all declared global Ink variables in stable order.
+    pub fn get_global_variables(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .default_global_variables
+            .keys()
+            .chain(self.global_variables.keys())
+            .cloned()
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
+
     // Make copy of the variable pointer so we're not using the value direct
     // from
     // the runtime. Temporary must be local to the current scope.

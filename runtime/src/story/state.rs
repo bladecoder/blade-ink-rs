@@ -71,6 +71,11 @@ impl Story {
         self.get_state().variables_state.get(variable_name)
     }
 
+    /// Returns the names of all declared global Ink variables in stable order.
+    pub fn get_global_variables(&self) -> Vec<String> {
+        self.get_state().variables_state.get_global_variables()
+    }
+
     pub(crate) fn restore_state_snapshot(&mut self) {
         // Patched state had temporarily hijacked our
         // VariablesState and set its own callstack on it,
