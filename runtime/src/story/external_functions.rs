@@ -5,7 +5,7 @@ use crate::compat::{collections::HashSet, error::Error, fmt, rc::Rc};
 
 use crate::{
     container::Container, divert::Divert, object::RTObject, pointer::Pointer,
-    push_pop::PushPopType, story::Story, story_error::StoryError, value::Value,
+    push_pop::PushPopType, story::LegacyStory, story_error::StoryError, value::Value,
     value_type::ValueType, void::Void,
 };
 
@@ -51,8 +51,8 @@ pub(crate) struct ExternalFunctionDef {
 
 /// # External Functions
 /// Methods dealing with external function call handlers that will be called
-/// while [`Story`] is processing.
-impl Story {
+/// while [`LegacyStory`] is processing.
+impl LegacyStory {
     /// Enables fallback Ink functions for unbound `EXTERNAL` declarations.
     ///
     /// When enabled, an unbound external can divert to an Ink function with the

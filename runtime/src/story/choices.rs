@@ -3,12 +3,12 @@ use crate::prelude::*;
 
 use crate::compat::rc::Rc;
 use crate::{
-    choice::Choice, choice_point::ChoicePoint, object::Object, path::Path, story::Story,
+    choice::Choice, choice_point::ChoicePoint, object::Object, path::Path, story::LegacyStory,
     story_error::StoryError, tag::Tag, value::Value, value_type::StringValue,
 };
 /// # Choices
 /// Methods to get and select choices.
-impl Story {
+impl LegacyStory {
     /// Chooses the [`Choice`](crate::choice::Choice) from the
     /// `currentChoices` list with the given index. Internally, this
     /// sets the current content path to what the

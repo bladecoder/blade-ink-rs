@@ -2,13 +2,13 @@
 use crate::prelude::*;
 
 use crate::{
-    path::Path, story::Story, story_error::StoryError, story_state::StoryState,
+    path::Path, story::LegacyStory, story_error::StoryError, story_state::StoryState,
     value_type::ValueType,
 };
 
 /// # State
 /// Methods to read and write story state.
-impl Story {
+impl LegacyStory {
     #[inline]
     pub(crate) fn get_state(&self) -> &StoryState {
         &self.state
@@ -138,7 +138,7 @@ impl Story {
         self.get_state_mut().load_json_from_reader(reader)
     }
 
-    /// Reset the Story back to its initial state as it was when it was first constructed.
+    /// Reset the LegacyStory back to its initial state as it was when it was first constructed.
     pub fn reset_state(&mut self) -> Result<(), StoryError> {
         self.if_async_we_cant("ResetState")?;
 

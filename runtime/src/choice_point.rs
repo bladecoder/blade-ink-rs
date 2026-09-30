@@ -21,6 +21,10 @@ pub struct ChoicePoint {
 }
 
 impl ChoicePoint {
+    pub(crate) fn raw_path(&self) -> Path {
+        self.path_on_choice.borrow().clone()
+    }
+
     pub fn new(flags: i32, path_string_on_choice: &str) -> Self {
         Self {
             obj: Object::new(),

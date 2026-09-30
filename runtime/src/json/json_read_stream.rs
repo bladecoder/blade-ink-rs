@@ -157,7 +157,7 @@ enum ArrayElement {
 type RuntimeObjectList = Vec<Rc<dyn RTObject>>;
 type RuntimeObjectListResult = Result<(RuntimeObjectList, Option<ArrayElement>), StoryError>;
 
-pub(super) fn read_runtime_object<R: Read>(
+pub(crate) fn read_runtime_object<R: Read>(
     tok: &mut JsonTokenizer<R>,
 ) -> Result<Rc<dyn RTObject>, StoryError> {
     let value = tok.read_value()?;
@@ -172,7 +172,7 @@ pub(super) fn read_runtime_object<R: Read>(
     }
 }
 
-pub(super) fn read_runtime_object_list<R: Read>(
+pub(crate) fn read_runtime_object_list<R: Read>(
     tok: &mut JsonTokenizer<R>,
 ) -> Result<Vec<Rc<dyn RTObject>>, StoryError> {
     tok.expect('[')?;

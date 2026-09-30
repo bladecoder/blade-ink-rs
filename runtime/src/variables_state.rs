@@ -12,6 +12,9 @@ use serde_json::Map;
 
 use crate::{
     callstack::CallStack,
+    flat_callstack::FlatCallStack,
+    flat_story::FlatStoryData,
+    ink_list::InkList,
     list_definitions_origin::ListDefinitionsOrigin,
     state_patch::StatePatch,
     story_error::StoryError,
@@ -19,6 +22,78 @@ use crate::{
     value_type::{ValueType, VariablePointerValue},
     variable_assigment::VariableAssignment,
 };
+
+#[derive(Clone)]
+pub(crate) enum VariableCallStack {
+    Legacy(Rc<RefCell<CallStack>>),
+    #[allow(dead_code)] // Connected when StoryState switches to the flat call stack.
+    Flat(Rc<RefCell<FlatCallStack>>),
+}
+
+#[derive(Clone)]
+enum ListOrigins {
+    Legacy(Rc<ListDefinitionsOrigin>),
+    Flat {
+        data: Rc<FlatStoryData>,
+        values: RefCell<HashMap<String, Rc<Value>>>,
+    },
+}
+
+impl ListOrigins {
+    fn single_item(&self, name: &str) -> Option<Rc<Value>> {
+        match self {
+            Self::Legacy(definitions) => definitions.find_single_item_list_with_name(name).cloned(),
+            Self::Flat { data, values } => {
+                if let Some(value) = values.borrow().get(name) {
+                    return Some(value.clone());
+                }
+                let item = data.list_item(name)?;
+                let value = Rc::new(Value::new(InkList::from_single_element(item)));
+                values.borrow_mut().insert(name.to_owned(), value.clone());
+                Some(value)
+            }
+        }
+    }
+}
+
+impl VariableCallStack {
+    fn set_temporary_variable(
+        &self,
+        name: String,
+        value: Rc<Value>,
+        declare_new: bool,
+        context_index: i32,
+    ) -> Result<(), StoryError> {
+        match self {
+            Self::Legacy(stack) => {
+                stack
+                    .borrow_mut()
+                    .set_temporary_variable(name, value, declare_new, context_index)
+            }
+            Self::Flat(stack) => {
+                stack
+                    .borrow_mut()
+                    .set_temporary_variable(name, value, declare_new, context_index)
+            }
+        }
+    }
+
+    fn current_element_index(&self) -> i32 {
+        match self {
+            Self::Legacy(stack) => stack.borrow().get_current_element_index(),
+            Self::Flat(stack) => stack.borrow().current_element_index(),
+        }
+    }
+
+    fn temporary_variable(&self, name: &str, context_index: i32) -> Option<Rc<Value>> {
+        match self {
+            Self::Legacy(stack) => stack
+                .borrow()
+                .get_temporary_variable_with_name(name, context_index),
+            Self::Flat(stack) => stack.borrow().temporary_variable(name, context_index),
+        }
+    }
+}
 
 #[cfg(feature = "stream-json-parser")]
 use crate::compat::io::Write;
@@ -32,10 +107,10 @@ pub(crate) struct VariablesState {
     pub global_variables: HashMap<String, Rc<Value>>,
     pub default_global_variables: HashMap<String, Rc<Value>>,
     pub batch_observing_variable_changes: bool,
-    pub callstack: Rc<RefCell<CallStack>>,
+    pub callstack: VariableCallStack,
     pub changed_variables_for_batch_obs: Option<HashSet<String>>,
     pub patch: Option<StatePatch>,
-    list_defs_origin: Rc<ListDefinitionsOrigin>,
+    list_defs_origin: ListOrigins,
 }
 
 impl VariablesState {
@@ -47,10 +122,29 @@ impl VariablesState {
             global_variables: HashMap::new(),
             default_global_variables: HashMap::new(),
             batch_observing_variable_changes: false,
-            callstack,
+            callstack: VariableCallStack::Legacy(callstack),
             changed_variables_for_batch_obs: None,
             patch: None,
-            list_defs_origin,
+            list_defs_origin: ListOrigins::Legacy(list_defs_origin),
+        }
+    }
+
+    #[allow(dead_code)] // Activated when StoryState owns the flat flow.
+    pub(crate) fn new_flat(
+        callstack: Rc<RefCell<FlatCallStack>>,
+        data: Rc<FlatStoryData>,
+    ) -> VariablesState {
+        VariablesState {
+            global_variables: HashMap::new(),
+            default_global_variables: HashMap::new(),
+            batch_observing_variable_changes: false,
+            callstack: VariableCallStack::Flat(callstack),
+            changed_variables_for_batch_obs: None,
+            patch: None,
+            list_defs_origin: ListOrigins::Flat {
+                data,
+                values: RefCell::new(HashMap::new()),
+            },
         }
     }
 
@@ -154,7 +248,7 @@ impl VariablesState {
         if set_global {
             self.set_global(&name, value);
         } else {
-            self.callstack.borrow_mut().set_temporary_variable(
+            self.callstack.set_temporary_variable(
                 name,
                 value,
                 var_ass.is_new_declaration,
@@ -246,7 +340,7 @@ impl VariablesState {
             return 0;
         }
 
-        return self.callstack.borrow().get_current_element_index();
+        self.callstack.current_element_index()
     }
 
     fn get_raw_variable_with_name(&self, name: &str, context_index: i32) -> Option<Rc<Value>> {
@@ -273,18 +367,14 @@ impl VariablesState {
                 return Some(default_global.clone());
             }
 
-            if let Some(list_item_value) =
-                self.list_defs_origin.find_single_item_list_with_name(name)
-            {
-                return Some(list_item_value.clone());
+            if let Some(list_item_value) = self.list_defs_origin.single_item(name) {
+                return Some(list_item_value);
             }
         }
 
         // Temporary
 
-        self.callstack
-            .borrow()
-            .get_temporary_variable_with_name(name, context_index)
+        self.callstack.temporary_variable(name, context_index)
     }
 
     // Returns true if global var has changed and we need to notify observers
@@ -342,7 +432,12 @@ impl VariablesState {
     }
 
     pub fn set_callstack(&mut self, callstack: Rc<RefCell<CallStack>>) {
-        self.callstack = callstack;
+        self.callstack = VariableCallStack::Legacy(callstack);
+    }
+
+    #[allow(dead_code)] // Connected when StoryState switches to the flat call stack.
+    pub(crate) fn set_flat_callstack(&mut self, callstack: Rc<RefCell<FlatCallStack>>) {
+        self.callstack = VariableCallStack::Flat(callstack);
     }
 
     #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
@@ -456,5 +551,32 @@ impl VariablesState {
                 loaded.get(name).cloned().unwrap_or_else(|| default.clone()),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod flat_tests {
+    use super::*;
+
+    #[test]
+    fn flat_list_definitions_materialize_values_only_when_referenced() {
+        let json =
+            r#"{"inkVersion":21,"root":["done",null],"listDefs":{"Color":{"Red":1,"Blue":2}}}"#;
+        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
+        let data = Rc::new(data);
+        let root = data.container_id(data.root()).unwrap();
+        let stack = Rc::new(RefCell::new(FlatCallStack::new(root)));
+        let vars = VariablesState::new_flat(stack, data);
+        let ListOrigins::Flat { values, .. } = &vars.list_defs_origin else {
+            panic!("expected flat list definitions")
+        };
+        assert!(values.borrow().is_empty());
+        let qualified = vars.get_variable_with_name("Color.Red", 0).unwrap();
+        assert_eq!(values.borrow().len(), 1);
+        let unqualified = vars.get_variable_with_name("Red", 0).unwrap();
+        assert_eq!(values.borrow().len(), 2);
+        assert!(qualified.value == unqualified.value);
+        assert!(vars.get_variable_with_name("Missing", 0).is_none());
+        assert_eq!(values.borrow().len(), 2);
     }
 }

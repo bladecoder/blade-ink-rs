@@ -22,7 +22,7 @@ use crate::json::{json_read, json_write};
 #[cfg(feature = "stream-json-parser")]
 use crate::json::{json_write_stream, json_writer::JsonWriter};
 #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
-use crate::{path::Path, story::Story};
+use crate::{path::Path, story::LegacyStory};
 
 #[derive(Clone)]
 pub struct Element {
@@ -172,7 +172,8 @@ impl Thread {
             j_obj.get("previousContentObject").and_then(|p| p.as_str())
         {
             let prev_path = Path::new_with_components_string(Some(prev_content_obj_path));
-            thread.previous_pointer = Story::pointer_at_path(main_content_container, &prev_path)?;
+            thread.previous_pointer =
+                LegacyStory::pointer_at_path(main_content_container, &prev_path)?;
         }
 
         Ok(thread)

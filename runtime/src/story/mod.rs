@@ -1,5 +1,7 @@
-//! [`Story`] is the entry point to load and run an Ink story.
+//! [`Story`] is the flat, ID-based entry point to load and run an Ink story.
+//! [`LegacyStory`] remains available for compatibility checks during migration.
 use crate::compat::{cell::RefCell, collections::HashMap, rc::Rc};
+pub use crate::flat_story_player::FlatStory as Story;
 #[allow(unused_imports)]
 use crate::prelude::*;
 use crate::{
@@ -41,9 +43,9 @@ pub(crate) enum OutputStateChange {
     NewlineRemoved,
 }
 
-/// A `Story` is the core struct representing a complete Ink narrative,
+/// A `LegacyStory` is the core struct representing a complete Ink narrative,
 /// managing evaluation and state.
-pub struct Story {
+pub struct LegacyStory {
     main_content_container: Rc<Container>,
     state: StoryState,
     temporary_evaluation_container: Option<Rc<Container>>,
@@ -79,22 +81,22 @@ mod misc {
         ink_list_item::InkListItem,
         object::{Object, RTObject},
         path::Path,
-        story::{INK_VERSION_CURRENT, Story},
+        story::{INK_VERSION_CURRENT, LegacyStory},
         story_error::StoryError,
         story_state::StoryState,
         value::Value,
     };
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
-    impl Story {
-        /// Construct a `Story` out of a JSON string that was compiled with
+    impl LegacyStory {
+        /// Construct a `LegacyStory` out of a JSON string that was compiled with
         /// `inklecate`.
         #[cfg(feature = "std")]
         pub fn new(json_string: &str) -> Result<Self, StoryError> {
             Self::new_from_reader(json_string.as_bytes())
         }
 
-        /// Construct a `Story` from a JSON reader without requiring an
+        /// Construct a `LegacyStory` from a JSON reader without requiring an
         /// additional in-memory copy of the source document.
         #[cfg(feature = "std")]
         pub fn new_from_reader(reader: impl Read) -> Result<Self, StoryError> {
@@ -102,12 +104,12 @@ mod misc {
             Self::new_from_reader_internal(reader, seed, None)
         }
 
-        /// Construct a `Story` from JSON with a reproducible random seed.
+        /// Construct a `LegacyStory` from JSON with a reproducible random seed.
         pub fn new_with_seed(json_string: &str, seed: i32) -> Result<Self, StoryError> {
             Self::new_from_reader_with_seed(json_string.as_bytes(), seed)
         }
 
-        /// Construct a `Story` from a JSON reader with a reproducible random seed.
+        /// Construct a `LegacyStory` from a JSON reader with a reproducible random seed.
         pub fn new_from_reader_with_seed(reader: impl Read, seed: i32) -> Result<Self, StoryError> {
             Self::new_from_reader_internal(reader, seed, Some(seed))
         }
@@ -125,7 +127,7 @@ mod misc {
             let (version, main_content_container, list_definitions) =
                 json_read::load_from_reader(reader)?;
 
-            let mut story = Story {
+            let mut story = LegacyStory {
                 main_content_container: main_content_container.clone(),
                 state: StoryState::new(
                     main_content_container.clone(),
@@ -314,7 +316,7 @@ pub mod variable_observer;
 
 #[cfg(test)]
 mod tests {
-    use super::Story;
+    use super::LegacyStory;
     #[allow(unused_imports)]
     use crate::prelude::*;
     use core::{cell::Cell, time::Duration};
@@ -362,7 +364,7 @@ mod tests {
 
     #[test]
     fn constructs_lists_with_story_definitions() {
-        let story = Story::new_with_seed(STORY_WITH_LIST, 1).expect("story should load");
+        let story = LegacyStory::new_with_seed(STORY_WITH_LIST, 1).expect("story should load");
 
         let empty = story
             .list_from_origin("items")
@@ -379,7 +381,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_list_items() {
-        let story = Story::new_with_seed(STORY_WITH_LIST, 1).expect("story should load");
+        let story = LegacyStory::new_with_seed(STORY_WITH_LIST, 1).expect("story should load");
         assert!(story.list_from_origin("unknown").is_err());
         assert!(story.list_from_item("items.unknown").is_err());
         assert!(story.list_from_item("two").is_err());
@@ -388,8 +390,8 @@ mod tests {
     #[test]
     fn fixed_seed_is_reproducible_across_reset() {
         const RANDOM_STORY: &str = r##"{"inkVersion":21,"root":[["ev",1,100,"rnd","out","/ev","^,","ev",1,100,"rnd","out","/ev","^,","ev",1,100,"rnd","out","/ev",["done",{"#f":5,"#n":"g-0"}],null],"done",{"#f":1}],"listDefs":{}}"##;
-        let mut first = Story::new_with_seed(RANDOM_STORY, 42).unwrap();
-        let mut second = Story::new_with_seed(RANDOM_STORY, 42).unwrap();
+        let mut first = LegacyStory::new_with_seed(RANDOM_STORY, 42).unwrap();
+        let mut second = LegacyStory::new_with_seed(RANDOM_STORY, 42).unwrap();
         let first_run = first.continue_maximally().unwrap();
         assert_eq!(first_run, second.continue_maximally().unwrap());
 
@@ -399,7 +401,7 @@ mod tests {
 
     #[test]
     fn positive_async_limit_requires_a_clock_before_mutating_state() {
-        let mut story = Story::new_with_seed(STORY_WITH_LIST, 1).unwrap();
+        let mut story = LegacyStory::new_with_seed(STORY_WITH_LIST, 1).unwrap();
         story.time_source = None;
 
         let error = story.continue_async(1.0).unwrap_err();
@@ -413,7 +415,7 @@ mod tests {
 
     #[test]
     fn zero_async_limit_does_not_require_a_clock() {
-        let mut story = Story::new_with_seed(STORY_WITH_LIST, 1).unwrap();
+        let mut story = LegacyStory::new_with_seed(STORY_WITH_LIST, 1).unwrap();
         story.time_source = None;
         story.continue_async(0.0).unwrap();
     }
@@ -422,7 +424,7 @@ mod tests {
     fn async_continuation_can_pause_and_resume_with_a_simulated_clock() {
         const STORY: &str =
             r#"{"inkVersion":21,"root":["^one","^two","^three","done",null],"listDefs":{}}"#;
-        let mut story = Story::new_with_seed(STORY, 1).unwrap();
+        let mut story = LegacyStory::new_with_seed(STORY, 1).unwrap();
         let tick = Rc::new(Cell::new(0_u64));
         let clock = tick.clone();
         story.set_time_source(move || {
@@ -445,7 +447,7 @@ mod tests {
     #[test]
     fn backwards_clock_is_rejected() {
         const STORY: &str = r#"{"inkVersion":21,"root":["^text","done",null],"listDefs":{}}"#;
-        let mut story = Story::new_with_seed(STORY, 1).unwrap();
+        let mut story = LegacyStory::new_with_seed(STORY, 1).unwrap();
         let first = Cell::new(true);
         story.set_time_source(move || {
             if first.replace(false) {
@@ -471,7 +473,7 @@ mod tests {
             "root": ["done", null],
             "inkVersion": 21
         }"#;
-        let mut story = Story::new_from_reader_with_seed(OneByteReader(json), 1).unwrap();
+        let mut story = LegacyStory::new_from_reader_with_seed(OneByteReader(json), 1).unwrap();
 
         let mut state = OneByteWriter(Vec::new());
         story.save_state_to_writer(&mut state).unwrap();
@@ -489,7 +491,7 @@ mod tests {
             r#"{"inkVersion":21,"root":["",null],"listDefs":{}}"#,
         ] {
             assert!(
-                Story::new_with_seed(json, 1).is_err(),
+                LegacyStory::new_with_seed(json, 1).is_err(),
                 "input should fail: {json}"
             );
         }

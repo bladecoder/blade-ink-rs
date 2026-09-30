@@ -13,6 +13,10 @@ pub struct ListDefinition {
 }
 
 impl ListDefinition {
+    pub(crate) fn item_values(&self) -> &HashMap<String, i32> {
+        &self.item_name_to_values
+    }
+
     pub fn new(name: String, items: HashMap<String, i32>) -> Self {
         Self {
             name,

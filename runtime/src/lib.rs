@@ -147,6 +147,14 @@ mod choice_point;
 mod container;
 mod control_command;
 mod divert;
+#[allow(dead_code)]
+mod flat_callstack;
+// Built ahead of the interpreter migration; its records own no legacy nodes.
+#[allow(dead_code)]
+mod flat_runtime;
+#[allow(dead_code)]
+mod flat_story;
+pub mod flat_story_player;
 mod flow;
 mod glue;
 pub mod ink_list;

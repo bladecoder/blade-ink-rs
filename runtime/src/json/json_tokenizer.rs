@@ -26,13 +26,13 @@ impl<R: Read> Read for BufReader<R> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) enum Number {
+pub(crate) enum Number {
     Int(i32),
     Float(f32),
 }
 
 impl Number {
-    pub(super) fn as_integer(self) -> Option<i32> {
+    pub(crate) fn as_integer(self) -> Option<i32> {
         match self {
             Self::Int(value) => Some(value),
             Self::Float(_) => None,
@@ -77,7 +77,7 @@ impl JsonValue {
     }
 }
 
-pub(super) struct JsonTokenizer<R: Read> {
+pub(crate) struct JsonTokenizer<R: Read> {
     reader: BufReader<R>,
     lookahead: Option<u8>,
     offset: usize,
@@ -86,7 +86,7 @@ pub(super) struct JsonTokenizer<R: Read> {
 }
 
 impl<R: Read> JsonTokenizer<R> {
-    pub(super) fn new(reader: R) -> Self {
+    pub(crate) fn new(reader: R) -> Self {
         Self {
             reader: BufReader::new(reader),
             lookahead: None,
@@ -154,14 +154,14 @@ impl<R: Read> JsonTokenizer<R> {
         Ok(())
     }
 
-    pub(super) fn peek(&mut self) -> io::Result<char> {
+    pub(crate) fn peek(&mut self) -> io::Result<char> {
         self.skip_whitespace()?;
         self.peek_raw()?
             .map(char::from)
             .ok_or_else(|| self.invalid("unexpected end of input"))
     }
 
-    pub(super) fn expect(&mut self, expected: char) -> io::Result<()> {
+    pub(crate) fn expect(&mut self, expected: char) -> io::Result<()> {
         self.skip_whitespace()?;
         let Some(found) = self.read_raw()? else {
             return Err(self.invalid(format!("expected '{expected}', found end of input")));
@@ -194,7 +194,7 @@ impl<R: Read> JsonTokenizer<R> {
         Ok(())
     }
 
-    pub(super) fn read_boolean(&mut self) -> io::Result<bool> {
+    pub(crate) fn read_boolean(&mut self) -> io::Result<bool> {
         self.skip_whitespace()?;
         match self.peek_raw()? {
             Some(b't') => {
@@ -247,7 +247,7 @@ impl<R: Read> JsonTokenizer<R> {
         char::from_u32(scalar).ok_or_else(|| self.invalid("invalid Unicode scalar value"))
     }
 
-    pub(super) fn read_string(&mut self) -> io::Result<String> {
+    pub(crate) fn read_string(&mut self) -> io::Result<String> {
         self.skip_whitespace()?;
         self.expect('"')?;
         let mut bytes = Vec::new();
@@ -283,7 +283,7 @@ impl<R: Read> JsonTokenizer<R> {
         String::from_utf8(bytes).map_err(|_| self.invalid("invalid UTF-8 in string"))
     }
 
-    pub(super) fn read_number(&mut self) -> io::Result<Number> {
+    pub(crate) fn read_number(&mut self) -> io::Result<Number> {
         self.skip_whitespace()?;
         let mut bytes = Vec::new();
         if self.peek_raw()? == Some(b'-') {
@@ -351,7 +351,7 @@ impl<R: Read> JsonTokenizer<R> {
         }
     }
 
-    pub(super) fn read_obj_key(&mut self) -> io::Result<String> {
+    pub(crate) fn read_obj_key(&mut self) -> io::Result<String> {
         let key = self.read_string()?;
         self.expect(':')?;
         Ok(key)
@@ -392,7 +392,7 @@ impl<R: Read> JsonTokenizer<R> {
         }
     }
 
-    pub(super) fn expect_eof(&mut self) -> io::Result<()> {
+    pub(crate) fn expect_eof(&mut self) -> io::Result<()> {
         self.skip_whitespace()?;
         if self.peek_raw()?.is_none() {
             Ok(())
@@ -401,7 +401,7 @@ impl<R: Read> JsonTokenizer<R> {
         }
     }
 
-    pub(super) fn skip_value(&mut self) -> io::Result<()> {
+    pub(crate) fn skip_value(&mut self) -> io::Result<()> {
         match self.read_value()? {
             JsonValue::Array => {
                 if self.peek()? != ']' {

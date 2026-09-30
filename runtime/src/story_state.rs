@@ -17,7 +17,7 @@ use crate::{
     pointer::{self, Pointer},
     push_pop::PushPopType,
     state_patch::StatePatch,
-    story::{INK_VERSION_CURRENT, Story},
+    story::{INK_VERSION_CURRENT, LegacyStory},
     story_error::StoryError,
     tag::Tag,
     value::Value,
@@ -862,7 +862,8 @@ impl StoryState {
         // state, so restore it with our own callstack.
         // _patch will be null normally, but if you're in the
         // middle of a save, it may contain a _patch for save purpsoes.
-        self.variables_state.callstack = self.get_callstack().clone();
+        self.variables_state
+            .set_callstack(self.get_callstack().clone());
         self.variables_state.patch = self.patch.clone(); // usually null
     }
 
@@ -933,7 +934,7 @@ impl StoryState {
         // Changing direction, assume we need to clear current set of choices
         self.current_flow.current_choices.clear();
 
-        let mut new_pointer = Story::pointer_at_path(&self.main_content_container, path)?;
+        let mut new_pointer = LegacyStory::pointer_at_path(&self.main_content_container, path)?;
         if !new_pointer.is_null() && new_pointer.index == -1 {
             new_pointer.index = 0;
         }
@@ -1481,7 +1482,7 @@ impl StoryState {
         if let Some(current_divert_target_path) = j_object.get("currentDivertTarget") {
             let divert_path = Path::new_with_components_string(current_divert_target_path.as_str());
             self.diverted_pointer =
-                Story::pointer_at_path(&self.main_content_container, &divert_path)?.clone();
+                LegacyStory::pointer_at_path(&self.main_content_container, &divert_path)?.clone();
         }
 
         if let Some(visit_counts_obj) = j_object.get("visitCounts") {

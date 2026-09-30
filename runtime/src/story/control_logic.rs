@@ -16,7 +16,7 @@ use crate::{
     path::Path,
     pointer,
     push_pop::PushPopType,
-    story::Story,
+    story::LegacyStory,
     story_error::StoryError,
     story_state::StoryState,
     tag::Tag,
@@ -30,7 +30,7 @@ use rand::{RngExt, SeedableRng, rngs::StdRng};
 
 /// # Control and Logic
 /// Methods for performing logic and flow control.
-impl Story {
+impl LegacyStory {
     pub(crate) fn perform_logic_and_flow_control(
         &mut self,
         content_obj: &Option<Rc<dyn RTObject>>,
@@ -416,7 +416,7 @@ impl Story {
                         ));
                     }
 
-                    // Story seed affects both RANDOM and shuffle behaviour
+                    // LegacyStory seed affects both RANDOM and shuffle behaviour
                     self.get_state_mut().story_seed = seed.unwrap();
                     self.get_state_mut().previous_random = 0; // SEED_RANDOM returns nothing.
                     self.get_state_mut()

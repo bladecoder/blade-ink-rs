@@ -10,16 +10,16 @@ use crate::{
     object::RTObject,
     pointer::{self, Pointer},
     push_pop::PushPopType,
-    story::{OutputStateChange, Story, errors::ErrorType},
+    story::{LegacyStory, OutputStateChange, errors::ErrorType},
     story_error::StoryError,
     value::Value,
     value_type::VariablePointerValue,
     void::Void,
 };
 
-/// # Story Progress
+/// # LegacyStory Progress
 /// Methods to move the story forwards.
-impl Story {
+impl LegacyStory {
     fn current_time(&mut self) -> Result<core::time::Duration, StoryError> {
         let now = self.time_source.as_ref().unwrap().now();
         if self.last_time.is_some_and(|last| now < last) {
@@ -32,7 +32,7 @@ impl Story {
     }
 
     /// `true` if the story is not waiting for user input from
-    /// [`choose_choice_index`](Story::choose_choice_index).
+    /// [`choose_choice_index`](LegacyStory::choose_choice_index).
     pub fn can_continue(&self) -> bool {
         self.get_state().can_continue()
     }
@@ -73,7 +73,7 @@ impl Story {
         self.continue_internal(millisecs_limit_async)
     }
 
-    /// Whether a time-limited [`continue_async`](Story::continue_async) call
+    /// Whether a time-limited [`continue_async`](LegacyStory::continue_async) call
     /// is still evaluating. Call `continue_async` again until this returns
     /// `false`, then retrieve the completed text and tags.
     pub fn is_async_continue_active(&self) -> bool {
@@ -337,7 +337,7 @@ impl Story {
             {
                 // Has proper text or a tag been added? Then we know that the newline
                 // that was previously added is definitely the end of the line.
-                let change = Story::calculate_newline_output_state_change(
+                let change = LegacyStory::calculate_newline_output_state_change(
                     &state_snapshot_at_last_new_line.get_current_text(),
                     &self.state.get_current_text(),
                     state_snapshot_at_last_new_line.get_current_tags().len() as i32,
@@ -729,12 +729,12 @@ impl Story {
     }
 
     /// The vector of [`Choice`](crate::choice::Choice) objects available at
-    /// the current point in the `Story`. This vector will be
-    /// populated as the `Story` is stepped through with the
-    /// [`cont`](Story::cont) method.
-    /// Once [`can_continue`](Story::can_continue) becomes `false`, this
+    /// the current point in the `LegacyStory`. This vector will be
+    /// populated as the `LegacyStory` is stepped through with the
+    /// [`cont`](LegacyStory::cont) method.
+    /// Once [`can_continue`](LegacyStory::can_continue) becomes `false`, this
     /// vector will be populated, and is usually (but not always) on the
-    /// final [`cont`](Story::cont) step.
+    /// final [`cont`](LegacyStory::cont) step.
     pub fn get_current_choices(&self) -> Vec<Rc<Choice>> {
         // Don't include invisible choices for external usage.
         let mut choices = Vec::new();
@@ -752,8 +752,8 @@ impl Story {
     }
 
     /// The string of output text available at the current point in
-    /// the `Story`. This string will be built as the `Story` is stepped
-    /// through with the [`cont`](Story::cont) method.
+    /// the `LegacyStory`. This string will be built as the `LegacyStory` is stepped
+    /// through with the [`cont`](LegacyStory::cont) method.
     pub fn get_current_text(&mut self) -> Result<String, StoryError> {
         self.if_async_we_cant("call currentText since it's a work in progress")?;
         Ok(self.get_state_mut().get_current_text())

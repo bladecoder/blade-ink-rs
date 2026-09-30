@@ -5,7 +5,7 @@ use crate::{
     container::Container,
     control_command::{CommandType, ControlCommand},
     path::Path,
-    story::Story,
+    story::LegacyStory,
     story_error::StoryError,
     value::Value,
     value_type::StringValue,
@@ -13,7 +13,7 @@ use crate::{
 
 /// # Tags
 /// Methods to read tags.
-impl Story {
+impl LegacyStory {
     /// Get any global tags associated with the story. These are defined as
     /// hash tags defined at the very top of the story.
     pub fn get_global_tags(&self) -> Result<Vec<String>, StoryError> {
@@ -78,7 +78,7 @@ impl Story {
     }
 
     /// Gets a list of tags defined with '#' in the ink source that were
-    /// seen during the most recent [`cont`](Story::cont) call.
+    /// seen during the most recent [`cont`](LegacyStory::cont) call.
     pub fn get_current_tags(&mut self) -> Result<Vec<String>, StoryError> {
         self.if_async_we_cant("call currentTags since it's a work in progress")?;
         Ok(self.get_state_mut().get_current_tags())

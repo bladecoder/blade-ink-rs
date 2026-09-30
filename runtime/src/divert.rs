@@ -28,6 +28,9 @@ pub struct Divert {
 }
 
 impl Divert {
+    pub(crate) fn raw_target_path(&self) -> Option<Path> {
+        self.target_path.borrow().clone()
+    }
     pub fn new(
         pushes_to_stack: bool,
         stack_push_type: PushPopType,

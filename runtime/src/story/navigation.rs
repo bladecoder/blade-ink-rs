@@ -9,14 +9,14 @@ use crate::{
     pointer::{self, Pointer},
     push_pop::PushPopType,
     search_result::SearchResult,
-    story::Story,
+    story::LegacyStory,
     story_error::StoryError,
     value_type::ValueType,
 };
 
 /// # Navigation
 /// Methods to access specific sections of the story.
-impl Story {
+impl LegacyStory {
     pub(crate) fn get_main_content_container(&self) -> Rc<Container> {
         match self.temporary_evaluation_container.as_ref() {
             Some(c) => c.clone(),
@@ -25,7 +25,7 @@ impl Story {
     }
 
     /// Change the current position of the story to the given path. From
-    /// here you can call [`cont()`](Story::cont) to evaluate the
+    /// here you can call [`cont()`](LegacyStory::cont) to evaluate the
     /// next line.
     ///
     /// The path string is a dot-separated path as used internally by the
@@ -49,7 +49,7 @@ impl Story {
     /// any tunnels, threads or functions you were in at the time of
     /// calling will be discarded. This is different from the
     /// behaviour of
-    /// [`choose_choice_index`](Story::choose_choice_index), which
+    /// [`choose_choice_index`](LegacyStory::choose_choice_index), which
     /// will always keep the callstack, since the choices are known to come
     /// from a correct state, and their source thread is known.
     ///

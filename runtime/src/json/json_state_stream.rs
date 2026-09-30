@@ -12,7 +12,7 @@ use crate::{
     path::Path,
     pointer::{self, Pointer},
     push_pop::PushPopType,
-    story::Story,
+    story::LegacyStory,
     story_error::StoryError,
     story_state::{DEFAULT_FLOW_NAME, MIN_COMPATIBLE_LOAD_VERSION, StoryState},
     value::Value,
@@ -193,7 +193,7 @@ fn parse_thread<R: Read>(
                 "threadIndex" => thread_index = Some(read_usize(tokenizer, "threadIndex")?),
                 "previousContentObject" => {
                     let path = tokenizer.read_string()?;
-                    previous_pointer = Story::pointer_at_path(
+                    previous_pointer = LegacyStory::pointer_at_path(
                         root,
                         &Path::new_with_components_string(Some(&path)),
                     )?;
@@ -491,7 +491,7 @@ fn commit(state: &mut StoryState, mut parsed: ParsedState) -> Result<(), StoryEr
     };
 
     let diverted_pointer = if let Some(path) = parsed.diverted_path {
-        Story::pointer_at_path(
+        LegacyStory::pointer_at_path(
             &state.main_content_container,
             &Path::new_with_components_string(Some(&path)),
         )?

@@ -3,7 +3,7 @@ use crate::prelude::*;
 
 use crate::compat::{cell::RefCell, rc::Rc};
 
-use crate::story::Story;
+use crate::story::LegacyStory;
 
 /// Defines the method that will be called when an error occurs while executing
 /// the story.
@@ -22,7 +22,7 @@ pub enum ErrorType {
 
 /// # Errors
 /// Methods to check for errors.
-impl Story {
+impl LegacyStory {
     /// Assign the error handler for all runtime errors in ink -- i.e. problems
     /// with the source ink itself that are only discovered when playing
     /// the story.
@@ -60,17 +60,17 @@ impl Story {
     /// Whether the `currentErrors` list contains any errors.
     ///
     /// THIS METHOD MAY BE REMOVED IN FUTURE -- you should be setting an
-    /// error handler directly using Story.onError.
+    /// error handler directly using LegacyStory.onError.
     pub fn has_error(&self) -> bool {
         self.get_state().has_error()
     }
 
-    /// Any critical errors generated during evaluation of the `Story`.
+    /// Any critical errors generated during evaluation of the `LegacyStory`.
     pub fn get_current_errors(&self) -> &[String] {
         self.get_state().get_current_errors()
     }
 
-    /// Any warnings generated during evaluation of the `Story`.
+    /// Any warnings generated during evaluation of the `LegacyStory`.
     pub fn get_current_warnings(&self) -> &[String] {
         self.get_state().get_current_warnings()
     }

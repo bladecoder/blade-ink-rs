@@ -12,6 +12,10 @@ pub struct ListDefinitionsOrigin {
 }
 
 impl ListDefinitionsOrigin {
+    pub(crate) fn definitions(&self) -> impl Iterator<Item = &ListDefinition> {
+        self.lists.values()
+    }
+
     pub fn new(lists: &mut Vec<ListDefinition>) -> Self {
         let mut list_definitions_origin = ListDefinitionsOrigin {
             lists: HashMap::new(),

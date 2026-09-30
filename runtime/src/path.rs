@@ -218,7 +218,7 @@ impl PartialEq for Path {
     }
 }
 
-#[derive(Eq, Clone)]
+#[derive(Debug, Eq, Clone)]
 pub struct Component {
     pub index: Option<usize>,
     pub name: Option<String>,

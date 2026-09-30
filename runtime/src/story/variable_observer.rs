@@ -3,7 +3,7 @@ use crate::prelude::*;
 
 use crate::compat::{collections::HashSet, error::Error, fmt};
 
-use crate::{story::Story, story_error::StoryError, value_type::ValueType};
+use crate::{story::LegacyStory, story_error::StoryError, value_type::ValueType};
 
 /// An error returned by a client-provided variable observer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,7 +47,7 @@ pub(crate) struct VariableObserverDef {
     observer: Box<dyn VariableObserver>,
 }
 
-impl Story {
+impl LegacyStory {
     /// Observes one global variable and returns a handle that can unsubscribe it.
     pub fn observe_variable<F>(
         &mut self,
