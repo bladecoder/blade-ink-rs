@@ -46,7 +46,7 @@ impl NodeId {
 
 /// A node that has container metadata and ordered children.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(crate) struct ContainerId(NodeId);
+pub(crate) struct ContainerId(pub(crate) NodeId);
 
 impl ContainerId {
     pub(crate) fn node(self) -> NodeId {

@@ -32,6 +32,7 @@ std = ["dep:web-time", "dep:getrandom", "core3/std", "rand/thread_rng"]
 serde-json-parser = ["dep:serde_json"]
 stream-json-parser = []
 load-profile = ["std"]
+binary-image = []
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"], optional = true }

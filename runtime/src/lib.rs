@@ -157,6 +157,8 @@ mod flat_story;
 pub mod flat_story_player;
 mod flow;
 mod glue;
+#[cfg(all(feature = "binary-image", feature = "std"))]
+pub mod image;
 pub mod ink_list;
 pub mod ink_list_item;
 mod json;

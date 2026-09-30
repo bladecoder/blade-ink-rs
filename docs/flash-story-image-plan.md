@@ -49,6 +49,8 @@ Implementar el codificador de la representación inmutable y su formato versiona
 
 **Criterio de cierre:** la misma entrada produce bytes idénticos en ejecuciones repetidas; el generador rechaza entradas inválidas y los archivos resultantes incluyen todos los tipos de contenido cubiertos por el runtime.
 
+**Estado:** implementado en `binary-image`. El formato v1 está documentado en [flash-story-image-format.md](flash-story-image-format.md). `compile_json_to_image` codifica el arena después de normalizar el orden de IDs de contenido con nombre; `rinklecate --image` acepta `.ink` y `.ink.json`. Las pruebas cubren todas las variantes de nodo, determinismo, entradas inválidas y el CLI. Los 121 JSON del corpus de conformidad se codificaron con ambos lectores y produjeron imágenes idénticas. La lectura directa de la imagen queda para el Milestone 3.
+
 ### Milestone 3 — Vista binaria desde flash
 
 Implementar la validación y lectura por offsets desde `&'static [u8]`. Añadir los constructores de imagen y la configuración `binary-image` sin parser de historias JSON. Mantener el codec del estado JSON y evitar asignaciones persistentes por nodo al crear o ejecutar una historia desde la imagen.
