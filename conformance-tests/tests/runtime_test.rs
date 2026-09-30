@@ -440,6 +440,22 @@ fn set_and_get_variable_test() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn get_global_variables_test() -> Result<(), Box<dyn Error>> {
+    let json_string = Compiler::new()
+        .compile("VAR z = 3\nVAR a = true\nVAR middle = \"value\"\n")
+        .unwrap();
+    let mut story = Story::new(&json_string)?;
+
+    assert_eq!(vec!["a", "middle", "z"], story.get_global_variables());
+
+    story.set_variable("z", &ValueType::Int(10))?;
+
+    assert_eq!(vec!["a", "middle", "z"], story.get_global_variables());
+
+    Ok(())
+}
+
+#[test]
 fn set_non_existant_variable_test() -> Result<(), Box<dyn Error>> {
     let ink_source = common::get_file_string("inkfiles/runtime/set-get-variables.ink")?;
     let json_string = Compiler::new().compile(&ink_source).unwrap();
