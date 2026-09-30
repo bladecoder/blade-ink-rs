@@ -104,6 +104,21 @@ La diferencia de **construcción** se mide antes de ejecutar la historia y no pu
 
 Estas cifras sirven para comparar las implementaciones en el host. **No prueban que el firmware completo quepa en 2 MB de PSRAM ni en 4 MB de flash**: hay que medir en el ESP32-S3 con su asignador, el resto del firmware y la historia final. Tampoco miden el ahorro de tiempo de eliminar el parseo; ese ahorro llegará cuando la imagen binaria se genere durante la construcción y se lea directamente desde flash.
 
+### Perfil posterior de la carga JSON
+
+El ejemplo acepta `load-profile` para mostrar cuánto tarda cada fase del constructor plano. Se ejecuta con:
+
+```sh
+cargo run --release -p bladeink --example flat_story_cost --features load-profile
+cargo run --release -p bladeink --example flat_story_cost --no-default-features --features std,stream-json-parser,load-profile
+```
+
+El ejemplo alterna el orden de los dos intérpretes en doce parejas y calcula la mediana de las diez parejas posteriores a dos de calentamiento. Serde separa la lectura del JSON, la construcción del arena —incluida la liberación del JSON temporal—, el enlace de destinos y la inicialización del intérprete. En streaming, la lectura y la construcción ocurren a la vez y se miden juntas. La instrumentación está detrás de `load-profile`; los constructores normales usan un observador vacío.
+
+En varias ejecuciones de host x86_64 en modo release tras eliminar copias temporales de rutas, las medianas de construcción estuvieron alrededor de **3,4–3,5 ms para el árbol y 3,4–3,9 ms para el plano con Serde**, y **3,2 ms para el árbol y 3,6 ms para el plano con streaming**. La variación de Serde impide concluir que la optimización haya hecho al plano más rápido que el árbol. En las muestras Serde, leer el JSON costó alrededor de 1,6 ms, construir el arena y liberar el JSON entre 1,4 y 1,8 ms, enlazar destinos entre 0,25 y 0,33 ms e inicializar el intérprete alrededor de 0,04 ms. En streaming, lectura y arena ocuparon alrededor de 3,2–3,4 ms, el enlace alrededor de 0,25–0,33 ms y la inicialización alrededor de 0,03 ms. Son tiempos de esta máquina; no permiten atribuir una mejora precisa a la optimización de rutas ni extrapolar el resultado al ESP32-S3.
+
+En `no_std`, el tokenizer usa ahora un búfer fijo de **512 bytes**: reduce las llamadas al `Read` subyacente cuando este entrega bloques, aunque sigue procesando cada byte del JSON. Esto afecta también a la lectura de partidas guardadas por streaming. La medición anterior usa `std` y no mide el efecto del búfer en el dispositivo. Para un `&[u8]` embebido, el búfer añade una copia de bytes y no se presupone que acelere la carga; su ventaja principal es evitar lecturas de un byte desde un origen con E/S costosa.
+
 ## Dónde está cada parte
 
 | Archivo | Responsabilidad principal |

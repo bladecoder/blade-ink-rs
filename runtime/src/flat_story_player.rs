@@ -12,7 +12,7 @@ use crate::{
     compat::io::{Read, Write},
     compat::{cell::RefCell, rc::Rc},
     flat_runtime::FlatRuntime,
-    flat_story::FlatStoryData,
+    flat_story::{FlatStoryData, LoadObserver, LoadPhase, NoopLoadObserver},
     ink_list::InkList,
     story::variable_observer::{VariableObserver, VariableObserverHandle, VariableObserverResult},
     story::{
@@ -23,6 +23,12 @@ use crate::{
     story_error::StoryError,
     value_type::ValueType,
 };
+
+#[cfg(feature = "load-profile")]
+pub use crate::flat_story::FlatLoadProfile;
+
+#[cfg(feature = "load-profile")]
+use crate::flat_story::TimedLoadObserver;
 
 /// A lightweight view of an available Ink choice.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,7 +67,36 @@ impl FlatStory {
 
     /// Builds a story directly from a JSON reader with a reproducible seed.
     pub fn new_from_reader_with_seed(reader: impl Read, seed: i32) -> Result<Self, StoryError> {
-        let (version, data) = FlatStoryData::from_json_reader(reader)?;
+        Self::new_from_reader_with_seed_observed(reader, seed, &mut NoopLoadObserver)
+    }
+
+    /// Builds a story and reports each construction phase. Available for
+    /// diagnostic benchmarks when `load-profile` is enabled.
+    #[cfg(feature = "load-profile")]
+    pub fn new_with_seed_profiled(
+        json: &str,
+        seed: i32,
+    ) -> Result<(Self, FlatLoadProfile), StoryError> {
+        Self::new_from_reader_with_seed_profiled(json.as_bytes(), seed)
+    }
+
+    /// Profiles construction from an arbitrary JSON reader.
+    #[cfg(feature = "load-profile")]
+    pub fn new_from_reader_with_seed_profiled(
+        reader: impl Read,
+        seed: i32,
+    ) -> Result<(Self, FlatLoadProfile), StoryError> {
+        let mut observer = TimedLoadObserver::new();
+        let story = Self::new_from_reader_with_seed_observed(reader, seed, &mut observer)?;
+        Ok((story, observer.profile))
+    }
+
+    fn new_from_reader_with_seed_observed(
+        reader: impl Read,
+        seed: i32,
+        observer: &mut impl LoadObserver,
+    ) -> Result<Self, StoryError> {
+        let (version, data) = FlatStoryData::from_json_reader_observed(reader, observer)?;
         let mut story = Self {
             runtime: FlatRuntime::new_with_seed(data, seed)?,
             fixed_seed: Some(seed),
@@ -87,6 +122,7 @@ impl FlatStory {
                 format!("RUNTIME WARNING: ({path}): {message}")
             });
         }
+        observer.record(LoadPhase::RuntimeInitialized);
         Ok(story)
     }
 

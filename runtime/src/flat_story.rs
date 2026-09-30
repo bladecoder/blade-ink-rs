@@ -146,6 +146,30 @@ pub(crate) struct StaticPath {
 }
 
 impl StaticPath {
+    pub(crate) fn from_text(text: &str) -> Self {
+        if text.is_empty() {
+            return Self {
+                components: Vec::new(),
+                relative: false,
+            };
+        }
+        let (relative, text) = match text.strip_prefix('.') {
+            Some(rest) => (true, rest),
+            None => (false, text),
+        };
+        let mut components = Vec::with_capacity(text.split('.').count());
+        for part in text.split('.') {
+            components.push(match part.parse::<usize>() {
+                Ok(index) => Component::new_i(index),
+                Err(_) => Component::new(part),
+            });
+        }
+        Self {
+            components,
+            relative,
+        }
+    }
+
     pub(crate) fn from_runtime(path: &Path) -> Self {
         let components = (0..path.len())
             .map(|index| path.get_component(index).unwrap().clone())
@@ -309,6 +333,69 @@ pub(crate) struct FlatStoryData {
     pub(crate) children: Vec<NodeId>,
     pub(crate) named: Vec<NamedChild>,
     pub(crate) list_definitions: Vec<StaticListDefinition>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum LoadPhase {
+    JsonDecoded,
+    ArenaBuilt,
+    StreamParsedAndBuilt,
+    TargetsResolved,
+    RuntimeInitialized,
+}
+
+pub(crate) trait LoadObserver {
+    fn record(&mut self, phase: LoadPhase);
+}
+
+pub(crate) struct NoopLoadObserver;
+
+impl LoadObserver for NoopLoadObserver {
+    fn record(&mut self, _phase: LoadPhase) {}
+}
+
+/// Timings for the flat JSON constructor. Streaming reads JSON while building
+/// the arena, so those two costs are reported together.
+#[cfg(feature = "load-profile")]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FlatLoadProfile {
+    pub json_decode: Option<core::time::Duration>,
+    pub arena_build: Option<core::time::Duration>,
+    pub stream_parse_and_build: Option<core::time::Duration>,
+    pub targets: core::time::Duration,
+    pub runtime: core::time::Duration,
+}
+
+#[cfg(feature = "load-profile")]
+pub(crate) struct TimedLoadObserver {
+    last: std::time::Instant,
+    pub(crate) profile: FlatLoadProfile,
+}
+
+#[cfg(feature = "load-profile")]
+impl TimedLoadObserver {
+    pub(crate) fn new() -> Self {
+        Self {
+            last: std::time::Instant::now(),
+            profile: FlatLoadProfile::default(),
+        }
+    }
+}
+
+#[cfg(feature = "load-profile")]
+impl LoadObserver for TimedLoadObserver {
+    fn record(&mut self, phase: LoadPhase) {
+        let now = std::time::Instant::now();
+        let elapsed = now.duration_since(self.last);
+        self.last = now;
+        match phase {
+            LoadPhase::JsonDecoded => self.profile.json_decode = Some(elapsed),
+            LoadPhase::ArenaBuilt => self.profile.arena_build = Some(elapsed),
+            LoadPhase::StreamParsedAndBuilt => self.profile.stream_parse_and_build = Some(elapsed),
+            LoadPhase::TargetsResolved => self.profile.targets = elapsed,
+            LoadPhase::RuntimeInitialized => self.profile.runtime = elapsed,
+        }
+    }
 }
 
 /// Mutable data belongs to one run, never to a static node or image view.
@@ -476,12 +563,19 @@ impl FlatStoryData {
     /// Builds the arena directly from compiled Ink JSON using the selected
     /// JSON reader.
     pub(crate) fn from_json_reader(reader: impl Read) -> Result<(i32, Self), StoryError> {
+        Self::from_json_reader_observed(reader, &mut NoopLoadObserver)
+    }
+
+    pub(crate) fn from_json_reader_observed(
+        reader: impl Read,
+        observer: &mut impl LoadObserver,
+    ) -> Result<(i32, Self), StoryError> {
         #[cfg(feature = "stream-json-parser")]
         {
-            crate::json::flat_json_stream::load_from_reader(reader)
+            crate::json::flat_json_stream::load_from_reader(reader, observer)
         }
         #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
-        json_direct::load_from_reader(reader)
+        json_direct::load_from_reader(reader, observer)
     }
 
     /// Converts the current parser's tree as a temporary migration step.
@@ -593,11 +687,9 @@ impl FlatStoryData {
                 _ => None,
             };
             let Some(path) = path else { continue };
-            let target = self
-                .resolve_path(origin, &path.runtime_path())
-                .ok_or_else(|| {
-                    StoryError::BadJson("static story target could not be resolved".to_owned())
-                })?;
+            let target = self.resolve_static_path(origin, path).ok_or_else(|| {
+                StoryError::BadJson("static story target could not be resolved".to_owned())
+            })?;
             let target_container = self.container_id(target);
             let target_is_container = target_container.is_some();
             if matches!(
@@ -780,7 +872,20 @@ impl FlatStoryData {
     /// Resolves Ink path components using only IDs and arena ranges.
     /// A relative path on a leaf starts at its parent, as in `Object::resolve_path`.
     pub(crate) fn resolve_path(&self, origin: NodeId, path: &Path) -> Option<NodeId> {
-        let (mut current, start) = if path.is_relative() {
+        self.resolve_components(origin, path.components(), path.is_relative())
+    }
+
+    fn resolve_static_path(&self, origin: NodeId, path: &StaticPath) -> Option<NodeId> {
+        self.resolve_components(origin, &path.components, path.relative)
+    }
+
+    fn resolve_components(
+        &self,
+        origin: NodeId,
+        components: &[Component],
+        relative: bool,
+    ) -> Option<NodeId> {
+        let (mut current, start) = if relative {
             match &self.node(origin)?.kind {
                 NodeKind::Container(_) => (origin, 0),
                 _ => (self.node(origin)?.parent?, 1),
@@ -789,8 +894,7 @@ impl FlatStoryData {
             (self.root(), 0)
         };
 
-        for index in start..path.len() {
-            let component = path.get_component(index)?;
+        for component in components.iter().skip(start) {
             if component.is_parent() {
                 current = self.node(current)?.parent?;
             } else if let Some(child_index) = component.index {
@@ -966,6 +1070,25 @@ fn classify(node: &dyn RTObject) -> Result<NodeKind, StoryError> {
 mod tests {
     use super::*;
     use crate::list_definitions_origin::ListDefinitionsOrigin;
+
+    #[test]
+    fn static_text_paths_match_runtime_paths() {
+        for text in [
+            "",
+            ".",
+            "0",
+            "knot.stitch.12",
+            ".^.next.0",
+            "..name",
+            "éxito.0003",
+            "-1",
+        ] {
+            let expected = Path::new_with_components_string(Some(text));
+            let actual = StaticPath::from_text(text);
+            assert_eq!(actual.relative, expected.is_relative(), "{text}");
+            assert_eq!(actual.components, expected.components(), "{text}");
+        }
+    }
 
     fn empty_lists() -> ListDefinitionsOrigin {
         ListDefinitionsOrigin::new(&mut Vec::new())

@@ -4,9 +4,13 @@ use super::*;
 use crate::story::{INK_VERSION_CURRENT, INK_VERSION_MINIMUM_COMPATIBLE};
 use serde_json::{Map, Value as JsonValue};
 
-pub(super) fn load_from_reader(reader: impl Read) -> Result<(i32, FlatStoryData), StoryError> {
+pub(super) fn load_from_reader(
+    reader: impl Read,
+    observer: &mut impl LoadObserver,
+) -> Result<(i32, FlatStoryData), StoryError> {
     let json: JsonValue = serde_json::from_reader(reader)
         .map_err(|_| StoryError::BadJson("Story not in JSON format.".to_owned()))?;
+    observer.record(LoadPhase::JsonDecoded);
     let version = json
         .get("inkVersion")
         .and_then(JsonValue::as_i64)
@@ -60,7 +64,10 @@ pub(super) fn load_from_reader(reader: impl Read) -> Result<(i32, FlatStoryData)
             "Root node for ink is not a container".to_owned(),
         ));
     }
+    drop(json);
+    observer.record(LoadPhase::ArenaBuilt);
     data.resolve_static_targets()?;
+    observer.record(LoadPhase::TargetsResolved);
     Ok((version, data))
 }
 
@@ -78,7 +85,7 @@ fn string<'a>(value: &'a JsonValue, field: &str) -> Result<&'a str, StoryError> 
 }
 
 fn path(value: &str) -> StaticPath {
-    StaticPath::from_runtime(&Path::new_with_components_string(Some(value)))
+    StaticPath::from_text(value)
 }
 
 impl FlatStoryData {

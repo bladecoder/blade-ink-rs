@@ -58,7 +58,22 @@ unsafe impl GlobalAlloc for CountingAllocator {
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
 
-fn measure<T>(label: &str, build: impl FnOnce() -> T, run: impl FnOnce(&mut T)) {
+#[cfg(feature = "load-profile")]
+#[derive(Clone, Copy)]
+struct PhaseTimes {
+    json_decode: Option<std::time::Duration>,
+    arena_build: Option<std::time::Duration>,
+    stream_parse_and_build: Option<std::time::Duration>,
+    targets: std::time::Duration,
+    runtime: std::time::Duration,
+}
+
+fn measure<T, D>(
+    label: &str,
+    build: impl FnOnce() -> T,
+    run: impl FnOnce(&mut T),
+    detail: impl FnOnce(&T) -> D,
+) -> (std::time::Duration, D) {
     let baseline = LIVE.load(Ordering::Relaxed);
     PEAK.store(baseline, Ordering::Relaxed);
     let started = Instant::now();
@@ -73,41 +88,129 @@ fn measure<T>(label: &str, build: impl FnOnce() -> T, run: impl FnOnce(&mut T)) 
     println!(
         "{label}: create={create_time:?} owned={owned} B create_peak={create_peak} B run={run_time:?} run_peak={run_peak} B"
     );
+    let detail = detail(&story);
     drop(story);
+    (create_time, detail)
+}
+
+fn run_legacy(story: &mut LegacyStory) {
+    for _ in 0..20 {
+        while story.can_continue() {
+            black_box(story.cont().unwrap());
+        }
+        if story.get_current_choices().is_empty() {
+            break;
+        }
+        story.choose_choice_index(0).unwrap();
+    }
+}
+
+fn run_flat(story: &mut FlatStory) {
+    for _ in 0..20 {
+        while story.can_continue() {
+            black_box(story.cont().unwrap());
+        }
+        if story.get_current_choices().is_empty() {
+            break;
+        }
+        story.choose_choice_index(0).unwrap();
+    }
+}
+
+fn measure_legacy(json: &str) -> std::time::Duration {
+    measure(
+        "legacy",
+        || LegacyStory::new_with_seed(json, 1).unwrap(),
+        run_legacy,
+        |_| {},
+    )
+    .0
+}
+
+#[cfg(feature = "load-profile")]
+fn measure_flat(json: &str) -> (std::time::Duration, Option<PhaseTimes>) {
+    measure(
+        "flat",
+        || FlatStory::new_with_seed_profiled(json, 1).unwrap(),
+        |(story, _)| run_flat(story),
+        |(_, profile)| {
+            println!(
+                "  phases: json_decode={:?} arena_build={:?} stream_parse_and_build={:?} targets={:?} runtime={:?}",
+                profile.json_decode,
+                profile.arena_build,
+                profile.stream_parse_and_build,
+                profile.targets,
+                profile.runtime,
+            );
+            Some(PhaseTimes {
+                json_decode: profile.json_decode,
+                arena_build: profile.arena_build,
+                stream_parse_and_build: profile.stream_parse_and_build,
+                targets: profile.targets,
+                runtime: profile.runtime,
+            })
+        },
+    )
+}
+
+#[cfg(not(feature = "load-profile"))]
+fn measure_flat(json: &str) -> (std::time::Duration, Option<()>) {
+    measure(
+        "flat",
+        || FlatStory::new_with_seed(json, 1).unwrap(),
+        run_flat,
+        |_| None,
+    )
+}
+
+fn median(samples: &mut [std::time::Duration]) -> std::time::Duration {
+    samples.sort_unstable();
+    (samples[(samples.len() - 1) / 2] + samples[samples.len() / 2]) / 2
+}
+
+#[cfg(feature = "load-profile")]
+fn phase_median(
+    samples: &[PhaseTimes],
+    get: impl Fn(&PhaseTimes) -> Option<std::time::Duration>,
+) -> Option<std::time::Duration> {
+    let mut values: Vec<_> = samples.iter().filter_map(get).collect();
+    (!values.is_empty()).then(|| median(&mut values))
 }
 
 fn main() {
     let json = include_str!("../../conformance-tests/inkfiles/TheIntercept.ink.json");
-    for _ in 0..5 {
-        measure(
-            "legacy",
-            || LegacyStory::new_with_seed(json, 1).unwrap(),
-            |story| {
-                for _ in 0..20 {
-                    while story.can_continue() {
-                        black_box(story.cont().unwrap());
-                    }
-                    if story.get_current_choices().is_empty() {
-                        break;
-                    }
-                    story.choose_choice_index(0).unwrap();
-                }
-            },
-        );
-        measure(
-            "flat",
-            || FlatStory::new_with_seed(json, 1).unwrap(),
-            |story| {
-                for _ in 0..20 {
-                    while story.can_continue() {
-                        black_box(story.cont().unwrap());
-                    }
-                    if story.get_current_choices().is_empty() {
-                        break;
-                    }
-                    story.choose_choice_index(0).unwrap();
-                }
-            },
-        );
+    let mut legacy = Vec::new();
+    let mut flat = Vec::new();
+    let mut phases = Vec::new();
+    for iteration in 0..12 {
+        let (legacy_time, (flat_time, phase)) = if iteration % 2 == 0 {
+            (measure_legacy(json), measure_flat(json))
+        } else {
+            let flat_sample = measure_flat(json);
+            (measure_legacy(json), flat_sample)
+        };
+        if iteration >= 2 {
+            legacy.push(legacy_time);
+            flat.push(flat_time);
+            if let Some(phase) = phase {
+                phases.push(phase);
+            }
+        }
     }
+    println!(
+        "median create after two warmup pairs: legacy={:?} flat={:?}",
+        median(&mut legacy),
+        median(&mut flat)
+    );
+    #[cfg(feature = "load-profile")]
+    println!(
+        "median phases: json_decode={:?} arena_build={:?} stream_parse_and_build={:?} targets={:?} runtime={:?}",
+        phase_median(&phases, |p| p.json_decode),
+        phase_median(&phases, |p| p.arena_build),
+        phase_median(&phases, |p| p.stream_parse_and_build),
+        phase_median(&phases, |p| Some(p.targets)),
+        phase_median(&phases, |p| Some(p.runtime)),
+    );
+    #[cfg(not(feature = "load-profile"))]
+    let _ = phases;
 }

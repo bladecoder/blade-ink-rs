@@ -8,13 +8,12 @@ use crate::{
     compat::{collections::HashMap, io::Read},
     control_command::ControlCommand,
     flat_story::{
-        ChoiceRecord, ContainerRecord, DivertRecord, FlatStoryData, NamedChild, NodeId, NodeKind,
-        NodeRecord, StaticList, StaticListDefinition, StaticPath, StaticValue,
-        VariableReferenceRecord,
+        ChoiceRecord, ContainerRecord, DivertRecord, FlatStoryData, LoadObserver, LoadPhase,
+        NamedChild, NodeId, NodeKind, NodeRecord, StaticList, StaticListDefinition, StaticPath,
+        StaticValue, VariableReferenceRecord,
     },
     ink_list_item::InkListItem,
     native_function_call::NativeFunctionCall,
-    path::Path,
     push_pop::PushPopType,
     story::{INK_VERSION_CURRENT, INK_VERSION_MINIMUM_COMPATIBLE},
     story_error::StoryError,
@@ -25,7 +24,7 @@ fn invalid(message: &str) -> StoryError {
 }
 
 fn path(text: &str) -> StaticPath {
-    StaticPath::from_runtime(&Path::new_with_components_string(Some(text)))
+    StaticPath::from_text(text)
 }
 
 fn string<'a>(value: &'a JsonValue, field: &str) -> Result<&'a str, StoryError> {
@@ -59,7 +58,10 @@ fn runtime_object_key(key: &str) -> bool {
     )
 }
 
-pub(crate) fn load_from_reader(reader: impl Read) -> Result<(i32, FlatStoryData), StoryError> {
+pub(crate) fn load_from_reader(
+    reader: impl Read,
+    observer: &mut impl LoadObserver,
+) -> Result<(i32, FlatStoryData), StoryError> {
     let mut tok = JsonTokenizer::new(reader);
     tok.expect('{')?;
     let mut version = None;
@@ -128,7 +130,9 @@ pub(crate) fn load_from_reader(reader: impl Read) -> Result<(i32, FlatStoryData)
     if !definitions {
         return Err(invalid("List Definitions node for ink not found"));
     }
+    observer.record(LoadPhase::StreamParsedAndBuilt);
     data.resolve_static_targets()?;
+    observer.record(LoadPhase::TargetsResolved);
     Ok((version, data))
 }
 

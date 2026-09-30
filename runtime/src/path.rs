@@ -86,6 +86,10 @@ impl Path {
         self.components.get(index)
     }
 
+    pub(crate) fn components(&self) -> &[Component] {
+        &self.components
+    }
+
     pub fn is_relative(&self) -> bool {
         self.is_relative
     }

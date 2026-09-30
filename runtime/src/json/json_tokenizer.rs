@@ -8,20 +8,47 @@ use crate::compat::io::{self, Read};
 #[cfg(feature = "std")]
 use crate::compat::io::BufReader;
 
+// Keep the no_std buffer small enough for an embedded task stack.
 #[cfg(not(feature = "std"))]
-struct BufReader<R>(R);
+const JSON_READ_BUFFER_SIZE: usize = 512;
+
+#[cfg(not(feature = "std"))]
+struct BufReader<R> {
+    reader: R,
+    bytes: [u8; JSON_READ_BUFFER_SIZE],
+    position: usize,
+    length: usize,
+}
 
 #[cfg(not(feature = "std"))]
 impl<R> BufReader<R> {
     fn new(reader: R) -> Self {
-        Self(reader)
+        Self {
+            reader,
+            bytes: [0; JSON_READ_BUFFER_SIZE],
+            position: 0,
+            length: 0,
+        }
     }
 }
 
 #[cfg(not(feature = "std"))]
 impl<R: Read> Read for BufReader<R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        self.0.read(buffer)
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if self.position == self.length {
+            self.length = self.reader.read(&mut self.bytes)?;
+            self.position = 0;
+            if self.length == 0 {
+                return Ok(0);
+            }
+        }
+        let count = buffer.len().min(self.length - self.position);
+        buffer[..count].copy_from_slice(&self.bytes[self.position..self.position + count]);
+        self.position += count;
+        Ok(count)
     }
 }
 
@@ -436,6 +463,39 @@ impl<R: Read> JsonTokenizer<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(feature = "std"))]
+    #[test]
+    fn no_std_buffer_handles_short_reads() {
+        use core::cell::Cell;
+
+        struct ShortReader<'a> {
+            remaining: &'a [u8],
+            calls: Rc<Cell<usize>>,
+        }
+
+        impl Read for ShortReader<'_> {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                self.calls.set(self.calls.get() + 1);
+                let count = buffer.len().min(self.remaining.len()).min(128);
+                buffer[..count].copy_from_slice(&self.remaining[..count]);
+                self.remaining = &self.remaining[count..];
+                Ok(count)
+            }
+        }
+
+        let mut input = vec![b' '; 2048];
+        input.extend_from_slice(b"true");
+        let calls = Rc::new(Cell::new(0));
+        let reader = ShortReader {
+            remaining: &input,
+            calls: calls.clone(),
+        };
+        let mut tokenizer = JsonTokenizer::new(reader);
+        assert!(tokenizer.read_boolean().unwrap());
+        tokenizer.expect_eof().unwrap();
+        assert!(calls.get() < 100, "{} source reads", calls.get());
+    }
 
     struct OneByteReader<'a>(&'a [u8]);
 
