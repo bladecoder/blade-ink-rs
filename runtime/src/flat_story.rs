@@ -92,13 +92,13 @@ impl FlatPointer {
         }
     }
 
-    pub(crate) fn resolve(self, data: &FlatStoryData) -> Option<NodeId> {
+    pub(crate) fn resolve(self, data: &impl StaticStoryView) -> Option<NodeId> {
         let container = self.container?;
-        if self.index < 0 || data.children(container.node())?.is_empty() {
+        if self.index < 0 || data.child_count(container.node())? == 0 {
             return Some(container.node());
         }
         let index = usize::try_from(self.index).ok()?;
-        data.children(container.node())?.get(index).copied()
+        data.child_at(container.node(), index)
     }
 
     pub(crate) fn path(self, data: &FlatStoryData) -> Option<Path> {
@@ -111,20 +111,23 @@ impl FlatPointer {
     }
 
     /// Moves to the next indexed item, climbing out of finished containers.
-    pub(crate) fn increment(self, data: &FlatStoryData) -> Option<Self> {
+    pub(crate) fn increment(self, data: &impl StaticStoryView) -> Option<Self> {
         let mut container = self.container?;
         let mut index = self.index.checked_add(1)?;
         loop {
-            if usize::try_from(index).ok()? < data.children(container.node())?.len() {
+            if usize::try_from(index).ok()? < data.child_count(container.node())? {
                 return Some(Self {
                     container: Some(container),
                     index,
                 });
             }
-            let record = data.node(container.node())?;
-            let parent = record.parent?;
-            index = i32::try_from(record.child_index?).ok()?.checked_add(1)?;
-            container = data.container_id(parent)?;
+            let node = data.node_view(container.node())?;
+            let parent = node.parent?;
+            index = i32::try_from(node.child_index?).ok()?.checked_add(1)?;
+            if !matches!(data.node_view(parent)?.kind, NodeKindView::Container { .. }) {
+                return None;
+            }
+            container = ContainerId(parent);
         }
     }
 }
@@ -241,27 +244,6 @@ pub(crate) enum StaticValue {
     },
 }
 
-impl StaticValue {
-    /// Materializes an owned value at the boundary with the current evaluator.
-    pub(crate) fn to_runtime(&self) -> ValueType {
-        match self {
-            Self::Bool(value) => ValueType::Bool(*value),
-            Self::Int(value) => ValueType::Int(*value),
-            Self::Float(value) => ValueType::Float(*value),
-            Self::String(value) => ValueType::new(value.as_str()),
-            Self::List(value) => ValueType::List(value.to_runtime()),
-            Self::DivertTarget { path, .. } => ValueType::DivertTarget(path.runtime_path()),
-            Self::VariablePointer {
-                name,
-                context_index,
-            } => ValueType::VariablePointer(crate::value_type::VariablePointerValue {
-                variable_name: name.clone(),
-                context_index: *context_index,
-            }),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub(crate) struct DivertRecord {
     pub(crate) path: Option<StaticPath>,
@@ -315,9 +297,169 @@ pub(crate) struct NodeRecord {
     pub(crate) kind: NodeKind,
 }
 
+/// Borrowed static operands. An image backend can provide these without
+/// materializing owned arena records during execution.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum PathView<'a> {
+    Arena(&'a StaticPath),
+}
+
+impl PathView<'_> {
+    pub(crate) fn to_runtime(self) -> Path {
+        match self {
+            Self::Arena(path) => path.runtime_path(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ListView<'a> {
+    Arena(&'a StaticList),
+}
+
+impl ListView<'_> {
+    fn to_runtime(self) -> InkList {
+        match self {
+            Self::Arena(list) => list.to_runtime(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ValueView<'a> {
+    Bool(bool),
+    Int(i32),
+    Float(f32),
+    String(&'a str),
+    List(ListView<'a>),
+    DivertTarget(PathView<'a>),
+    VariablePointer { name: &'a str, context_index: i32 },
+}
+
+impl ValueView<'_> {
+    pub(crate) fn to_runtime(self) -> ValueType {
+        match self {
+            Self::Bool(value) => ValueType::Bool(value),
+            Self::Int(value) => ValueType::Int(value),
+            Self::Float(value) => ValueType::Float(value),
+            Self::String(value) => ValueType::new(value),
+            Self::List(value) => ValueType::List(value.to_runtime()),
+            Self::DivertTarget(path) => ValueType::DivertTarget(path.to_runtime()),
+            Self::VariablePointer {
+                name,
+                context_index,
+            } => ValueType::VariablePointer(crate::value_type::VariablePointerValue {
+                variable_name: name.to_owned(),
+                context_index,
+            }),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum NodeKindView<'a> {
+    Container {
+        count_flags: i32,
+    },
+    ChoicePoint {
+        flags: i32,
+        target: Option<ContainerId>,
+    },
+    ControlCommand(crate::control_command::CommandType),
+    Divert {
+        path: Option<PathView<'a>>,
+        target: Option<NodeId>,
+        variable_name: Option<&'a str>,
+        external_args: usize,
+        conditional: bool,
+        external: bool,
+        pushes_to_stack: bool,
+        stack_push_type: PushPopType,
+    },
+    Glue,
+    NativeFunction(Op),
+    Tag(&'a str),
+    Value(ValueView<'a>),
+    VariableAssignment {
+        name: &'a str,
+        global: bool,
+        new_declaration: bool,
+    },
+    VariableReference {
+        name: &'a str,
+        count_target: Option<ContainerId>,
+    },
+    Void,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct NodeView<'a> {
+    pub(crate) parent: Option<NodeId>,
+    pub(crate) child_index: Option<u32>,
+    pub(crate) kind: NodeKindView<'a>,
+}
+
+/// Read-only node access used by the interpreter. Views borrow operands from
+/// their storage and do not allocate as instructions are fetched.
+pub(crate) trait StaticStoryView {
+    fn node_count(&self) -> usize;
+    fn node_view(&self, id: NodeId) -> Option<NodeView<'_>>;
+    fn child_count(&self, id: NodeId) -> Option<usize>;
+    fn child_at(&self, id: NodeId, index: usize) -> Option<NodeId>;
+    fn named_child_count(&self, id: NodeId) -> Option<usize>;
+    fn named_child_at(&self, id: NodeId, index: usize) -> Option<NamedChildView<'_>>;
+
+    fn find_named_child(&self, id: NodeId, name: &str) -> Option<NodeId> {
+        let mut low = 0;
+        let mut high = self.named_child_count(id)?;
+        while low < high {
+            let middle = low + (high - low) / 2;
+            let entry = self.named_child_at(id, middle)?;
+            match entry.name.cmp(name) {
+                core::cmp::Ordering::Less => low = middle + 1,
+                core::cmp::Ordering::Greater => high = middle,
+                core::cmp::Ordering::Equal => return Some(entry.node),
+            }
+        }
+        None
+    }
+}
+
+impl<T: StaticStoryView> StaticStoryView for Rc<T> {
+    fn node_count(&self) -> usize {
+        self.as_ref().node_count()
+    }
+
+    fn node_view(&self, id: NodeId) -> Option<NodeView<'_>> {
+        self.as_ref().node_view(id)
+    }
+
+    fn child_count(&self, id: NodeId) -> Option<usize> {
+        self.as_ref().child_count(id)
+    }
+
+    fn child_at(&self, id: NodeId, index: usize) -> Option<NodeId> {
+        self.as_ref().child_at(id, index)
+    }
+
+    fn named_child_count(&self, id: NodeId) -> Option<usize> {
+        self.as_ref().named_child_count(id)
+    }
+
+    fn named_child_at(&self, id: NodeId, index: usize) -> Option<NamedChildView<'_>> {
+        self.as_ref().named_child_at(id, index)
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct NamedChild {
     pub(crate) name: String,
+    pub(crate) node: NodeId,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct NamedChildView<'a> {
+    pub(crate) name: &'a str,
     pub(crate) node: NodeId,
 }
 
@@ -333,6 +475,95 @@ pub(crate) struct FlatStoryData {
     pub(crate) children: Vec<NodeId>,
     pub(crate) named: Vec<NamedChild>,
     pub(crate) list_definitions: Vec<StaticListDefinition>,
+}
+
+impl StaticStoryView for FlatStoryData {
+    fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+
+    fn node_view(&self, id: NodeId) -> Option<NodeView<'_>> {
+        let node = self.nodes.get(id.index())?;
+        let kind = match &node.kind {
+            NodeKind::Container(record) => NodeKindView::Container {
+                count_flags: record.count_flags,
+            },
+            NodeKind::ChoicePoint(record) => NodeKindView::ChoicePoint {
+                flags: record.flags,
+                target: record.target,
+            },
+            NodeKind::ControlCommand(command) => NodeKindView::ControlCommand(*command),
+            NodeKind::Divert(record) => NodeKindView::Divert {
+                path: record.path.as_ref().map(PathView::Arena),
+                target: record.target,
+                variable_name: record.variable_name.as_deref(),
+                external_args: record.external_args,
+                conditional: record.conditional,
+                external: record.external,
+                pushes_to_stack: record.pushes_to_stack,
+                stack_push_type: record.stack_push_type,
+            },
+            NodeKind::Glue => NodeKindView::Glue,
+            NodeKind::NativeFunction(op) => NodeKindView::NativeFunction(*op),
+            NodeKind::Tag(text) => NodeKindView::Tag(text),
+            NodeKind::Value(value) => NodeKindView::Value(match value {
+                StaticValue::Bool(value) => ValueView::Bool(*value),
+                StaticValue::Int(value) => ValueView::Int(*value),
+                StaticValue::Float(value) => ValueView::Float(*value),
+                StaticValue::String(value) => ValueView::String(value),
+                StaticValue::List(value) => ValueView::List(ListView::Arena(value)),
+                StaticValue::DivertTarget { path, .. } => {
+                    ValueView::DivertTarget(PathView::Arena(path))
+                }
+                StaticValue::VariablePointer {
+                    name,
+                    context_index,
+                } => ValueView::VariablePointer {
+                    name,
+                    context_index: *context_index,
+                },
+            }),
+            NodeKind::VariableAssignment {
+                name,
+                global,
+                new_declaration,
+            } => NodeKindView::VariableAssignment {
+                name,
+                global: *global,
+                new_declaration: *new_declaration,
+            },
+            NodeKind::VariableReference(record) => NodeKindView::VariableReference {
+                name: &record.name,
+                count_target: record.count_target,
+            },
+            NodeKind::Void => NodeKindView::Void,
+        };
+        Some(NodeView {
+            parent: node.parent,
+            child_index: node.child_index,
+            kind,
+        })
+    }
+
+    fn child_count(&self, id: NodeId) -> Option<usize> {
+        Some(self.children(id)?.len())
+    }
+
+    fn child_at(&self, id: NodeId, index: usize) -> Option<NodeId> {
+        self.children(id)?.get(index).copied()
+    }
+
+    fn named_child_count(&self, id: NodeId) -> Option<usize> {
+        Some(self.named_children(id)?.len())
+    }
+
+    fn named_child_at(&self, id: NodeId, index: usize) -> Option<NamedChildView<'_>> {
+        let entry = self.named_children(id)?.get(index)?;
+        Some(NamedChildView {
+            name: &entry.name,
+            node: entry.node,
+        })
+    }
 }
 
 #[derive(Clone, Copy)]

@@ -10,7 +10,8 @@ use crate::{
     control_command::CommandType,
     flat_callstack::{FlatCallStack, FlatThread},
     flat_story::{
-        ContainerId, FlatCounters, FlatPointer, FlatStoryData, NodeId, NodeKind, StaticValue,
+        ContainerId, FlatCounters, FlatPointer, FlatStoryData, NodeId, NodeKindView,
+        StaticStoryView, ValueView,
     },
     ink_list::InkList,
     ink_list_item::InkListItem,
@@ -336,7 +337,7 @@ impl FlatRuntime {
         })?;
 
         while let Some(container) = data.container_id(id) {
-            let NodeKind::Container(record) = &data.node(id).unwrap().kind else {
+            let NodeKindView::Container { count_flags } = data.node_view(id).unwrap().kind else {
                 unreachable!()
             };
             let already_open = previous.resolve(&data).is_some_and(|previous_id| {
@@ -345,23 +346,23 @@ impl FlatRuntime {
                     if current == id {
                         return true;
                     }
-                    ancestor = data.node(current).and_then(|node| node.parent);
+                    ancestor = data.node_view(current).and_then(|node| node.parent);
                 }
                 false
             });
-            let record_visit = (!already_open || record.count_flags & 4 != 0)
+            let record_visit = (!already_open || count_flags & 4 != 0)
                 && self.previsited_container != Some(container);
             if self.previsited_container == Some(container) {
                 self.previsited_container = None;
             }
-            if record_visit && record.count_flags & 1 != 0 {
+            if record_visit && count_flags & 1 != 0 {
                 self.counters.record_visit(container);
             }
-            if record_visit && record.count_flags & 2 != 0 {
+            if record_visit && count_flags & 2 != 0 {
                 self.counters
                     .record_turn(container, self.current_turn_index);
             }
-            if data.children(id).unwrap().is_empty() {
+            if data.child_count(id) == Some(0) {
                 self.advance()?;
                 return Ok(());
             }
@@ -369,11 +370,11 @@ impl FlatRuntime {
             id = pointer.resolve(&data).unwrap();
         }
         self.callstack.borrow_mut().set_current_pointer(pointer);
-        let node = data.node(id).unwrap();
-        match &node.kind {
-            NodeKind::Value(value) => {
+        let node = data.node_view(id).unwrap();
+        match node.kind {
+            NodeKindView::Value(value) => {
                 let value = match value {
-                    StaticValue::VariablePointer {
+                    ValueView::VariablePointer {
                         name,
                         context_index: -1,
                     } => {
@@ -393,29 +394,36 @@ impl FlatRuntime {
                     self.append_text(&text.string);
                 }
             }
-            NodeKind::Divert(divert) => {
-                if divert.conditional {
+            NodeKindView::Divert {
+                path,
+                target,
+                variable_name,
+                external_args,
+                conditional,
+                external,
+                pushes_to_stack,
+                stack_push_type,
+            } => {
+                if conditional {
                     let condition = self.pop_value()?;
                     if !Self::truthy(condition.as_ref())? {
                         self.advance()?;
                         return Ok(());
                     }
                 }
-                if divert.external {
-                    let name = divert
-                        .path
-                        .as_ref()
-                        .map(|path| path.runtime_path().to_string())
+                if external {
+                    let name = path
+                        .map(|path| path.to_runtime().to_string())
                         .ok_or_else(|| {
                             StoryError::InvalidStoryState(
                                 "external function has no name".to_owned(),
                             )
                         })?;
-                    self.call_external(&name, divert.external_args)?;
+                    self.call_external(&name, external_args)?;
                     self.advance()?;
                     return Ok(());
                 }
-                let target = if let Some(name) = &divert.variable_name {
+                let target = if let Some(name) = variable_name {
                     let value = self
                         .variables
                         .get_variable_with_name(name, -1)
@@ -431,22 +439,22 @@ impl FlatRuntime {
                     };
                     data.pointer_at_path(path)
                 } else {
-                    divert.target.and_then(|id| data.pointer_for(id))
+                    target.and_then(|id| data.pointer_for(id))
                 };
                 self.diverted = target.ok_or_else(|| {
                     StoryError::InvalidStoryState("divert target does not resolve".to_owned())
                 })?;
-                if divert.pushes_to_stack {
+                if pushes_to_stack {
                     self.callstack.borrow_mut().push(
-                        divert.stack_push_type,
+                        stack_push_type,
                         self.evaluation_stack.len(),
                         self.string_stack.last().unwrap_or(&self.output).len() as i32,
                     );
                 }
             }
-            NodeKind::ControlCommand(command) => self.control(*command)?,
-            NodeKind::NativeFunction(op) => {
-                let function = NativeFunctionCall::new(*op);
+            NodeKindView::ControlCommand(command) => self.control(command)?,
+            NodeKindView::NativeFunction(op) => {
+                let function = NativeFunctionCall::new(op);
                 let count = function.get_number_of_parameters();
                 if self.evaluation_stack.len() < count {
                     return Err(StoryError::InvalidStoryState(
@@ -459,7 +467,7 @@ impl FlatRuntime {
                     .collect();
                 self.push_evaluation(function.call(params)?);
             }
-            NodeKind::VariableAssignment {
+            NodeKindView::VariableAssignment {
                 name,
                 global,
                 new_declaration,
@@ -468,25 +476,25 @@ impl FlatRuntime {
                 let value = value.into_any().downcast::<Value>().map_err(|_| {
                     StoryError::InvalidStoryState("assignment expected a value".to_owned())
                 })?;
-                let assignment = VariableAssignment::new(name, *new_declaration, *global);
+                let assignment = VariableAssignment::new(name, new_declaration, global);
                 self.variables.assign(&assignment, value)?;
             }
-            NodeKind::VariableReference(reference) => {
-                let value: Rc<dyn RTObject> = if let Some(container) = reference.count_target {
+            NodeKindView::VariableReference { name, count_target } => {
+                let value: Rc<dyn RTObject> = if let Some(container) = count_target {
                     Rc::new(Value::new(self.counters.visit_count(container)))
                 } else {
                     self.variables
-                        .get_variable_with_name(&reference.name, -1)
+                        .get_variable_with_name(name, -1)
                         .ok_or_else(|| {
                             StoryError::InvalidStoryState(format!(
                                 "Variable '{}' was not found",
-                                reference.name
+                                name
                             ))
                         })?
                 };
                 self.push_evaluation(value);
             }
-            NodeKind::Glue => {
+            NodeKindView::Glue => {
                 let stream = self.string_stack.last_mut().unwrap_or(&mut self.output);
                 let trailing_start = stream
                     .rfind(|character: char| !character.is_whitespace())
@@ -496,8 +504,8 @@ impl FlatRuntime {
                 }
                 self.glue_active = true;
             }
-            NodeKind::Void => self.evaluation_stack.push(Rc::new(Void::new())),
-            NodeKind::Tag(text) => {
+            NodeKindView::Void => self.evaluation_stack.push(Rc::new(Void::new())),
+            NodeKindView::Tag(text) => {
                 if self
                     .callstack
                     .borrow()
@@ -506,17 +514,17 @@ impl FlatRuntime {
                 {
                     self.evaluation_stack.push(Rc::new(Tag::new(text)));
                 } else {
-                    self.current_tags.push(text.clone());
+                    self.current_tags.push(text.to_owned());
                 }
             }
-            NodeKind::ChoicePoint(choice) => {
-                self.process_choice(id, choice.flags, choice.target)?
+            NodeKindView::ChoicePoint { flags, target } => {
+                self.process_choice(id, flags, target)?
             }
-            NodeKind::Container(_) => unreachable!("containers were descended above"),
+            NodeKindView::Container { .. } => unreachable!("containers were descended above"),
         }
         if matches!(
             node.kind,
-            NodeKind::ControlCommand(CommandType::StartThread)
+            NodeKindView::ControlCommand(CommandType::StartThread)
         ) {
             self.advance()?;
             self.callstack.borrow_mut().push_thread();
@@ -1029,19 +1037,28 @@ impl FlatRuntime {
     pub(crate) fn validate_external_bindings(&self) -> Result<(), StoryError> {
         let bound = self.externals.borrow();
         let mut missing = crate::compat::collections::HashSet::new();
-        for node in &self.data.nodes {
-            let NodeKind::Divert(divert) = &node.kind else {
+        for index in 0..self.data.node_count() {
+            let Some(node_id) = u32::try_from(index).ok().map(NodeId) else {
+                break;
+            };
+            let Some(node) = self.data.node_view(node_id) else {
                 continue;
             };
-            if !divert.external {
+            let NodeKindView::Divert { path, external, .. } = node.kind else {
+                continue;
+            };
+            if !external {
                 continue;
             }
-            let Some(path) = &divert.path else {
+            let Some(path) = path else {
                 continue;
             };
-            let name = path.runtime_path().to_string();
+            let name = path.to_runtime().to_string();
             let has_fallback = self.allow_external_fallbacks
-                && self.data.named_child(self.data.root(), &name).is_some();
+                && self
+                    .data
+                    .find_named_child(self.data.root(), &name)
+                    .is_some();
             if !bound.contains_key(&name) && !has_fallback {
                 missing.insert(name);
             }
@@ -1232,8 +1249,8 @@ impl FlatRuntime {
         let previous = self.callstack.borrow().current_pointer();
         self.record_entered_ancestors(previous, pointer);
         if let Some(container) = pointer.container.filter(|_| pointer.index < 0) {
-            let flags = match &self.data.node(container.node()).unwrap().kind {
-                NodeKind::Container(record) => record.count_flags,
+            let flags = match self.data.node_view(container.node()).unwrap().kind {
+                NodeKindView::Container { count_flags } => count_flags,
                 _ => 0,
             };
             if flags & 1 != 0 {
@@ -1257,24 +1274,25 @@ impl FlatRuntime {
         let mut old = previous.resolve(&self.data);
         while let Some(id) = old {
             previous_ancestors.push(id);
-            old = self.data.node(id).and_then(|node| node.parent);
+            old = self.data.node_view(id).and_then(|node| node.parent);
         }
         let mut child = target_id;
         let mut entered_at_start = true;
-        while let Some(parent) = self.data.node(child).and_then(|node| node.parent) {
-            let child_index = self.data.node(child).and_then(|node| node.child_index);
+        while let Some(parent) = self.data.node_view(child).and_then(|node| node.parent) {
+            let child_index = self.data.node_view(child).and_then(|node| node.child_index);
             entered_at_start &= child_index == Some(0);
             if previous_ancestors.contains(&parent) {
                 break;
             }
-            if let NodeKind::Container(record) = &self.data.node(parent).unwrap().kind
-                && (record.count_flags & 4 == 0 || entered_at_start)
+            if let NodeKindView::Container { count_flags } =
+                self.data.node_view(parent).unwrap().kind
+                && (count_flags & 4 == 0 || entered_at_start)
             {
                 let container = self.data.container_id(parent).unwrap();
-                if record.count_flags & 1 != 0 {
+                if count_flags & 1 != 0 {
                     self.counters.record_visit(container);
                 }
-                if record.count_flags & 2 != 0 {
+                if count_flags & 2 != 0 {
                     self.counters
                         .record_turn(container, self.current_turn_index);
                 }
@@ -1345,13 +1363,13 @@ impl FlatRuntime {
 
     pub(crate) fn build_string_of_hierarchy(&self) -> String {
         fn append(
-            data: &FlatStoryData,
+            data: &impl StaticStoryView,
             id: NodeId,
             current: Option<NodeId>,
             depth: usize,
             text: &mut String,
         ) {
-            let Some(node) = data.node(id) else {
+            let Some(node) = data.node_view(id) else {
                 return;
             };
             for _ in 0..depth {
@@ -1362,14 +1380,16 @@ impl FlatRuntime {
                 text.push_str(" <---");
             }
             text.push('\n');
-            if let Some(children) = data.children(id) {
-                for child in children {
-                    append(data, *child, current, depth + 1, text);
+            if let Some(count) = data.child_count(id) {
+                for index in 0..count {
+                    let child = data.child_at(id, index).unwrap();
+                    append(data, child, current, depth + 1, text);
                 }
-                if let Some(named) = data.named_children(id) {
-                    for entry in named {
+                if let Some(named_count) = data.named_child_count(id) {
+                    for index in 0..named_count {
+                        let entry = data.named_child_at(id, index).unwrap();
                         if data
-                            .node(entry.node)
+                            .node_view(entry.node)
                             .is_some_and(|child| child.child_index.is_none())
                         {
                             append(data, entry.node, current, depth + 1, text);
@@ -1384,7 +1404,7 @@ impl FlatRuntime {
             .borrow()
             .current_pointer()
             .resolve(&self.data);
-        append(&self.data, self.data.root(), current, 0, &mut text);
+        append(&*self.data, self.data.root(), current, 0, &mut text);
         text
     }
 
@@ -1537,11 +1557,7 @@ impl FlatRuntime {
                 "story path '{path}' is not a container"
             )));
         }
-        while let Some(&first) = self
-            .data
-            .children(container)
-            .and_then(|children| children.first())
-        {
+        while let Some(first) = self.data.child_at(container, 0) {
             if self.data.container_id(first).is_some() {
                 container = first;
             } else {
@@ -1550,12 +1566,15 @@ impl FlatRuntime {
         }
         let mut tags = Vec::new();
         let mut in_tag = false;
-        for &id in self.data.children(container).unwrap_or(&[]) {
-            match &self.data.node(id).unwrap().kind {
-                NodeKind::ControlCommand(CommandType::BeginTag) => in_tag = true,
-                NodeKind::ControlCommand(CommandType::EndTag) => in_tag = false,
-                NodeKind::Value(StaticValue::String(text)) if in_tag => tags.push(text.clone()),
-                NodeKind::Value(_) if in_tag => return Err(StoryError::InvalidStoryState(
+        for index in 0..self.data.child_count(container).unwrap_or(0) {
+            let id = self.data.child_at(container, index).unwrap();
+            match self.data.node_view(id).unwrap().kind {
+                NodeKindView::ControlCommand(CommandType::BeginTag) => in_tag = true,
+                NodeKindView::ControlCommand(CommandType::EndTag) => in_tag = false,
+                NodeKindView::Value(ValueView::String(text)) if in_tag => {
+                    tags.push(text.to_owned())
+                }
+                NodeKindView::Value(_) if in_tag => return Err(StoryError::InvalidStoryState(
                     "Tag contained non-text content. Only plain text is allowed when using globalTags or TagsAtContentPath. If you want to evaluate dynamic content, you need to use story.Continue()".to_owned()
                 )),
                 _ if !in_tag => break,

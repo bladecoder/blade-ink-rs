@@ -51,7 +51,11 @@ Ninguno de los dos deja un árbol persistente de `Rc<dyn RTObject>` dentro de `S
 
 La posición del intérprete es básicamente «contenedor N, hijo i». Para pasar a la instrucción siguiente consulta el rango de hijos; para entrar en un contenedor o seguir un desvío usa IDs. En la ejecución habitual no necesita generar la ruta Ink como texto ni buscar un nodo por identidad de puntero.
 
+El acceso a las instrucciones usa ahora una vista prestada (`StaticStoryView`): lee el tipo de nodo, sus operandos y los IDs de sus hijos sin copiar ni asignar registros nuevos. El arena en RAM implementa esta interfaz. Es un paso previo para que la futura imagen binaria ofrezca vistas equivalentes sobre los bytes de flash. La construcción desde JSON, las definiciones de listas y algunas operaciones de rutas y guardado siguen usando `FlatStoryData`; su adaptación queda pendiente al incorporar la imagen.
+
 El estado mutable contiene la pila de llamadas y sus hilos, variables globales y temporales, pila de evaluación, salida de texto y etiquetas, elecciones generadas, flujos, semilla aleatoria y recuentos de visitas y turnos. Los contadores usan `ContainerId` como clave. Los valores que se calculan al ejecutar una instrucción pueden seguir usando `Rc` donde lo necesita el estado; los nodos **estáticos** del arena no contienen `Rc`, `RefCell` ni `OnceCell`.
+
+Hay un `Rc` que comparte el arena completo entre el intérprete, las definiciones de listas y las instantáneas del estado: no hay un `Rc` por nodo. Otros `Rc` comparten el call stack mutable, los valores de variables y la pila de evaluación, y mantienen la API de elecciones. Estos últimos son candidatos a una revisión separada del estado dinámico; eliminarlos exige cambiar cómo se comparten valores y cómo se representan las instantáneas, y no es necesario para leer la historia estática desde flash.
 
 Se ha migrado la ejecución de texto y glue, expresiones, condiciones, elecciones, desvíos, túneles, funciones Ink, listas, etiquetas, secuencias y números aleatorios. También funcionan las llamadas externas, las variables observadas, los flujos y `continue_async`, que puede pausar y reanudar entre instrucciones. La API pública `Story::new*` usa este intérprete. Al reiniciar una partida se crea un estado nuevo y se reutiliza el arena, sin volver a leer el JSON.
 
