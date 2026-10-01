@@ -437,6 +437,11 @@ impl Story {
         self.runtime.get_variable(name)
     }
 
+    /// Returns the names of all declared global Ink variables in stable order.
+    pub fn get_global_variables(&self) -> Vec<String> {
+        self.runtime.get_global_variables()
+    }
+
     /// Evaluates an Ink function and appends its emitted text to `text_output`.
     pub fn evaluate_function(
         &mut self,

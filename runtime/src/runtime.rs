@@ -1493,6 +1493,10 @@ impl Runtime {
         self.variables.get(name)
     }
 
+    pub(crate) fn get_global_variables(&self) -> Vec<String> {
+        self.variables.get_global_variables()
+    }
+
     pub(crate) fn global_variable_exists(&self, name: &str) -> bool {
         self.variables.global_variable_exists_with_name(name)
     }
