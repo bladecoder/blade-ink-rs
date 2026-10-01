@@ -58,8 +58,8 @@ pub fn parse_choice(
 
     let choice_indent = line.indent;
 
-    // Look ahead at indented body lines: if they start with `{ condition }` (optionally followed
-    // by display text), absorb the condition and, if text is present, set it as the start_text.
+    // Look ahead for subsequent `{ condition }` lines (optionally followed by display text),
+    // regardless of indentation. Plain display text still needs to be indented as a continuation.
     // This implements multi-line choice conditions:
     //   * { cond1 }
     //     { cond2 }  display text   OR   plain display text
@@ -71,10 +71,6 @@ pub fn parse_choice(
         while *line_index < lines.len() {
             let peek = &lines[*line_index];
             let peek_trimmed = peek.content.trim();
-            // Must be indented deeper than choice
-            if peek.indent <= choice_indent {
-                break;
-            }
             // If starts with `{`, it only counts as an additional choice condition when the
             // choice was already established as conditional on the header or by an earlier body
             // condition line. Otherwise it's normal body content, such as `{5}` in a default
@@ -89,19 +85,18 @@ pub fn parse_choice(
                     absorbed_body_conditions = true;
                     *line_index += 1;
                     if !after_close.is_empty() {
-                        // Remaining text after `{ cond }` becomes the display text
-                        choice_text.display_text = after_close.to_owned();
-                        choice_text.start_text = after_close.to_owned();
-                        choice_text.selected_text = Some(after_close.to_owned());
-                        choice_text.has_start_content = true;
-                        is_invisible_default = false;
+                        choice_text = parse_choice_text(after_close)?;
+                        is_invisible_default = choice_text.display_text.is_empty()
+                            && choice_text.selected_text.is_none();
                         break;
                     }
                     // Pure condition line — continue looking for more conditions/text
                 } else {
                     break;
                 }
-            } else if absorbed_body_conditions || header_has_conditions {
+            } else if peek.indent > choice_indent
+                && (absorbed_body_conditions || header_has_conditions)
+            {
                 // After conditions (header or body), a plain text line becomes start text.
                 // Skip if it looks like a gather, divert, or sub-choice.
                 if peek_trimmed.starts_with('-')

@@ -4,6 +4,35 @@ use bladeink_compiler::Compiler;
 mod common;
 
 #[test]
+fn unindented_multiline_choice_conditions_test() -> Result<(), StoryError> {
+    for (second_condition, expected_choices) in [("true", vec!["Choice"]), ("false", vec![])] {
+        let ink = format!(
+            "VAR a = true\nVAR b = {second_condition}\n\n* {{a}}\n{{b}} [Choice]\nbody\n-> END\n"
+        );
+        let json = Compiler::new().compile(&ink).unwrap();
+        let mut story = Story::new(&json)?;
+        let mut text = Vec::new();
+        common::next_all(&mut story, &mut text)?;
+
+        assert!(text.is_empty(), "choice body ran before selection");
+        let current_choices = story.get_current_choices();
+        let choices: Vec<&str> = current_choices
+            .iter()
+            .map(|choice| choice.text.as_str())
+            .collect();
+        assert_eq!(expected_choices, choices);
+
+        if second_condition == "true" {
+            story.choose_choice_index(0)?;
+            common::next_all(&mut story, &mut text)?;
+            assert_eq!(["body"], text.as_slice());
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
 fn no_choice_test() -> Result<(), StoryError> {
     let mut errors: Vec<String> = Vec::new();
 
