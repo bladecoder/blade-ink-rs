@@ -3,7 +3,7 @@
 //! Mirrors the interface of the official `inklecate` tool and the
 //! blade-ink-java `CommandLineTool`.
 //!
-//! Usage: rinklecate <options> <ink file>
+//! Usage: rinklecate <options> <ink, ink.json or inkb file>
 //!    -o <filename>   Output file name
 //!    --image         Write a binary story image (.inkb)
 //!    -c              Count all visits to knots, stitches and weave points
@@ -106,6 +106,39 @@ fn run(mut opts: Options) -> anyhow::Result<()> {
         .unwrap()
         .to_string_lossy()
         .to_string();
+    let extension = full_input
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("");
+
+    if !opts.plugin_directories.is_empty() {
+        eprintln!(
+            "Warning: -x (plugin directories) is not supported in this implementation and will be ignored."
+        );
+    }
+
+    if extension.eq_ignore_ascii_case("inkb") {
+        if opts.stats {
+            anyhow::bail!("Cannot show stats for .inkb, only for .ink");
+        }
+        if opts.image_output {
+            anyhow::bail!("--image requires .ink or .json input");
+        }
+        let t0 = Instant::now();
+        // Story images currently borrow static bytes. The CLI loads one image
+        // for the lifetime of its process, so retain this buffer until exit.
+        let bytes = Box::leak(std::fs::read(&full_input)?.into_boxed_slice());
+        let story = bladeink::story::Story::new_from_image_validated(bytes)
+            .map_err(|e| anyhow::anyhow!("Failed to load story: {e}"))?;
+        if opts.verbose {
+            eprintln!(
+                "Story loaded in {:.1}ms",
+                t0.elapsed().as_secs_f64() * 1000.0
+            );
+        }
+        opts.play_mode = true;
+        return player::play(story, &opts);
+    }
 
     // Resolve output path
     if opts.output_file.is_none() {
@@ -141,16 +174,10 @@ fn run(mut opts: Options) -> anyhow::Result<()> {
         .unwrap_or(&input_string)
         .to_owned();
 
-    let input_is_json = filename_only.to_lowercase().ends_with(".json");
+    let input_is_json = extension.eq_ignore_ascii_case("json");
 
     if input_is_json && opts.stats {
         anyhow::bail!("Cannot show stats for .json, only for .ink");
-    }
-
-    if !opts.plugin_directories.is_empty() {
-        eprintln!(
-            "Warning: -x (plugin directories) is not supported in this implementation and will be ignored."
-        );
     }
 
     if input_is_json {
@@ -260,7 +287,7 @@ fn parse_arguments(args: &[String]) -> Option<Options> {
 
 fn print_usage() {
     eprintln!(
-        "Usage: rinklecate <options> <ink file>
+        "Usage: rinklecate <options> <ink, ink.json or inkb file>
    -o <filename>   Output file name
    --image         Write a binary story image (.inkb)
    -c              Count all visits to knots, stitches and weave points, not

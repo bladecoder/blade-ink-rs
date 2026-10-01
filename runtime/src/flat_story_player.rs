@@ -100,10 +100,30 @@ impl FlatStory {
         Ok(story)
     }
 
-    /// Opens a validated, static binary image without copying its nodes into RAM.
+    /// Opens a trusted, static binary image without copying its nodes into RAM.
+    ///
+    /// Checks the header and section bounds, but skips the checksum and graph
+    /// validation. Use this for immutable images verified during the build.
+    /// Use [`Self::new_from_image_validated_with_seed`] for untrusted bytes.
     #[cfg(feature = "binary-image")]
     pub fn new_from_image_with_seed(bytes: &'static [u8], seed: i32) -> Result<Self, StoryError> {
         let image = crate::image::ImageView::new(bytes)?;
+        Self::from_image_view(image, seed)
+    }
+
+    /// Opens a static binary image after checking its checksum, nodes, graph,
+    /// strings and indexes. Use this when the image was not verified at build.
+    #[cfg(feature = "binary-image")]
+    pub fn new_from_image_validated_with_seed(
+        bytes: &'static [u8],
+        seed: i32,
+    ) -> Result<Self, StoryError> {
+        let image = crate::image::ImageView::new_validated(bytes)?;
+        Self::from_image_view(image, seed)
+    }
+
+    #[cfg(feature = "binary-image")]
+    fn from_image_view(image: crate::image::ImageView, seed: i32) -> Result<Self, StoryError> {
         let version = image.ink_version;
         Ok(Self::from_runtime(
             FlatRuntime::new_image(image, seed)?,
@@ -112,11 +132,21 @@ impl FlatStory {
         ))
     }
 
-    /// Opens a static binary image with a generated random seed.
+    /// Opens a trusted, static binary image with a generated random seed.
+    /// Checks only its header and section bounds.
     #[cfg(all(feature = "binary-image", feature = "std"))]
     pub fn new_from_image(bytes: &'static [u8]) -> Result<Self, StoryError> {
         let seed = rand::RngExt::random_range(&mut rand::rng(), 0..100);
         let mut story = Self::new_from_image_with_seed(bytes, seed)?;
+        story.fixed_seed = None;
+        Ok(story)
+    }
+
+    /// Opens a static binary image with full validation and a random seed.
+    #[cfg(all(feature = "binary-image", feature = "std"))]
+    pub fn new_from_image_validated(bytes: &'static [u8]) -> Result<Self, StoryError> {
+        let seed = rand::RngExt::random_range(&mut rand::rng(), 0..100);
+        let mut story = Self::new_from_image_validated_with_seed(bytes, seed)?;
         story.fixed_seed = None;
         Ok(story)
     }

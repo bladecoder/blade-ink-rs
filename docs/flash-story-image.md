@@ -1,6 +1,6 @@
 # Running Ink stories from a binary image
 
-`bladeink` can execute compiled Ink from a read-only binary image embedded in a program. The image is generated on the host from `.ink` or compiled `.ink.json` and is read through offsets at runtime. Opening it validates the file but does not parse story JSON or rebuild the static nodes in RAM. This is useful for a `no_std + alloc` application whose story bytes are mapped to flash.
+`bladeink` can execute compiled Ink from a read-only binary image embedded in a program. The image is generated on the host from `.ink` or compiled `.ink.json` and is read through offsets at runtime. The default constructor checks the header and section bounds, then runs without parsing story JSON or rebuilding static nodes in RAM. A separate constructor validates the entire image. This is useful for a `no_std + alloc` application whose story bytes are mapped to flash.
 
 The format belongs to `bladeink`. It is not compatible with InkCpp `.bin` files. The existing C++ player in `ink-tts-esp32` cannot consume these images without changing its runtime.
 
@@ -11,14 +11,14 @@ The public `Story` type uses one interpreter for two kinds of static content:
 ```text
 compiled .ink.json ──JSON reader──> owned flat arena in RAM ──┐
                                                               ├──> interpreter by node ID
-compiled .inkb ──────validation──> view of static bytes ──────┘          │
+compiled .inkb ──header check────> view of static bytes ──────┘          │
                                                                          ▼
                                                        mutable state in RAM
 ```
 
 Every static node has a 32-bit `NodeId`. A container also has a `ContainerId`; ordered child ranges, named child entries, parent IDs and child indexes preserve the Ink hierarchy. The interpreter tracks a pointer as a container ID and child index. Static divert, choice and count targets are resolved to IDs when the content is built. A divert whose destination comes from a variable is resolved while the story runs.
 
-`StaticStoryView` gives the interpreter read-only access to nodes, operands, children, names, paths and list definitions. `StoryContent::Arena` owns records built by a JSON reader. `StoryContent::Image` keeps only a `&'static [u8]` and validated section bounds; it decodes a borrowed node view when requested. Fetching a static instruction does not allocate a persistent object for that node. The arena and image run through the same execution logic.
+`StaticStoryView` gives the interpreter read-only access to nodes, operands, children, names, paths and list definitions. `StoryContent::Arena` owns records built by a JSON reader. `StoryContent::Image` keeps only a `&'static [u8]` and checked section bounds; it decodes a borrowed node view when requested. Fetching a static instruction does not allocate a persistent object for that node. The arena and image run through the same execution logic.
 
 Variables, choices, call stacks and threads, flows, output, evaluation values, random state, visit and turn counts, and other run state remain in RAM. Some dynamic values and public API objects still use `Rc`; static image nodes do not have an `Rc` each. One `Rc` shares the whole `StoryContent` with the runtime. This separation is why the story bytes can stay in flash while the state changes.
 
@@ -44,13 +44,16 @@ let image_story = Story::new_from_image_with_seed(IMAGE, 42)?;
 
 | API | Availability | Purpose |
 | --- | --- | --- |
-| `Story::new_from_image_with_seed(&'static [u8], i32)` | `binary-image`, including `no_std` | Open and validate embedded bytes with a fixed seed. |
-| `Story::new_from_image(&'static [u8])` | `binary-image` and `std` | Open with a generated seed. |
+| `Story::new_from_image_with_seed(&'static [u8], i32)` | `binary-image`, including `no_std` | Open a trusted image with a fixed seed; check header and section bounds only. |
+| `Story::new_from_image(&'static [u8])` | `binary-image` and `std` | Open a trusted image with a generated seed. |
+| `Story::new_from_image_validated_with_seed(&'static [u8], i32)` | `binary-image`, including `no_std` | Fully validate an image with a fixed seed. |
+| `Story::new_from_image_validated(&'static [u8])` | `binary-image` and `std` | Fully validate an image with a generated seed. |
 | `bladeink::image::compile_json_to_image(reader)` | `binary-image` and `std` | Generate image bytes from compiled Ink JSON on the host. |
 | `rinklecate --image -o output.inkb input.ink` | `rinklecate` | Compile Ink and write an image. |
 | `rinklecate --image -o output.inkb input.ink.json` | `rinklecate` | Convert compiled JSON directly. |
+| `rinklecate input.inkb` | `rinklecate` | Validate and play a binary image interactively. |
 
-A target that only opens images can depend on `bladeink` with `default-features = false, features = ["binary-image"]`. This leaves out the **story** JSON parsers; the JSON state codec remains available for saving and restoring a game. `no_std` still needs an allocator. If JSON loading is also required, enable `stream-json-parser` or use the default Serde reader under `std`. `rinklecate --image` cannot be combined with play (`-p`) or statistics (`-s`) modes.
+A target that only opens images can depend on `bladeink` with `default-features = false, features = ["binary-image"]`. This leaves out the **story** JSON parsers; the JSON state codec remains available for saving and restoring a game. `no_std` still needs an allocator. If JSON loading is also required, enable `stream-json-parser` or use the default Serde reader under `std`. `rinklecate` detects `.ink`, `.json` and `.inkb` inputs by extension; binary file input uses the fully validated image constructor. `rinklecate --image` cannot be combined with play (`-p`) or statistics (`-s`) modes.
 
 ## Generating and embedding an image
 
@@ -152,7 +155,9 @@ For diverts, flag bits 0, 1 and 2 indicate conditional, external and stack-pushi
 - **Ink list payloads:** `n_items`, `n_origins`, then `n_items` tuples `(origin offset, origin length, item offset, item length, i32 value)` and `n_origins` pairs `(offset, length)`.
 - **Strings:** concatenated UTF-8 bytes without terminators. Repeated strings can share the same first offset.
 
-Generation is deterministic for the same compiled story. The encoder rejects malformed JSON, unresolved static references and sizes that exceed 32-bit fields. Opening an image checks its signature, format and Ink versions, total size, CRC, section bounds, UTF-8, node kinds, graph relationships, targets, lists and indexes before execution. The validator uses temporary scratch allocations, then retains the byte slice and section bounds. Truncated, corrupted and incompatible images return an error. CRC-32 uses the reflected IEEE polynomial `0xedb88320`, initial value `0xffffffff` and final XOR `0xffffffff`.
+Generation is deterministic for the same compiled story. The encoder rejects malformed JSON, unresolved static references and sizes that exceed 32-bit fields. The default image constructor checks the signature, format and Ink versions, total size, contiguous section bounds and the presence of a root record. It does not check the CRC or the contents of nodes and indexes. Use it only for a trusted image generated as part of the build or otherwise verified before embedding: malformed records may cause an error or panic later in execution.
+
+The `*_validated*` constructors additionally check CRC, UTF-8, node kinds, graph relationships, targets, lists and indexes before execution. Their validator uses temporary scratch allocations, then retains the same byte slice and section bounds as the default constructor. CRC-32 uses the reflected IEEE polynomial `0xedb88320`, initial value `0xffffffff` and final XOR `0xffffffff`. A compile-time 256-entry CRC table trades up to about 1 KiB of program data for faster checking when this path is linked; path index validation compares components directly against ancestry without allocating path strings. `Story::reset_state` reuses the image without reopening or revalidating it.
 
 ## Generated stories for `ink-tts-esp32`
 
@@ -218,12 +223,14 @@ cargo run --release -p bladeink --example image_story_cost --features binary-ima
 
 | Story | Backend | Retained after open | Open peak | Open calls | Open time | Retained after route | Route peak | Route calls | Route time |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| English | JSON | 986,231 B | 3,114,107 B | 24,965 | 3,572 µs | 984,027 B | 996,210 B | 5,520 | 647 µs |
-| English | Image | 12,804 B | 14,852 B | 4,205 | 3,760 µs | 10,706 B | 22,920 B | 5,532 | 967 µs |
-| Spanish | JSON | 989,867 B | 3,072,793 B | 24,716 | 3,624 µs | 987,379 B | 999,705 B | 5,501 | 658 µs |
-| Spanish | Image | 12,804 B | 14,852 B | 4,196 | 3,839 µs | 10,422 B | 22,779 B | 5,513 | 1,076 µs |
+| English | JSON | 986,231 B | 3,114,107 B | 24,965 | 3,514 µs | 984,027 B | 996,210 B | 5,520 | 649 µs |
+| English | Trusted image | 12,804 B | 14,852 B | 150 | 35 µs | 10,706 B | 22,920 B | 5,532 | 973 µs |
+| English | Validated image | 12,804 B | 14,852 B | 159 | 1,935 µs | 10,706 B | 22,920 B | 5,532 | 950 µs |
+| Spanish | JSON | 989,867 B | 3,072,793 B | 24,716 | 3,690 µs | 987,379 B | 999,705 B | 5,501 | 663 µs |
+| Spanish | Trusted image | 12,804 B | 14,852 B | 150 | 35 µs | 10,422 B | 22,779 B | 5,513 | 1,026 µs |
+| Spanish | Validated image | 12,804 B | 14,852 B | 159 | 2,036 µs | 10,422 B | 22,779 B | 5,513 | 1,023 µs |
 
-The retained image figure includes initial mutable state and fixed interpreter structures, but no copy of the static node records. Opening an image still validates its references and paths: this causes temporary allocations and time cost. On this host, image opening did **not** run faster than JSON opening, and this chosen route ran more slowly. The generated images also occupy more storage than the source JSON. These tradeoffs should be checked in the target firmware before sizing flash or PSRAM.
+The retained image figure includes initial mutable state and fixed interpreter structures, but no copy of the static node records. Both constructors retain and peak at the same measured heap size. The trusted path avoids the full scan and opens in about 35 µs on this host; the validated path opens in about 2 ms. The generated images occupy more storage than the source JSON, and this route ran more slowly than the JSON-backed interpreter. Check these tradeoffs in the target firmware before sizing flash or PSRAM.
 
 For a controlled node-count check, the benchmark builds two stories with the same mutable state and 1 versus 2,000 text nodes. Their images are 233 B and 88,189 B, while each `Story` retains 868 B after opening. Static node count therefore did not increase retained heap in this check. Variables, lists, choices and other mutable state can still increase it.
 

@@ -56,20 +56,26 @@ fn embedded_image_runs_and_restores_state_with_binary_image_only() {
 #[test]
 fn image_loader_rejects_truncated_corrupt_and_incompatible_bytes() {
     for cut in [0, 7, 87, 88, IMAGE.len() - 1] {
-        assert!(Story::new_from_image_with_seed(&IMAGE[..cut], 1).is_err());
+        assert!(Story::new_from_image_validated_with_seed(&IMAGE[..cut], 1).is_err());
     }
     let mut bad = IMAGE.to_vec();
     bad[8..12].copy_from_slice(&99_u32.to_le_bytes());
-    assert!(Story::new_from_image_with_seed(Box::leak(bad.into_boxed_slice()), 1).is_err());
+    assert!(
+        Story::new_from_image_validated_with_seed(Box::leak(bad.into_boxed_slice()), 1).is_err()
+    );
 
     let mut bad = IMAGE.to_vec();
     bad[88 + 8..88 + 12].copy_from_slice(&255_u32.to_le_bytes());
-    assert!(Story::new_from_image_with_seed(Box::leak(bad.into_boxed_slice()), 1).is_err());
+    assert!(
+        Story::new_from_image_validated_with_seed(Box::leak(bad.into_boxed_slice()), 1).is_err()
+    );
 
     let mut bad = IMAGE.to_vec();
     let strings = u32::from_le_bytes(bad[76..80].try_into().unwrap()) as usize;
     bad[strings] = 0xff;
-    assert!(Story::new_from_image_with_seed(Box::leak(bad.into_boxed_slice()), 1).is_err());
+    assert!(
+        Story::new_from_image_validated_with_seed(Box::leak(bad.into_boxed_slice()), 1).is_err()
+    );
 }
 
 #[test]

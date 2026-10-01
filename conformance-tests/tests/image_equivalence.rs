@@ -132,7 +132,7 @@ fn every_compiled_fixture_opens_as_an_image() {
         let json = fs::read_to_string(&path).unwrap();
         let bytes = compile_json_to_image(json.as_bytes()).unwrap();
         let image = Box::leak(bytes.into_boxed_slice());
-        Story::new_from_image_with_seed(image, 1)
+        Story::new_from_image_validated_with_seed(image, 1)
             .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     }
 }

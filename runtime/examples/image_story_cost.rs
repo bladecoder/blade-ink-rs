@@ -217,25 +217,39 @@ fn main() {
     verify_same_first_path(&json, image);
     let mut json_samples = Vec::new();
     let mut image_samples = Vec::new();
+    let mut validated_samples = Vec::new();
     for iteration in 0..7 {
         let json_sample = || measure(|| Story::new_with_seed(&json, 1).unwrap(), true);
         let image_sample = || measure(|| Story::new_from_image_with_seed(image, 1).unwrap(), true);
-        let (json_result, image_result) = if iteration % 2 == 0 {
-            (json_sample(), image_sample())
+        let validated_sample = || {
+            measure(
+                || Story::new_from_image_validated_with_seed(image, 1).unwrap(),
+                true,
+            )
+        };
+        let (json_result, image_result, validated_result) = if iteration % 2 == 0 {
+            (json_sample(), image_sample(), validated_sample())
         } else {
+            let validated_result = validated_sample();
             let image_result = image_sample();
-            (json_sample(), image_result)
+            (json_sample(), image_result, validated_result)
         };
         assert_eq!(
             (json_result.lines, json_result.choices),
             (image_result.lines, image_result.choices)
         );
+        assert_eq!(
+            (json_result.lines, json_result.choices),
+            (validated_result.lines, validated_result.choices)
+        );
         if iteration > 0 {
             json_samples.push(json_result);
             image_samples.push(image_result);
+            validated_samples.push(validated_result);
         }
     }
     report("json", &json_samples);
-    report("image", &image_samples);
+    report("image_trusted", &image_samples);
+    report("image_validated", &validated_samples);
     scale_check();
 }

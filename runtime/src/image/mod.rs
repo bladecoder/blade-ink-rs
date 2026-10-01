@@ -31,14 +31,26 @@ const NONE: u32 = u32::MAX;
 const HEADER_SIZE: usize = 88;
 const NODE_WORDS: usize = 10;
 const SECTION_SIZES: [usize; 8] = [40, 4, 12, 16, 12, 12, 1, 1];
+const CRC32_TABLE: [u32; 256] = {
+    let mut table = [0; 256];
+    let mut index = 0;
+    while index < table.len() {
+        let mut crc = index as u32;
+        let mut bit = 0;
+        while bit < 8 {
+            crc = (crc >> 1) ^ (0xedb8_8320 & 0_u32.wrapping_sub(crc & 1));
+            bit += 1;
+        }
+        table[index] = crc;
+        index += 1;
+    }
+    table
+};
 
 fn checksum(bytes: &[u8]) -> u32 {
     let mut crc = !0_u32;
     for &byte in bytes[..84].iter().chain(bytes[88..].iter()) {
-        crc ^= u32::from(byte);
-        for _ in 0..8 {
-            crc = (crc >> 1) ^ (0xedb8_8320 & 0_u32.wrapping_sub(crc & 1));
-        }
+        crc = (crc >> 8) ^ CRC32_TABLE[((crc as u8) ^ byte) as usize];
     }
     !crc
 }
@@ -49,8 +61,8 @@ struct Section {
     count: usize,
 }
 
-/// Validated view over bytes embedded in flash. Construction uses temporary
-/// scratch data to verify graph references, then retains only section bounds.
+/// View over bytes embedded in flash. Only the explicit validated constructor
+/// checks the full graph; both constructors retain just the section bounds.
 pub(crate) struct ImageView {
     bytes: &'static [u8],
     sections: [Section; 8],
@@ -82,9 +94,6 @@ impl ImageView {
         if word(bytes, 16).map(|value| value as usize) != Some(bytes.len()) {
             return Err(invalid("image length is invalid"));
         }
-        if word(bytes, 84) != Some(checksum(bytes)) {
-            return Err(invalid("image checksum does not match"));
-        }
         let mut sections = [Section {
             offset: 0,
             count: 0,
@@ -113,11 +122,18 @@ impl ImageView {
         if expected != bytes.len() || sections[0].count == 0 {
             return Err(invalid("image has trailing bytes or no root node"));
         }
-        let view = Self {
+        Ok(Self {
             bytes,
             sections,
             ink_version,
-        };
+        })
+    }
+
+    pub(crate) fn new_validated(bytes: &'static [u8]) -> Result<Self, StoryError> {
+        let view = Self::new(bytes)?;
+        if word(bytes, 84) != Some(checksum(bytes)) {
+            return Err(invalid("image checksum does not match"));
+        }
         view.validate()?;
         Ok(view)
     }
@@ -410,8 +426,7 @@ impl ImageView {
                 if section == 5 && previous.is_some_and(|last: &str| last >= name) {
                     return Err(invalid("path index is not sorted"));
                 }
-                if section == 5 && self.canonical_path_text(NodeId(target)).as_deref() != Some(name)
-                {
+                if section == 5 && !self.matches_canonical_path(NodeId(target), name) {
                     return Err(invalid("path index disagrees with node ancestry"));
                 }
                 previous = Some(name);
@@ -456,6 +471,45 @@ impl ImageView {
             self.require_str(word(bytes, at).unwrap(), word(bytes, at + 4).unwrap())?;
         }
         Ok(())
+    }
+
+    fn matches_canonical_path(&self, mut id: NodeId, mut path: &str) -> bool {
+        while id.0 != 0 {
+            let Some(record) = self.record(id) else {
+                return false;
+            };
+            let name = if record[2] == 1 {
+                self.str_ref(record[3], record[4])
+            } else {
+                None
+            };
+            if let Some(name) = name.filter(|name| !name.is_empty()) {
+                let Some(prefix) = path.strip_suffix(name) else {
+                    return false;
+                };
+                path = prefix;
+            } else {
+                let (prefix, component) = path.rsplit_once('.').unwrap_or(("", path));
+                let canonical_number = !component.is_empty()
+                    && (component == "0" || !component.starts_with('0'))
+                    && component.bytes().all(|byte| byte.is_ascii_digit())
+                    && component.parse::<u32>() == Ok(record[1]);
+                if !canonical_number {
+                    return false;
+                }
+                id = NodeId(record[0]);
+                path = prefix;
+                continue;
+            }
+            id = NodeId(record[0]);
+            if id.0 != 0 {
+                let Some(prefix) = path.strip_suffix('.') else {
+                    return false;
+                };
+                path = prefix;
+            }
+        }
+        path.is_empty()
     }
 
     pub(crate) fn child_at(&self, id: NodeId, index: usize) -> Option<NodeId> {
@@ -664,16 +718,16 @@ mod tests {
 
     #[test]
     fn validates_embedded_image_and_rejects_bad_references_with_valid_crc() {
-        assert!(ImageView::new(IMAGE).is_ok());
+        assert!(ImageView::new_validated(IMAGE).is_ok());
         let mut bad = IMAGE.to_vec();
         let first_child = word(&bad, 28).unwrap() as usize;
         bad[first_child..first_child + 4].copy_from_slice(&u32::MAX.to_le_bytes());
-        assert!(ImageView::new(refreshed(bad)).is_err());
+        assert!(ImageView::new_validated(refreshed(bad)).is_err());
 
         let mut bad = IMAGE.to_vec();
         let node = word(&bad, 20).unwrap() as usize;
         bad[node + 8..node + 12].copy_from_slice(&99_u32.to_le_bytes());
-        assert!(ImageView::new(refreshed(bad)).is_err());
+        assert!(ImageView::new_validated(refreshed(bad)).is_err());
     }
 
     #[test]
@@ -691,7 +745,7 @@ mod tests {
             bad[index] ^= 1 << ((state >> 16) % 8);
             let bytes = refreshed(bad);
             assert!(
-                std::panic::catch_unwind(|| ImageView::new(bytes)).is_ok(),
+                std::panic::catch_unwind(|| ImageView::new_validated(bytes)).is_ok(),
                 "byte {index}"
             );
         }

@@ -97,7 +97,7 @@ let mut story = bladeink::story::Story::new(&json)?;
 
 ## Running Ink stories with *rinklecate*
 
-`rinklecate` is a command-line tool that mirrors the interface of the official `inklecate` tool. It can compile `.ink` source files and optionally play them directly in the terminal.
+`rinklecate` is a command-line tool that mirrors the interface of the official `inklecate` tool. It can compile `.ink` source files and play `.ink`, compiled `.ink.json`, and binary `.inkb` stories in the terminal.
 
 You can install it from crates.io:
 
@@ -108,8 +108,9 @@ cargo install rinklecate
 ### Usage
 
 ```
-rinklecate <options> <ink file>
+rinklecate <options> <ink, ink.json or inkb file>
    -o <filename>   Output file name
+   --image         Write a binary story image (.inkb)
    -c              Count all visits to knots, stitches and weave points
    -p              Play mode
    -j              Output in JSON format (for communication with tools like Inky)
@@ -137,6 +138,12 @@ Play an already compiled story:
 
 ```bash
 rinklecate my_story.ink.json
+```
+
+Play a binary story image (the file is fully validated before execution):
+
+```bash
+rinklecate my_story.inkb
 ```
 
 In the `inkfiles` folder you can find many Ink test stories to explore the language capabilities, including **The Intercept**, a full featured story created by **Inkle**:
