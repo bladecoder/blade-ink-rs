@@ -1,9 +1,10 @@
-//! Ink save-state codec for the ID-based runtime when the streaming parser is enabled.
+//! Streaming Ink save-state codec for JSON and binary-image configurations.
 
 #[allow(unused_imports)]
 use crate::prelude::*;
 
 use crate::{
+    callstack::{CallStack, CallStackElement, Thread},
     compat::{
         cell::RefCell,
         collections::HashMap,
@@ -11,30 +12,30 @@ use crate::{
         rc::Rc,
     },
     control_command::{CommandType, ControlCommand},
-    flat_callstack::{FlatCallStack, FlatElement, FlatThread},
-    flat_story::{FlatPointer, StoryContent},
     json::{
-        json_read_stream::{read_runtime_object, read_runtime_object_list},
         json_tokenizer::JsonTokenizer,
-        json_write_stream,
         json_writer::JsonWriter,
+        state_read_stream::{read_runtime_object, read_runtime_object_list},
+        state_write_stream,
     },
     object::RTObject,
+    output_text::clean_output_whitespace,
     path::Path,
     push_pop::PushPopType,
+    save_format::{INK_SAVE_STATE_VERSION, MIN_COMPATIBLE_LOAD_VERSION},
+    story_content::{ContentPointer, StaticStoryView, StoryContent},
     story_error::StoryError,
-    story_state::{INK_SAVE_STATE_VERSION, MIN_COMPATIBLE_LOAD_VERSION, StoryState},
     tag::Tag,
     value::Value,
     value_type::StringValue,
 };
 
-use super::{FlatChoice, FlatFlow, FlatRuntime};
+use super::{Runtime, RuntimeChoice, RuntimeFlow};
 
 fn write_thread<W: Write>(
     writer: &mut JsonWriter<W>,
-    runtime: &FlatRuntime,
-    thread: &FlatThread,
+    runtime: &Runtime,
+    thread: &Thread,
 ) -> Result<(), StoryError> {
     writer.raw("{\"callstack\":[")?;
     let mut first = true;
@@ -63,7 +64,7 @@ fn write_thread<W: Write>(
         writer.integer(element.push_pop_type as u32)?;
         if !element.temporary_variables.is_empty() {
             writer.key(&mut first_property, "temp")?;
-            json_write_stream::write_dictionary_values(writer, &element.temporary_variables)?;
+            state_write_stream::write_dictionary_values(writer, &element.temporary_variables)?;
         }
         writer.raw("}")?;
     }
@@ -87,8 +88,8 @@ fn write_thread<W: Write>(
 
 fn write_stack<W: Write>(
     writer: &mut JsonWriter<W>,
-    runtime: &FlatRuntime,
-    stack: &FlatCallStack,
+    runtime: &Runtime,
+    stack: &CallStack,
 ) -> Result<(), StoryError> {
     writer.raw("{\"threads\":[")?;
     let mut first = true;
@@ -124,13 +125,13 @@ fn write_output<W: Write>(
         stream.push(Rc::new(Value::new(tag.as_str())));
         stream.push(Rc::new(ControlCommand::new(CommandType::EndTag)));
     }
-    json_write_stream::write_list_rt_objs(writer, &stream)
+    state_write_stream::write_list_rt_objs(writer, &stream)
 }
 
 fn write_choices<W: Write>(
     writer: &mut JsonWriter<W>,
-    runtime: &FlatRuntime,
-    choices: &[FlatChoice],
+    runtime: &Runtime,
+    choices: &[RuntimeChoice],
 ) -> Result<(), StoryError> {
     writer.raw("[")?;
     let mut first = true;
@@ -174,11 +175,11 @@ fn write_choices<W: Write>(
 
 fn write_flow<W: Write>(
     writer: &mut JsonWriter<W>,
-    runtime: &FlatRuntime,
-    stack: &FlatCallStack,
+    runtime: &Runtime,
+    stack: &CallStack,
     output: &str,
     tags: &[String],
-    choices: &[FlatChoice],
+    choices: &[RuntimeChoice],
 ) -> Result<(), StoryError> {
     writer.raw("{\"callstack\":")?;
     write_stack(writer, runtime, stack)?;
@@ -204,7 +205,7 @@ fn write_flow<W: Write>(
     Ok(())
 }
 
-impl FlatRuntime {
+impl Runtime {
     pub(crate) fn save_state_to_writer(&self, output: impl Write) -> Result<(), StoryError> {
         let mut writer = JsonWriter::new(output);
         writer.raw("{\"flows\":{")?;
@@ -240,7 +241,7 @@ impl FlatRuntime {
         writer.raw(",\"variablesState\":")?;
         self.variables.write_json_stream(&mut writer)?;
         writer.raw(",\"evalStack\":")?;
-        json_write_stream::write_list_rt_objs(&mut writer, &self.evaluation_stack)?;
+        state_write_stream::write_list_rt_objs(&mut writer, &self.evaluation_stack)?;
         if !self.diverted.is_null() {
             writer.raw(",\"currentDivertTarget\":")?;
             writer.string(
@@ -254,12 +255,12 @@ impl FlatRuntime {
             )?;
         }
         writer.raw(",\"visitCounts\":")?;
-        json_write_stream::write_int_dictionary(
+        state_write_stream::write_int_dictionary(
             &mut writer,
             &self.counters.visit_paths_for_save(&self.data)?,
         )?;
         writer.raw(",\"turnIndices\":")?;
-        json_write_stream::write_int_dictionary(
+        state_write_stream::write_int_dictionary(
             &mut writer,
             &self.counters.turn_paths_for_save(&self.data)?,
         )?;
@@ -356,7 +357,7 @@ fn parse_int_map<R: Read>(
     Ok(values)
 }
 
-fn pointer_at_text(data: &StoryContent, text: &str) -> Result<FlatPointer, StoryError> {
+fn pointer_at_text(data: &StoryContent, text: &str) -> Result<ContentPointer, StoryError> {
     data.pointer_at_path(&Path::new_with_components_string(Some(text)))
         .ok_or_else(|| bad(format!("pointer path '{text}' does not resolve")))
 }
@@ -364,7 +365,7 @@ fn pointer_at_text(data: &StoryContent, text: &str) -> Result<FlatPointer, Story
 fn parse_element<R: Read>(
     reader: &mut JsonTokenizer<R>,
     data: &StoryContent,
-) -> Result<FlatElement, StoryError> {
+) -> Result<CallStackElement, StoryError> {
     reader.expect('{')?;
     let mut path = None;
     let mut index = -1;
@@ -393,14 +394,14 @@ fn parse_element<R: Read>(
             .resolve_path(data.root(), &Path::new_with_components_string(Some(&path)))
             .and_then(|id| data.container_id(id))
             .ok_or_else(|| bad(format!("callstack path '{path}' does not resolve")))?;
-        FlatPointer {
+        ContentPointer {
             container: Some(container),
             index,
         }
     } else {
-        FlatPointer::NULL
+        ContentPointer::NULL
     };
-    let mut element = FlatElement::new(
+    let mut element = CallStackElement::new(
         kind.ok_or_else(|| bad("callstack element has no type"))?,
         pointer,
     );
@@ -412,11 +413,11 @@ fn parse_element<R: Read>(
 fn parse_thread<R: Read>(
     reader: &mut JsonTokenizer<R>,
     data: &StoryContent,
-) -> Result<FlatThread, StoryError> {
+) -> Result<Thread, StoryError> {
     reader.expect('{')?;
     let mut frames = Vec::new();
     let mut index = None;
-    let mut previous = FlatPointer::NULL;
+    let mut previous = ContentPointer::NULL;
     if reader.peek()? != '}' {
         loop {
             let key = reader.read_obj_key()?;
@@ -443,7 +444,7 @@ fn parse_thread<R: Read>(
         }
     }
     reader.expect('}')?;
-    Ok(FlatThread {
+    Ok(Thread {
         callstack: frames,
         previous_pointer: previous,
         thread_index: index.ok_or_else(|| bad("thread has no threadIndex"))?,
@@ -453,7 +454,7 @@ fn parse_thread<R: Read>(
 fn parse_stack<R: Read>(
     reader: &mut JsonTokenizer<R>,
     data: &StoryContent,
-) -> Result<FlatCallStack, StoryError> {
+) -> Result<CallStack, StoryError> {
     reader.expect('{')?;
     let mut threads = None;
     let mut counter = None;
@@ -485,7 +486,7 @@ fn parse_stack<R: Read>(
     let root = data
         .container_id(data.root())
         .ok_or_else(|| bad("root is not a container"))?;
-    let mut stack = FlatCallStack::new(root);
+    let mut stack = CallStack::new(root);
     stack.replace_threads(
         threads.ok_or_else(|| bad("callstack has no threads"))?,
         counter.ok_or_else(|| bad("callstack has no threadCounter"))?,
@@ -558,7 +559,7 @@ fn parse_output(output: Vec<Rc<dyn RTObject>>) -> (String, Vec<String>) {
                 CommandType::BeginTag => pending = Some(String::new()),
                 CommandType::EndTag => {
                     if let Some(value) = pending.take() {
-                        tags.push(StoryState::clean_output_whitespace(&value));
+                        tags.push(clean_output_whitespace(&value));
                     }
                 }
                 _ => {}
@@ -579,7 +580,7 @@ fn parse_output(output: Vec<Rc<dyn RTObject>>) -> (String, Vec<String>) {
 fn parse_flow<R: Read>(
     reader: &mut JsonTokenizer<R>,
     data: &StoryContent,
-) -> Result<FlatFlow, StoryError> {
+) -> Result<RuntimeFlow, StoryError> {
     reader.expect('{')?;
     let mut stack = None;
     let mut output = None;
@@ -659,7 +660,7 @@ fn parse_flow<R: Read>(
                     saved.thread_index
                 ))
             })?;
-        choices.push(FlatChoice {
+        choices.push(RuntimeChoice {
             target,
             source,
             is_invisible_default: false,
@@ -668,7 +669,7 @@ fn parse_flow<R: Read>(
             thread,
         });
     }
-    Ok(FlatFlow {
+    Ok(RuntimeFlow {
         callstack: Rc::new(RefCell::new(stack)),
         output: text,
         choices,
@@ -679,7 +680,7 @@ fn parse_flow<R: Read>(
 #[derive(Default)]
 struct ParsedState {
     version: Option<i32>,
-    flows: Option<HashMap<String, FlatFlow>>,
+    flows: Option<HashMap<String, RuntimeFlow>>,
     current_flow_name: Option<String>,
     variables: Option<HashMap<String, Rc<Value>>>,
     evaluation_stack: Option<Vec<Rc<dyn RTObject>>>,
@@ -741,7 +742,7 @@ fn parse_document<R: Read>(
     Ok(state)
 }
 
-impl FlatRuntime {
+impl Runtime {
     pub(crate) fn load_state_from_reader(&mut self, input: impl Read) -> Result<(), StoryError> {
         let mut reader = JsonTokenizer::new(input);
         let mut parsed = parse_document(&mut reader, &self.data)?;
@@ -778,9 +779,7 @@ impl FlatRuntime {
         loaded.output = current.output;
         loaded.current_tags = current.current_tags;
         loaded.choices = current.choices;
-        loaded
-            .variables
-            .set_flat_callstack(loaded.callstack.clone());
+        loaded.variables.set_callstack(loaded.callstack.clone());
         loaded.variables.load_stream_values(
             parsed
                 .variables
@@ -794,7 +793,7 @@ impl FlatRuntime {
             .as_deref()
             .map(|path| pointer_at_text(&loaded.data, path))
             .transpose()?
-            .unwrap_or(FlatPointer::NULL);
+            .unwrap_or(ContentPointer::NULL);
         loaded
             .counters
             .restore_visit_paths(&loaded.data, &parsed.visit_counts.unwrap_or_default())?;

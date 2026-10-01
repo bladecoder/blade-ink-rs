@@ -24,23 +24,22 @@ Variables, choices, call stacks and threads, flows, output, evaluation values, r
 
 ### Lazy work and caches
 
-The legacy `Path` type still caches `components_string` in a `OnceCell`. The flat interpreter normally follows prelinked IDs, so it does not construct a textual path for each divert. It builds path text when an API call or a save operation needs it. A bounded, sparse path cache keyed by node ID exists, but the normal interpreter does not currently use it; repeated path API calls can recompute a path. The public `Rc<Choice>` objects are created only when choices are requested and are cached on the `Story` instance until the relevant state changes. Neither cache is stored in the image.
+The `Path` value used for dynamic paths caches `components_string` in a `OnceCell`. The interpreter normally follows prelinked IDs, so it does not construct a textual path for each divert. It builds path text when an API call or a save operation needs it; repeated path API calls can recompute that text. The public `Rc<Choice>` objects are created only when choices are requested and are cached on the `Story` instance until the relevant state changes. Neither cache is stored in the image.
 
 Visit and turn counts use `ContainerId` keys during execution. Saving converts IDs to Ink paths; loading resolves those paths back to IDs. Saves retain the Ink JSON state format, including choices, flows and threads, and can be exchanged between JSON-backed and image-backed instances of the same story.
 
-## Choosing a runtime and features
+## Choosing storage and features
 
-`bladeink::story::Story` is the flat interpreter. `LegacyStory` keeps the earlier object-tree implementation for compatibility checks. The selected constructor determines the static storage:
+`bladeink::story::Story` is the flat interpreter for both compiled JSON and binary images. The selected constructor determines the static storage:
 
 ```rust
-use bladeink::story::{LegacyStory, Story};
+use bladeink::story::Story;
 
 let json_story = Story::new_with_seed(compiled_json, 42)?;
-let old_story = LegacyStory::new_with_seed(compiled_json, 42)?;
 let image_story = Story::new_from_image_with_seed(IMAGE, 42)?;
 ```
 
-`stream-json-parser` selects a JSON reader, independently of `Story` versus `LegacyStory`. With default features, `std` and `serde-json-parser` are enabled. The available image APIs are:
+`stream-json-parser` selects the streaming JSON reader; with default features, `std` and `serde-json-parser` are enabled. The available image APIs are:
 
 | API | Availability | Purpose |
 | --- | --- | --- |
@@ -179,7 +178,7 @@ Both generated images were reproduced byte for byte from those source files. The
 
 ## Compatibility and checks
 
-The JSON and image backends use the same seed and choices in the differential tests. The image suite opens all 121 compiled JSON fixtures, compares up to 200 observable steps per fixture, and completes a playthrough of *The Intercept*. Focused cases cover relative paths, variable diverts, dynamic text and tags, lists, functions, globals, flows and cross-backend save restoration. The earlier tree implementation remains available as `LegacyStory` for comparison with the flat interpreter.
+The JSON and image backends use the same seed and choices in the differential tests. The image suite opens all 121 compiled JSON fixtures, compares up to 200 observable steps per fixture, and completes a playthrough of *The Intercept*. Focused cases cover relative paths, variable diverts, dynamic text and tags, lists, functions, globals, flows and cross-backend save restoration.
 
 Useful commands from the repository root:
 
@@ -199,22 +198,9 @@ The streaming JSON reader uses a fixed 512-byte buffer under `no_std` to reduce 
 
 Measurements below count requested live heap bytes, peak requested heap bytes and successful allocator calls. They exclude allocator bookkeeping, fragmentation, stack, and story input bytes. They were taken in `release` mode on an x86_64 host; they are neither ESP32-S3 PSRAM measurements nor proof that a complete firmware fits in 4 MB of flash and 2 MB of PSRAM.
 
-### JSON interpreter comparison
+### JSON and binary image comparison
 
-[`flat_story_cost.rs`](../runtime/examples/flat_story_cost.rs) compares the old tree with the flat interpreter on *The Intercept*. The JSON is embedded in the host executable and excluded from heap accounting. The route chooses option 0 for up to 20 decisions. Representative results from runs after warmup:
-
-| JSON reader | Interpreter | Retained after open | Peak while opening | Open | Route |
-| --- | --- | ---: | ---: | ---: | ---: |
-| Serde | Legacy tree | 1,830,419 B | 3,819,439 B | ~3.7 ms | ~1.6 ms |
-| Serde | Flat arena | 986,175 B | 3,114,107 B | ~4.1 ms | ~0.51 ms |
-| Streaming | Legacy tree | 1,868,607 B | 1,875,343 B | ~3.2 ms | ~1.5 ms |
-| Streaming | Flat arena | 971,839 B | 1,115,431 B | ~4.2 ms | ~0.51 ms |
-
-The flat arena retains roughly half the tree's heap in this comparison. It still resides in RAM and must be built after parsing JSON. With `load-profile`, the example can show separate JSON decode, arena construction, target linking and runtime initialization times. These older samples varied enough that they do not establish a precise constructor speedup.
-
-### Binary image comparison
-
-[`image_story_cost.rs`](../runtime/examples/image_story_cost.rs) measures the English and Spanish stories on an x86_64 Intel Core i5-10310U with Rust 1.95.0. It loads the JSON and image before measuring and leaks the host image buffer solely to model a static slice; that allocation is excluded. It alternates JSON and image construction seven times and reports medians from the six passes after the first. The measured route chooses option 0 through 20 decisions and produces 57 lines for each story. The example first compares text, choice text and tags on that route.
+[`image_story_cost.rs`](../runtime/examples/image_story_cost.rs) measures the English and Spanish stories on an x86_64 Intel Core i5-10310U with Rust 1.95.0. It loads the JSON and image before measuring and leaks the host image buffer solely to model a static slice; that allocation is excluded. It alternates JSON, trusted image and validated image construction seven times and reports medians from the six passes after the first. The measured route chooses option 0 through 20 decisions and produces 57 lines for each story. The example first compares text, choice text and tags on that route.
 
 ```sh
 cargo run --release -p bladeink --example image_story_cost --features binary-image -- ../ink-tts-esp32/story.ink.json assets/ink-tts-esp32/story_en.inkb
@@ -238,10 +224,10 @@ For a controlled node-count check, the benchmark builds two stories with the sam
 
 | File | Role |
 | --- | --- |
-| [`flat_story.rs`](../runtime/src/flat_story.rs) | IDs, arena, borrowed node view, shared storage interface and path logic. |
+| [`story_content.rs`](../runtime/src/story_content.rs) | IDs, arena, borrowed node view, shared storage interface and path logic. |
 | [`image/mod.rs`](../runtime/src/image/mod.rs) | Image validation and read-only offset view. |
 | [`image/encoder.rs`](../runtime/src/image/encoder.rs) | Deterministic host encoder. |
-| [`flat_runtime.rs`](../runtime/src/flat_runtime.rs) and [`flat_callstack.rs`](../runtime/src/flat_callstack.rs) | Interpreter, mutable state and call stack by ID. |
-| [`flat_story_player.rs`](../runtime/src/flat_story_player.rs) | Public `Story` API, observers, lazy choice cache and asynchronous continuation. |
-| [`state_stream.rs`](../runtime/src/flat_runtime/state_stream.rs) | Streaming Ink JSON state codec. |
+| [`runtime.rs`](../runtime/src/runtime.rs), [`runtime_state.rs`](../runtime/src/runtime_state.rs) and [`callstack.rs`](../runtime/src/callstack.rs) | Interpreter, mutable counters and call stack by ID. |
+| [`story_player.rs`](../runtime/src/story_player.rs) | Public `Story` API, observers, lazy choice cache and asynchronous continuation. |
+| [`state_stream.rs`](../runtime/src/state_stream.rs) and [`state_serde.rs`](../runtime/src/state_serde.rs) | Streaming and Serde Ink JSON save-state codecs. |
 | [`image_equivalence.rs`](../conformance-tests/tests/image_equivalence.rs) | JSON/image differential tests. |

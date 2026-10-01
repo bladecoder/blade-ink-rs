@@ -1,80 +1,73 @@
-//! Interpreter transition path that reads static instructions by arena ID.
+//! Ink interpreter that reads static instructions by arena ID.
 //! Dynamic values, counters, variables and call frames belong to one run.
 
 #[allow(unused_imports)]
 use crate::prelude::*;
 
 use crate::{
+    callstack::{CallStack, Thread},
     choice::Choice,
     compat::{cell::RefCell, collections::HashMap, rc::Rc},
     control_command::CommandType,
-    flat_callstack::{FlatCallStack, FlatThread},
-    flat_story::{
-        ContainerId, FlatCounters, FlatPointer, FlatStoryData, NodeId, NodeKindView,
-        StaticStoryView, StoryContent, ValueView,
-    },
     ink_list::InkList,
     ink_list_item::InkListItem,
     list_definition::ListDefinition,
     native_function_call::NativeFunctionCall,
     object::RTObject,
+    output_text::clean_output_whitespace,
     path::Path,
     push_pop::PushPopType,
+    runtime_state::StoryCounters,
     story::external_functions::{ExternalFunction, ExternalFunctionResult},
+    story_content::{
+        ContainerId, ContentPointer, NodeId, NodeKindView, StaticStoryView, StoryContent,
+        StoryData, ValueView,
+    },
     story_error::StoryError,
-    story_state::StoryState,
     tag::Tag,
     value::Value,
     value_type::{StringValue, ValueType},
-    variable_assigment::VariableAssignment,
+    variable_assignment::VariableAssignment,
     variables_state::VariablesState,
     void::Void,
 };
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
 #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
+#[path = "state_stream.rs"]
 mod state_stream;
 
 #[cfg(all(
     not(any(feature = "stream-json-parser", feature = "binary-image")),
     feature = "serde-json-parser"
 ))]
-use serde_json::{Map, json};
-
-#[cfg(all(
-    not(any(feature = "stream-json-parser", feature = "binary-image")),
-    feature = "serde-json-parser"
-))]
-use crate::{
-    control_command::ControlCommand,
-    json::{json_read, json_write},
-    story_state::INK_SAVE_STATE_VERSION,
-};
+#[path = "state_serde.rs"]
+mod state_serde;
 
 #[derive(Clone)]
-pub(crate) struct FlatChoice {
+pub(crate) struct RuntimeChoice {
     pub(crate) target: ContainerId,
     pub(crate) source: NodeId,
     pub(crate) is_invisible_default: bool,
     pub(crate) text: String,
     pub(crate) tags: Vec<String>,
-    pub(crate) thread: FlatThread,
+    pub(crate) thread: Thread,
 }
 
-pub(crate) struct FlatRuntime {
+pub(crate) struct Runtime {
     data: Rc<StoryContent>,
-    callstack: Rc<RefCell<FlatCallStack>>,
+    callstack: Rc<RefCell<CallStack>>,
     variables: VariablesState,
-    counters: FlatCounters,
+    counters: StoryCounters,
     evaluation_stack: Vec<Rc<dyn RTObject>>,
     output: String,
     string_stack: Vec<String>,
     tag_stack: Vec<String>,
     current_tags: Vec<String>,
     glue_active: bool,
-    diverted: FlatPointer,
+    diverted: ContentPointer,
     did_safe_exit: bool,
-    choices: Vec<FlatChoice>,
+    choices: Vec<RuntimeChoice>,
     current_turn_index: i32,
     story_seed: i32,
     previous_random: i32,
@@ -83,11 +76,11 @@ pub(crate) struct FlatRuntime {
     lookahead_active: bool,
     lookahead_unsafe_external: bool,
     current_flow_name: String,
-    named_flows: HashMap<String, FlatFlow>,
+    named_flows: HashMap<String, RuntimeFlow>,
     changed_variables: HashMap<String, ValueType>,
     previsited_container: Option<ContainerId>,
     continuation_active: bool,
-    newline_snapshot: Option<Box<FlatRuntime>>,
+    newline_snapshot: Option<Box<Runtime>>,
 }
 
 struct BoundExternal {
@@ -95,17 +88,17 @@ struct BoundExternal {
     lookahead_safe: bool,
 }
 
-struct FlatFlow {
-    callstack: Rc<RefCell<FlatCallStack>>,
+struct RuntimeFlow {
+    callstack: Rc<RefCell<CallStack>>,
     output: String,
-    choices: Vec<FlatChoice>,
+    choices: Vec<RuntimeChoice>,
     current_tags: Vec<String>,
 }
 
-impl FlatFlow {
+impl RuntimeFlow {
     fn new(root: ContainerId) -> Self {
         Self {
-            callstack: Rc::new(RefCell::new(FlatCallStack::new(root))),
+            callstack: Rc::new(RefCell::new(CallStack::new(root))),
             output: String::new(),
             choices: Vec::new(),
             current_tags: Vec::new(),
@@ -122,12 +115,13 @@ impl FlatFlow {
     }
 }
 
-impl FlatRuntime {
-    pub(crate) fn new(data: FlatStoryData) -> Result<Self, StoryError> {
+impl Runtime {
+    #[cfg(test)]
+    pub(crate) fn new(data: StoryData) -> Result<Self, StoryError> {
         Self::new_with_seed(data, 1)
     }
 
-    pub(crate) fn new_with_seed(data: FlatStoryData, seed: i32) -> Result<Self, StoryError> {
+    pub(crate) fn new_with_seed(data: StoryData, seed: i32) -> Result<Self, StoryError> {
         Self::new_shared(Rc::new(StoryContent::Arena(data)), seed)
     }
 
@@ -140,20 +134,20 @@ impl FlatRuntime {
         let root = data
             .container_id(data.root())
             .ok_or_else(|| StoryError::BadJson("root is not a container".to_owned()))?;
-        let callstack = Rc::new(RefCell::new(FlatCallStack::new(root)));
-        let variables = VariablesState::new_flat(callstack.clone(), data.clone());
+        let callstack = Rc::new(RefCell::new(CallStack::new(root)));
+        let variables = VariablesState::new(callstack.clone(), data.clone());
         let mut runtime = Self {
             data,
             callstack,
             variables,
-            counters: FlatCounters::new(),
+            counters: StoryCounters::new(),
             evaluation_stack: Vec::new(),
             output: String::new(),
             string_stack: Vec::new(),
             tag_stack: Vec::new(),
             current_tags: Vec::new(),
             glue_active: false,
-            diverted: FlatPointer::NULL,
+            diverted: ContentPointer::NULL,
             did_safe_exit: false,
             choices: Vec::new(),
             current_turn_index: -1,
@@ -178,7 +172,7 @@ impl FlatRuntime {
             runtime
                 .callstack
                 .borrow_mut()
-                .set_current_pointer(FlatPointer::at_container(global_decl));
+                .set_current_pointer(ContentPointer::at_container(global_decl));
             while runtime.can_continue() {
                 runtime.cont()?;
             }
@@ -215,7 +209,7 @@ impl FlatRuntime {
     pub(crate) fn force_end(&mut self) {
         self.callstack
             .borrow_mut()
-            .set_current_pointer(FlatPointer::NULL);
+            .set_current_pointer(ContentPointer::NULL);
         self.choices.clear();
         self.continuation_active = false;
         self.newline_snapshot = None;
@@ -298,13 +292,13 @@ impl FlatRuntime {
                 "Ink had 1 error. It is strongly suggested that you assign an error handler to story.onError. The first issue was: RUNTIME ERROR: ran out of content. Do you need a '-> DONE' or '-> END'?".to_owned(),
             ));
         }
-        Ok(Some(StoryState::clean_output_whitespace(&self.output)))
+        Ok(Some(clean_output_whitespace(&self.output)))
     }
 
     fn snapshot(&self) -> Self {
         let callstack = Rc::new(RefCell::new(self.callstack.borrow().clone()));
         let mut variables = self.variables.clone();
-        variables.set_flat_callstack(callstack.clone());
+        variables.set_callstack(callstack.clone());
         Self {
             data: self.data.clone(),
             callstack,
@@ -378,7 +372,7 @@ impl FlatRuntime {
                 self.advance()?;
                 return Ok(());
             }
-            pointer = FlatPointer::start_of(container);
+            pointer = ContentPointer::start_of(container);
             id = pointer.resolve(&data).unwrap();
         }
         self.callstack.borrow_mut().set_current_pointer(pointer);
@@ -575,7 +569,7 @@ impl FlatRuntime {
         }
         if show {
             start.push_str(&choice_only);
-            self.choices.push(FlatChoice {
+            self.choices.push(RuntimeChoice {
                 target,
                 source,
                 is_invisible_default: flags & 8 != 0,
@@ -625,12 +619,12 @@ impl FlatRuntime {
             .set_current_thread(choice.thread);
         self.callstack
             .borrow_mut()
-            .set_current_pointer(FlatPointer::at_container(choice.target));
+            .set_current_pointer(ContentPointer::at_container(choice.target));
         self.choices.clear();
         Ok(())
     }
 
-    pub(crate) fn choices(&self) -> &[FlatChoice] {
+    pub(crate) fn choices(&self) -> &[RuntimeChoice] {
         &self.choices
     }
 
@@ -651,7 +645,7 @@ impl FlatRuntime {
             .set_current_thread(choice.thread);
         self.callstack
             .borrow_mut()
-            .set_current_pointer(FlatPointer::at_container(choice.target));
+            .set_current_pointer(ContentPointer::at_container(choice.target));
         self.choices.clear();
         self.current_turn_index += 1;
         Ok(())
@@ -711,7 +705,7 @@ impl FlatRuntime {
                 // sequence branches across a continuation boundary. The
                 // original output stream accepts that marker as well.
                 if let Some(tag) = self.tag_stack.pop() {
-                    let tag = StoryState::clean_output_whitespace(&tag);
+                    let tag = clean_output_whitespace(&tag);
                     if !self.string_stack.is_empty() {
                         self.evaluation_stack.push(Rc::new(Tag::new(&tag)));
                     } else if !tag.is_empty() {
@@ -735,14 +729,14 @@ impl FlatRuntime {
                     self.did_safe_exit = true;
                     self.callstack
                         .borrow_mut()
-                        .set_current_pointer(FlatPointer::NULL);
+                        .set_current_pointer(ContentPointer::NULL);
                 }
             }
             CommandType::End => {
                 self.did_safe_exit = true;
                 self.callstack
                     .borrow_mut()
-                    .set_current_pointer(FlatPointer::NULL);
+                    .set_current_pointer(ContentPointer::NULL);
             }
             CommandType::NoOp => {}
             CommandType::ChoiceCount => self.push_int(self.choices.len() as i32),
@@ -899,7 +893,7 @@ impl FlatRuntime {
                 {
                     self.callstack
                         .borrow_mut()
-                        .set_current_pointer(FlatPointer::NULL);
+                        .set_current_pointer(ContentPointer::NULL);
                     self.did_safe_exit = true;
                     return Ok(());
                 }
@@ -946,7 +940,7 @@ impl FlatRuntime {
             let target = self.diverted;
             self.record_entered_ancestors(previous, target);
             self.callstack.borrow_mut().set_current_pointer(target);
-            self.diverted = FlatPointer::NULL;
+            self.diverted = ContentPointer::NULL;
             return Ok(());
         }
         let pointer = self.callstack.borrow().current_pointer();
@@ -974,7 +968,7 @@ impl FlatRuntime {
             let parent = self.callstack.borrow().current_pointer();
             self.callstack
                 .borrow_mut()
-                .set_current_pointer(parent.increment(&self.data).unwrap_or(FlatPointer::NULL));
+                .set_current_pointer(parent.increment(&self.data).unwrap_or(ContentPointer::NULL));
         } else if self.callstack.borrow().can_pop_thread() {
             self.callstack.borrow_mut().pop_thread()?;
             self.advance()?;
@@ -983,12 +977,12 @@ impl FlatRuntime {
         {
             self.callstack
                 .borrow_mut()
-                .set_current_pointer(FlatPointer::NULL);
+                .set_current_pointer(ContentPointer::NULL);
             self.did_safe_exit = true;
         } else {
             self.callstack
                 .borrow_mut()
-                .set_current_pointer(FlatPointer::NULL);
+                .set_current_pointer(ContentPointer::NULL);
         }
         Ok(())
     }
@@ -1113,7 +1107,7 @@ impl FlatRuntime {
                         self.evaluation_stack.len(),
                         self.string_stack.last().unwrap_or(&self.output).len() as i32,
                     );
-                    self.diverted = FlatPointer::start_of(target);
+                    self.diverted = ContentPointer::start_of(target);
                     return Ok(());
                 }
                 return Err(StoryError::InvalidStoryState(format!(
@@ -1276,7 +1270,7 @@ impl FlatRuntime {
         Ok(())
     }
 
-    fn record_entered_ancestors(&mut self, previous: FlatPointer, target: FlatPointer) {
+    fn record_entered_ancestors(&mut self, previous: ContentPointer, target: ContentPointer) {
         let Some(target_id) = target.resolve(&self.data) else {
             return;
         };
@@ -1309,13 +1303,6 @@ impl FlatRuntime {
             }
             child = parent;
         }
-    }
-
-    pub(crate) fn current_node(&self) -> Option<NodeId> {
-        self.callstack
-            .borrow()
-            .current_pointer()
-            .resolve(&self.data)
     }
 
     pub(crate) fn current_path_string(&self) -> Option<String> {
@@ -1419,7 +1406,7 @@ impl FlatRuntime {
     }
 
     pub(crate) fn current_text(&self) -> String {
-        StoryState::clean_output_whitespace(&self.output)
+        clean_output_whitespace(&self.output)
     }
 
     pub(crate) fn switch_flow(&mut self, name: &str) {
@@ -1430,14 +1417,14 @@ impl FlatRuntime {
         let next = self
             .named_flows
             .remove(name)
-            .unwrap_or_else(|| FlatFlow::new(root));
-        let previous = FlatFlow {
+            .unwrap_or_else(|| RuntimeFlow::new(root));
+        let previous = RuntimeFlow {
             callstack: core::mem::replace(&mut self.callstack, next.callstack),
             output: core::mem::replace(&mut self.output, next.output),
             choices: core::mem::replace(&mut self.choices, next.choices),
             current_tags: core::mem::replace(&mut self.current_tags, next.current_tags),
         };
-        self.variables.set_flat_callstack(self.callstack.clone());
+        self.variables.set_callstack(self.callstack.clone());
         let previous_name = core::mem::replace(&mut self.current_flow_name, name.to_owned());
         self.named_flows.insert(previous_name, previous);
     }
@@ -1616,7 +1603,7 @@ impl FlatRuntime {
         );
         self.callstack
             .borrow_mut()
-            .set_current_pointer(FlatPointer::start_of(target));
+            .set_current_pointer(ContentPointer::start_of(target));
         if let Some(args) = args {
             for value in args {
                 if matches!(
@@ -1670,375 +1657,6 @@ impl FlatRuntime {
     pub(crate) fn take_changed_variables(&mut self) -> HashMap<String, ValueType> {
         core::mem::take(&mut self.changed_variables)
     }
-
-    #[cfg(all(
-        not(any(feature = "stream-json-parser", feature = "binary-image")),
-        feature = "serde-json-parser"
-    ))]
-    fn write_flow_json(
-        &self,
-        stack: &FlatCallStack,
-        output: &str,
-        tags: &[String],
-        choices: &[FlatChoice],
-    ) -> Result<serde_json::Value, StoryError> {
-        let mut flow = Map::new();
-        flow.insert("callstack".to_owned(), stack.write_json(&self.data)?);
-        let mut output_stream: Vec<Rc<dyn RTObject>> = Vec::new();
-        if !output.is_empty() {
-            for segment in output.split_inclusive('\n') {
-                let text = segment.strip_suffix('\n').unwrap_or(segment);
-                if !text.is_empty() {
-                    output_stream.push(Rc::new(Value::new(text)));
-                }
-                if segment.ends_with('\n') {
-                    output_stream.push(Rc::new(Value::new("\n")));
-                }
-            }
-        }
-        for tag in tags {
-            output_stream.push(Rc::new(ControlCommand::new(CommandType::BeginTag)));
-            output_stream.push(Rc::new(Value::new(tag.as_str())));
-            output_stream.push(Rc::new(ControlCommand::new(CommandType::EndTag)));
-        }
-        flow.insert(
-            "outputStream".to_owned(),
-            json_write::write_list_rt_objs(&output_stream)?,
-        );
-        let mut saved_choices = Vec::new();
-        let mut choice_threads = Map::new();
-        for (index, choice) in choices.iter().enumerate() {
-            let mut saved = Map::new();
-            saved.insert("text".to_owned(), json!(choice.text));
-            saved.insert("index".to_owned(), json!(index));
-            saved.insert(
-                "originalChoicePath".to_owned(),
-                json!(
-                    self.data
-                        .canonical_path_text(choice.source)
-                        .ok_or_else(|| StoryError::InvalidStoryState(
-                            "choice has invalid source".to_owned()
-                        ))?
-                ),
-            );
-            saved.insert(
-                "originalThreadIndex".to_owned(),
-                json!(choice.thread.thread_index),
-            );
-            saved.insert(
-                "targetPath".to_owned(),
-                json!(
-                    self.data
-                        .canonical_path_text(choice.target.node())
-                        .ok_or_else(|| StoryError::InvalidStoryState(
-                            "choice has invalid target".to_owned()
-                        ))?
-                ),
-            );
-            saved.insert("tags".to_owned(), json!(choice.tags));
-            saved_choices.push(serde_json::Value::Object(saved));
-            choice_threads.insert(
-                choice.thread.thread_index.to_string(),
-                choice.thread.write_json(&self.data)?,
-            );
-        }
-        flow.insert(
-            "currentChoices".to_owned(),
-            serde_json::Value::Array(saved_choices),
-        );
-        if !choice_threads.is_empty() {
-            flow.insert(
-                "choiceThreads".to_owned(),
-                serde_json::Value::Object(choice_threads),
-            );
-        }
-        Ok(serde_json::Value::Object(flow))
-    }
-
-    #[cfg(all(
-        not(any(feature = "stream-json-parser", feature = "binary-image")),
-        feature = "serde-json-parser"
-    ))]
-    pub(crate) fn save_state_json(&self) -> Result<String, StoryError> {
-        let mut state = Map::new();
-        let mut flows = Map::new();
-        flows.insert(
-            self.current_flow_name.clone(),
-            self.write_flow_json(
-                &self.callstack.borrow(),
-                &self.output,
-                &self.current_tags,
-                &self.choices,
-            )?,
-        );
-        for (name, flow) in &self.named_flows {
-            flows.insert(
-                name.clone(),
-                self.write_flow_json(
-                    &flow.callstack.borrow(),
-                    &flow.output,
-                    &flow.current_tags,
-                    &flow.choices,
-                )?,
-            );
-        }
-        state.insert("flows".to_owned(), serde_json::Value::Object(flows));
-        state.insert("currentFlowName".to_owned(), json!(self.current_flow_name));
-        state.insert("variablesState".to_owned(), self.variables.write_json()?);
-        state.insert(
-            "evalStack".to_owned(),
-            json_write::write_list_rt_objs(&self.evaluation_stack)?,
-        );
-        if !self.diverted.is_null() {
-            state.insert(
-                "currentDivertTarget".to_owned(),
-                json!(
-                    self.diverted
-                        .path(&self.data)
-                        .ok_or_else(|| StoryError::InvalidStoryState(
-                            "divert has invalid path".to_owned()
-                        ))?
-                        .to_string()
-                ),
-            );
-        }
-        state.insert(
-            "visitCounts".to_owned(),
-            json!(self.counters.visit_paths_for_save(&self.data)?),
-        );
-        state.insert(
-            "turnIndices".to_owned(),
-            json!(self.counters.turn_paths_for_save(&self.data)?),
-        );
-        state.insert("turnIdx".to_owned(), json!(self.current_turn_index));
-        state.insert("storySeed".to_owned(), json!(self.story_seed));
-        state.insert("previousRandom".to_owned(), json!(self.previous_random));
-        state.insert("inkSaveVersion".to_owned(), json!(INK_SAVE_STATE_VERSION));
-        state.insert(
-            "inkFormatVersion".to_owned(),
-            json!(crate::story::INK_VERSION_CURRENT),
-        );
-        serde_json::to_string(&state).map_err(|error| StoryError::BadJson(error.to_string()))
-    }
-
-    #[cfg(all(
-        not(any(feature = "stream-json-parser", feature = "binary-image")),
-        feature = "serde-json-parser"
-    ))]
-    fn load_flow_json(&self, encoded: &serde_json::Value) -> Result<FlatFlow, StoryError> {
-        let object = encoded
-            .as_object()
-            .ok_or_else(|| StoryError::BadJson("flow must be an object".to_owned()))?;
-        let root = self.data.container_id(self.data.root()).unwrap();
-        let mut flow = FlatFlow::new(root);
-        flow.callstack.borrow_mut().load_json(
-            &self.data,
-            object
-                .get("callstack")
-                .ok_or_else(|| StoryError::BadJson("flow callstack not found".to_owned()))?,
-        )?;
-        let output = object
-            .get("outputStream")
-            .and_then(serde_json::Value::as_array)
-            .ok_or_else(|| StoryError::BadJson("outputStream not found".to_owned()))?;
-        let output = json_read::jarray_to_runtime_obj_list(output, false)?;
-        let mut tag = None::<String>;
-        for item in output {
-            if let Some(command) = item.as_any().downcast_ref::<ControlCommand>() {
-                match command.command_type {
-                    CommandType::BeginTag => tag = Some(String::new()),
-                    CommandType::EndTag => {
-                        if let Some(value) = tag.take() {
-                            flow.current_tags
-                                .push(StoryState::clean_output_whitespace(&value));
-                        }
-                    }
-                    _ => {}
-                }
-            } else if let Some(text) = Value::get_value::<&StringValue>(item.as_ref()) {
-                if let Some(tag) = tag.as_mut() {
-                    tag.push_str(&text.string);
-                } else {
-                    flow.output.push_str(&text.string);
-                }
-            } else if let Some(static_tag) = item.as_any().downcast_ref::<Tag>() {
-                flow.current_tags.push(static_tag.get_text().clone());
-            }
-        }
-        let saved_threads = object
-            .get("choiceThreads")
-            .and_then(serde_json::Value::as_object);
-        let choices = object
-            .get("currentChoices")
-            .and_then(serde_json::Value::as_array)
-            .ok_or_else(|| StoryError::BadJson("currentChoices not found".to_owned()))?;
-        for encoded in choices {
-            let saved = encoded
-                .as_object()
-                .ok_or_else(|| StoryError::BadJson("choice must be an object".to_owned()))?;
-            let get_str = |key: &str| {
-                saved
-                    .get(key)
-                    .and_then(serde_json::Value::as_str)
-                    .ok_or_else(|| StoryError::BadJson(format!("choice {key} not found")))
-            };
-            let target_path = Path::new_with_components_string(Some(get_str("targetPath")?));
-            let source_path =
-                Path::new_with_components_string(Some(get_str("originalChoicePath")?));
-            let target = self
-                .data
-                .resolve_path(self.data.root(), &target_path)
-                .and_then(|id| self.data.container_id(id))
-                .ok_or_else(|| StoryError::BadJson("choice target does not resolve".to_owned()))?;
-            let source = self
-                .data
-                .resolve_path(self.data.root(), &source_path)
-                .ok_or_else(|| StoryError::BadJson("choice source does not resolve".to_owned()))?;
-            let thread_index = saved
-                .get("originalThreadIndex")
-                .and_then(serde_json::Value::as_u64)
-                .ok_or_else(|| StoryError::BadJson("choice thread index not found".to_owned()))?
-                as usize;
-            let thread =
-                if let Some(thread) = flow.callstack.borrow().get_thread_with_index(thread_index) {
-                    thread.clone()
-                } else {
-                    let encoded = saved_threads
-                        .and_then(|threads| threads.get(&thread_index.to_string()))
-                        .ok_or_else(|| {
-                            StoryError::BadJson(format!(
-                                "choice references missing thread {thread_index}"
-                            ))
-                        })?;
-                    FlatThread::from_json(&self.data, encoded)?
-                };
-            let tags = saved
-                .get("tags")
-                .and_then(serde_json::Value::as_array)
-                .ok_or_else(|| StoryError::BadJson("choice tags not found".to_owned()))?
-                .iter()
-                .map(|tag| {
-                    tag.as_str()
-                        .map(str::to_owned)
-                        .ok_or_else(|| StoryError::BadJson("choice tag must be text".to_owned()))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            flow.choices.push(FlatChoice {
-                target,
-                source,
-                is_invisible_default: false,
-                text: get_str("text")?.to_owned(),
-                tags,
-                thread,
-            });
-        }
-        Ok(flow)
-    }
-
-    #[cfg(all(
-        not(any(feature = "stream-json-parser", feature = "binary-image")),
-        feature = "serde-json-parser"
-    ))]
-    pub(crate) fn load_state_json(&mut self, saved: &str) -> Result<(), StoryError> {
-        let encoded: serde_json::Value =
-            serde_json::from_str(saved).map_err(|error| StoryError::BadJson(error.to_string()))?;
-        let object = encoded
-            .as_object()
-            .ok_or_else(|| StoryError::BadJson("save state must be an object".to_owned()))?;
-        let version = object
-            .get("inkSaveVersion")
-            .and_then(serde_json::Value::as_u64)
-            .ok_or_else(|| {
-                StoryError::BadJson("ink save format incorrect, can't load.".to_owned())
-            })?;
-        if version < crate::story_state::MIN_COMPATIBLE_LOAD_VERSION as u64 {
-            return Err(StoryError::BadJson(format!(
-                "Ink save format isn't compatible with the current version (saw '{version}', but minimum is {}), so can't load.",
-                crate::story_state::MIN_COMPATIBLE_LOAD_VERSION
-            )));
-        }
-        let flows = object
-            .get("flows")
-            .and_then(serde_json::Value::as_object)
-            .ok_or_else(|| StoryError::BadJson("flows not found".to_owned()))?;
-        let current_name = object
-            .get("currentFlowName")
-            .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| StoryError::BadJson("currentFlowName not found".to_owned()))?;
-        let mut parsed_flows = HashMap::new();
-        for (name, flow) in flows {
-            parsed_flows.insert(name.clone(), self.load_flow_json(flow)?);
-        }
-        let current = parsed_flows
-            .remove(current_name)
-            .ok_or_else(|| StoryError::BadJson("current flow not found".to_owned()))?;
-        let mut loaded = self.snapshot();
-        loaded.current_flow_name = current_name.to_owned();
-        loaded.named_flows = parsed_flows;
-        loaded.callstack = current.callstack;
-        loaded.output = current.output;
-        loaded.current_tags = current.current_tags;
-        loaded.choices = current.choices;
-        loaded
-            .variables
-            .set_flat_callstack(loaded.callstack.clone());
-        loaded.variables.load_json(
-            object
-                .get("variablesState")
-                .and_then(serde_json::Value::as_object)
-                .ok_or_else(|| StoryError::BadJson("variablesState not found".to_owned()))?,
-        )?;
-        loaded.evaluation_stack = json_read::jarray_to_runtime_obj_list(
-            object
-                .get("evalStack")
-                .and_then(serde_json::Value::as_array)
-                .ok_or_else(|| StoryError::BadJson("evalStack not found".to_owned()))?,
-            false,
-        )?;
-        loaded.diverted = object
-            .get("currentDivertTarget")
-            .and_then(serde_json::Value::as_str)
-            .map(|path| {
-                loaded
-                    .data
-                    .pointer_at_path(&Path::new_with_components_string(Some(path)))
-                    .ok_or_else(|| {
-                        StoryError::BadJson("current divert target does not resolve".to_owned())
-                    })
-            })
-            .transpose()?
-            .unwrap_or(FlatPointer::NULL);
-        let visits = serde_json::from_value(
-            object
-                .get("visitCounts")
-                .cloned()
-                .unwrap_or_else(|| json!({})),
-        )
-        .map_err(|error| StoryError::BadJson(error.to_string()))?;
-        let turns = serde_json::from_value(
-            object
-                .get("turnIndices")
-                .cloned()
-                .unwrap_or_else(|| json!({})),
-        )
-        .map_err(|error| StoryError::BadJson(error.to_string()))?;
-        loaded.counters.restore_visit_paths(&loaded.data, &visits)?;
-        loaded.counters.restore_turn_paths(&loaded.data, &turns)?;
-        loaded.current_turn_index = object
-            .get("turnIdx")
-            .and_then(serde_json::Value::as_i64)
-            .unwrap_or(-1) as i32;
-        loaded.story_seed = object
-            .get("storySeed")
-            .and_then(serde_json::Value::as_i64)
-            .unwrap_or(0) as i32;
-        loaded.previous_random = object
-            .get("previousRandom")
-            .and_then(serde_json::Value::as_i64)
-            .unwrap_or(0) as i32;
-        *self = loaded;
-        Ok(())
-    }
 }
 
 #[cfg(all(
@@ -2047,83 +1665,21 @@ impl FlatRuntime {
 ))]
 mod tests {
     use super::*;
-    use crate::story::LegacyStory;
-
-    fn compare_first_choice_path(json: &str, context: &str) {
-        let mut legacy = LegacyStory::new_with_seed(json, 1).unwrap();
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut flat = FlatRuntime::new(data).unwrap();
-        for step in 0..10 {
-            while legacy.can_continue() && flat.can_continue() {
-                match (flat.cont(), legacy.cont()) {
-                    (Ok(flat_line), Ok(legacy_line)) => {
-                        assert_eq!(
-                            flat_line,
-                            legacy_line,
-                            "{context} at choice cycle {step}, flat turn {}, flat counters {:?}",
-                            flat.current_turn_index,
-                            flat.counters.turn_paths_for_save(&flat.data).ok()
-                        );
-                        assert_eq!(
-                            flat.current_tags(),
-                            legacy.get_current_tags().unwrap(),
-                            "{context} tags"
-                        );
-                    }
-                    (Err(flat_error), Err(legacy_error)) => {
-                        assert_eq!(
-                            flat_error.to_string(),
-                            legacy_error.to_string(),
-                            "{context}"
-                        );
-                        return;
-                    }
-                    (flat_result, legacy_result) => {
-                        panic!(
-                            "{context}: flat={:?}, legacy={:?}, node={:?}",
-                            flat_result.err(),
-                            legacy_result.err(),
-                            flat.current_node()
-                                .and_then(|id| flat.data.canonical_path_text(id))
-                        );
-                    }
-                }
-            }
-            assert_eq!(flat.can_continue(), legacy.can_continue());
-            let choices = legacy.get_current_choices();
-            let flat_choices: Vec<_> = flat
-                .choices()
-                .iter()
-                .filter(|choice| !choice.is_invisible_default)
-                .collect();
-            assert_eq!(flat_choices.len(), choices.len());
-            for (flat_choice, choice) in flat_choices.iter().zip(&choices) {
-                assert_eq!(flat_choice.text, choice.text);
-                assert_eq!(flat_choice.tags, choice.tags);
-            }
-            if choices.is_empty() {
-                return;
-            }
-            flat.choose_choice_index(0).unwrap();
-            legacy.choose_choice_index(0).unwrap();
-        }
-        // Sticky choices can intentionally repeat without an ending.
-    }
 
     #[test]
-    fn flat_runtime_runs_text_divert_and_expression_without_a_tree() {
+    fn runtime_runs_text_divert_and_expression_without_a_tree() {
         let json = r#"{"inkVersion":21,"root":["^Hello ",{"->":"target"},{"target":["ev",1,2,"+","out","/ev","^!\n","done",null]}],"listDefs":{}}"#;
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut runtime = FlatRuntime::new(data).unwrap();
+        let (_, data) = StoryData::from_json_reader(json.as_bytes()).unwrap();
+        let mut runtime = Runtime::new(data).unwrap();
         assert_eq!(runtime.cont().unwrap(), "Hello 3!\n");
         assert!(!runtime.can_continue());
     }
 
     #[test]
-    fn flat_runtime_generates_and_follows_choice_by_id() {
+    fn runtime_generates_and_follows_choice_by_id() {
         let json = r#"{"inkVersion":21,"root":["ev","^Option","/ev",{"*":"choice","flg":4},{"choice":["^Selected\n","done",null]}],"listDefs":{}}"#;
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut runtime = FlatRuntime::new(data).unwrap();
+        let (_, data) = StoryData::from_json_reader(json.as_bytes()).unwrap();
+        let mut runtime = Runtime::new(data).unwrap();
         assert_eq!(runtime.cont().unwrap(), "");
         assert!(!runtime.can_continue());
         assert_eq!(runtime.choices().len(), 1);
@@ -2132,559 +1688,14 @@ mod tests {
         assert_eq!(runtime.cont().unwrap(), "Selected\n");
     }
 
+    #[cfg(feature = "stream-json-parser")]
     #[test]
-    fn flat_runtime_matches_legacy_on_simple_divert_fixture() {
-        let json = include_str!("../../conformance-tests/inkfiles/divert/simple-divert.ink.json");
-        let mut legacy = LegacyStory::new_with_seed(json, 1).unwrap();
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut flat = FlatRuntime::new(data).unwrap();
-        while legacy.can_continue() && flat.can_continue() {
-            assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-        }
-        assert_eq!(flat.can_continue(), legacy.can_continue());
-    }
-
-    #[test]
-    fn flat_runtime_matches_legacy_on_single_choice_fixture() {
-        let json = include_str!("../../conformance-tests/inkfiles/choices/single-choice.ink.json");
-        let mut legacy = LegacyStory::new_with_seed(json, 1).unwrap();
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut flat = FlatRuntime::new(data).unwrap();
-        while legacy.can_continue() && flat.can_continue() {
-            assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-        }
-        assert_eq!(flat.can_continue(), legacy.can_continue());
-        let legacy_choices = legacy.get_current_choices();
-        assert_eq!(flat.choices().len(), legacy_choices.len());
-        assert_eq!(flat.choices()[0].text, legacy_choices[0].text);
-        flat.choose_choice_index(0).unwrap();
-        legacy.choose_choice_index(0).unwrap();
-        while legacy.can_continue() && flat.can_continue() {
-            assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-        }
-        assert_eq!(flat.can_continue(), legacy.can_continue());
-    }
-
-    #[test]
-    fn flat_runtime_matches_legacy_on_choice_with_variable_target() {
-        let json = include_str!("../../conformance-tests/inkfiles/choices/one.ink.json");
-        let mut legacy = LegacyStory::new_with_seed(json, 1).unwrap();
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut flat = FlatRuntime::new(data).unwrap();
-        while legacy.can_continue() && flat.can_continue() {
-            assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-        }
-        assert_eq!(flat.can_continue(), legacy.can_continue());
-        let legacy_choices = legacy.get_current_choices();
-        assert_eq!(flat.choices().len(), legacy_choices.len());
-        assert_eq!(flat.choices()[0].text, legacy_choices[0].text);
-        flat.choose_choice_index(0).unwrap();
-        legacy.choose_choice_index(0).unwrap();
-        while legacy.can_continue() && flat.can_continue() {
-            assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-        }
-        assert_eq!(flat.can_continue(), legacy.can_continue());
-    }
-
-    #[test]
-    fn flat_runtime_matches_legacy_on_multiple_choices() {
-        let json = include_str!("../../conformance-tests/inkfiles/choices/multi-choice.ink.json");
-        let mut legacy = LegacyStory::new_with_seed(json, 1).unwrap();
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut flat = FlatRuntime::new(data).unwrap();
-        while legacy.can_continue() && flat.can_continue() {
-            assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-        }
-        let legacy_choices = legacy.get_current_choices();
-        let flat_choices = flat.choices();
-        assert_eq!(flat_choices.len(), legacy_choices.len());
-        for (flat_choice, legacy_choice) in flat_choices.iter().zip(&legacy_choices) {
-            assert_eq!(flat_choice.text, legacy_choice.text);
-        }
-        let index = legacy_choices.len() - 1;
-        flat.choose_choice_index(index).unwrap();
-        legacy.choose_choice_index(index).unwrap();
-        while legacy.can_continue() && flat.can_continue() {
-            assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-        }
-        assert_eq!(flat.can_continue(), legacy.can_continue());
-    }
-
-    #[test]
-    fn flat_runtime_matches_simple_text_and_glue_fixtures() {
-        for (name, json) in [
-            (
-                "twolines",
-                include_str!("../../conformance-tests/inkfiles/basictext/twolines.ink.json"),
-            ),
-            (
-                "simple-glue",
-                include_str!("../../conformance-tests/inkfiles/glue/simple-glue.ink.json"),
-            ),
-            (
-                "left-right-glue",
-                include_str!(
-                    "../../conformance-tests/inkfiles/glue/left-right-glue-matching.ink.json"
-                ),
-            ),
-            (
-                "glue-with-divert",
-                include_str!("../../conformance-tests/inkfiles/glue/glue-with-divert.ink.json"),
-            ),
-            (
-                "glue-bugfix1",
-                include_str!("../../conformance-tests/inkfiles/glue/testbugfix1.ink.json"),
-            ),
-            (
-                "glue-bugfix2",
-                include_str!("../../conformance-tests/inkfiles/glue/testbugfix2.ink.json"),
-            ),
-        ] {
-            compare_first_choice_path(json, name);
-        }
-    }
-
-    #[test]
-    fn flat_runtime_matches_choice_fixtures() {
-        for (name, json) in [
-            (
-                "conditional-choice",
-                include_str!(
-                    "../../conformance-tests/inkfiles/choices/conditional-choice.ink.json"
-                ),
-            ),
-            (
-                "fallback-choice",
-                include_str!("../../conformance-tests/inkfiles/choices/fallback-choice.ink.json"),
-            ),
-            (
-                "no-choice-text",
-                include_str!("../../conformance-tests/inkfiles/choices/no-choice-text.ink.json"),
-            ),
-            (
-                "varying-choice",
-                include_str!("../../conformance-tests/inkfiles/choices/varying-choice.ink.json"),
-            ),
-            (
-                "sticky-choice",
-                include_str!("../../conformance-tests/inkfiles/choices/sticky-choice.ink.json"),
-            ),
-        ] {
-            compare_first_choice_path(json, name);
-        }
-    }
-
-    #[test]
-    fn flat_runtime_matches_count_and_sequence_fixtures() {
-        for (name, json) in [
-            (
-                "read-counts",
-                include_str!("../../conformance-tests/inkfiles/misc/read-counts.ink.json"),
-            ),
-            (
-                "turns-since",
-                include_str!("../../conformance-tests/inkfiles/misc/turns-since.ink.json"),
-            ),
-            (
-                "shuffle",
-                include_str!("../../conformance-tests/inkfiles/conditional/shuffle.ink.json"),
-            ),
-            (
-                "once",
-                include_str!("../../conformance-tests/inkfiles/conditional/once.ink.json"),
-            ),
-        ] {
-            compare_first_choice_path(json, name);
-        }
-    }
-
-    #[test]
-    fn flat_runtime_matches_list_fixtures() {
-        for (name, json) in [
-            (
-                "list-range",
-                include_str!("../../conformance-tests/inkfiles/lists/list-range.ink.json"),
-            ),
-            (
-                "list-basic",
-                include_str!("../../conformance-tests/inkfiles/lists/basic-operations.ink.json"),
-            ),
-            (
-                "list-mixed",
-                include_str!("../../conformance-tests/inkfiles/lists/list-mixed-items.ink.json"),
-            ),
-            (
-                "empty-list-origin",
-                include_str!("../../conformance-tests/inkfiles/lists/empty-list-origin.ink.json"),
-            ),
-            (
-                "empty-list-origin-after-assignment",
-                include_str!(
-                    "../../conformance-tests/inkfiles/lists/empty-list-origin-after-assignment.ink.json"
-                ),
-            ),
-            (
-                "more-list-operations",
-                include_str!(
-                    "../../conformance-tests/inkfiles/lists/more-list-operations.ink.json"
-                ),
-            ),
-        ] {
-            compare_first_choice_path(json, name);
-        }
-    }
-
-    #[test]
-    fn flat_runtime_matches_tag_fixtures() {
-        for (name, json) in [
-            (
-                "tags",
-                include_str!("../../conformance-tests/inkfiles/tags/tags.ink.json"),
-            ),
-            (
-                "tags-in-choice",
-                include_str!("../../conformance-tests/inkfiles/tags/tagsInChoice.ink.json"),
-            ),
-            (
-                "tags-in-choice-dynamic",
-                include_str!("../../conformance-tests/inkfiles/tags/tagsInChoiceDynamic.ink.json"),
-            ),
-        ] {
-            compare_first_choice_path(json, name);
-        }
-    }
-
-    #[test]
-    fn flat_runtime_matches_variable_and_flow_fixtures() {
-        for (name, json) in [
-            (
-                "varcalc",
-                include_str!("../../conformance-tests/inkfiles/variable/varcalc.ink.json"),
-            ),
-            (
-                "var-divert",
-                include_str!("../../conformance-tests/inkfiles/variable/var-divert.ink.json"),
-            ),
-            (
-                "param-ints",
-                include_str!("../../conformance-tests/inkfiles/knot/param-ints.ink.json"),
-            ),
-            (
-                "sequence-tunnel",
-                include_str!("../../conformance-tests/inkfiles/tunnels/sequence-tunnel.ink.json"),
-            ),
-            (
-                "tunnel-override",
-                include_str!(
-                    "../../conformance-tests/inkfiles/tunnels/tunnel-onwards-divert-override.ink.json"
-                ),
-            ),
-            (
-                "thread-bug",
-                include_str!("../../conformance-tests/inkfiles/threads/thread-bug.ink.json"),
-            ),
-            (
-                "complex-flow",
-                include_str!("../../conformance-tests/inkfiles/gather/complex-flow.ink.json"),
-            ),
-        ] {
-            compare_first_choice_path(json, name);
-        }
-    }
-
-    #[test]
-    fn flat_runtime_matches_the_intercept_first_path() {
-        let json = include_str!("../../conformance-tests/inkfiles/TheIntercept.ink.json");
-        compare_first_choice_path(json, "TheIntercept");
-    }
-
-    #[test]
-    fn flat_runtime_matches_external_binding_and_fallback() {
-        let json = include_str!(
-            "../../conformance-tests/inkfiles/runtime/external-function-2-arg.ink.json"
-        );
-        for fallback in [false, true] {
-            let mut legacy = LegacyStory::new_with_seed(json, 1).unwrap();
-            let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-            let mut flat = FlatRuntime::new(data).unwrap();
-            if fallback {
-                legacy.set_allow_external_function_fallbacks(true);
-                flat.set_allow_external_fallbacks(true);
-            } else {
-                legacy
-                    .bind_external_function(
-                        "externalFunction",
-                        |_, args| {
-                            assert_eq!(args.len(), 2);
-                            Ok(Some(ValueType::Float(7.0)))
-                        },
-                        true,
-                    )
-                    .unwrap();
-                flat.bind_external_function(
-                    "externalFunction",
-                    |_: &str, args: &[ValueType]| {
-                        assert_eq!(args.len(), 2);
-                        Ok(Some(ValueType::Float(7.0)))
-                    },
-                    true,
-                )
-                .unwrap();
-            }
-            assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-        }
-    }
-
-    #[test]
-    fn flat_runtime_defers_unsafe_external_until_after_newline() {
-        let json = r#"{"inkVersion":21,"root":["^First\n","ev",{"x()":"externalFunction","exArgs":0},"out","/ev","^\n","done",null],"listDefs":{}}"#;
-        let mut legacy = LegacyStory::new_with_seed(json, 1).unwrap();
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut flat = FlatRuntime::new(data).unwrap();
-        let legacy_calls = Rc::new(RefCell::new(0));
-        let flat_calls = Rc::new(RefCell::new(0));
-        let observed = legacy_calls.clone();
-        legacy
-            .bind_external_function(
-                "externalFunction",
-                move |_, _| {
-                    *observed.borrow_mut() += 1;
-                    Ok(Some(ValueType::new::<&str>("Second")))
-                },
-                false,
-            )
-            .unwrap();
-        let observed = flat_calls.clone();
-        flat.bind_external_function(
-            "externalFunction",
-            move |_: &str, _: &[ValueType]| {
-                *observed.borrow_mut() += 1;
-                Ok(Some(ValueType::new::<&str>("Second")))
-            },
-            false,
-        )
-        .unwrap();
-        assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-        assert_eq!(*flat_calls.borrow(), 0);
-        assert_eq!(*legacy_calls.borrow(), 0);
-        assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-        assert_eq!(*flat_calls.borrow(), 1);
-        assert_eq!(*legacy_calls.borrow(), 1);
-    }
-
-    #[test]
-    fn flat_runtime_keeps_independent_flows() {
-        let json =
-            include_str!("../../conformance-tests/inkfiles/runtime/multiflow-basics.ink.json");
-        let mut legacy = LegacyStory::new_with_seed(json, 1).unwrap();
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut flat = FlatRuntime::new(data).unwrap();
-        for (flow, path) in [("First", "knot1"), ("Second", "knot2")] {
-            legacy.switch_flow(flow).unwrap();
-            flat.switch_flow(flow);
-            legacy.choose_path_string(path, true, None).unwrap();
-            flat.choose_path_string(path, true).unwrap();
-            assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-        }
-        for flow in ["First", "Second"] {
-            legacy.switch_flow(flow).unwrap();
-            flat.switch_flow(flow);
-            assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-        }
-        flat.remove_flow("Second").unwrap();
-        legacy.remove_flow("Second").unwrap();
-        assert_eq!(flat.current_flow_name, "DEFAULT_FLOW");
-    }
-
-    #[test]
-    fn flat_runtime_reads_and_writes_global_variables() {
-        let json =
-            include_str!("../../conformance-tests/inkfiles/runtime/set-get-variables.ink.json");
-        let mut legacy = LegacyStory::new_with_seed(json, 1).unwrap();
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut flat = FlatRuntime::new(data).unwrap();
-        for name in ["x", "y", "z"] {
-            assert!(
-                flat.get_variable(name) == legacy.get_variable(name),
-                "{name}"
-            );
-        }
-        if let Some(value) = legacy.get_variable("x") {
-            legacy.set_variable("x", &value).unwrap();
-            flat.set_variable("x", &value).unwrap();
-            assert!(flat.get_variable("x") == legacy.get_variable("x"));
-        }
-    }
-
-    #[cfg(all(
-        not(any(feature = "stream-json-parser", feature = "binary-image")),
-        feature = "serde-json-parser"
-    ))]
-    #[test]
-    fn flat_callstack_uses_legacy_save_shape() {
-        let json = include_str!("../../conformance-tests/inkfiles/choices/single-choice.ink.json");
-        let mut legacy = LegacyStory::new_with_seed(json, 1).unwrap();
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut flat = FlatRuntime::new(data).unwrap();
-        legacy.cont().unwrap();
-        flat.cont().unwrap();
-        let legacy_stack = legacy
-            .get_state()
-            .get_callstack()
-            .borrow()
-            .write_json()
-            .unwrap();
-        let flat_stack = flat.callstack.borrow().write_json(&flat.data).unwrap();
-        assert_eq!(flat_stack, legacy_stack);
-        let root = flat.data.container_id(flat.data.root()).unwrap();
-        let mut loaded = FlatCallStack::new(root);
-        loaded.load_json(&flat.data, &legacy_stack).unwrap();
-        assert_eq!(loaded.write_json(&flat.data).unwrap(), legacy_stack);
-    }
-
-    #[cfg(all(
-        not(any(feature = "stream-json-parser", feature = "binary-image")),
-        feature = "serde-json-parser"
-    ))]
-    #[test]
-    fn flat_state_uses_legacy_save_shape() {
-        let json = include_str!("../../conformance-tests/inkfiles/choices/single-choice.ink.json");
-        let mut legacy = LegacyStory::new_with_seed(json, 1).unwrap();
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut flat = FlatRuntime::new(data).unwrap();
-        legacy.cont().unwrap();
-        flat.cont().unwrap();
-        let legacy_saved: serde_json::Value =
-            serde_json::from_str(&legacy.save_state().unwrap()).unwrap();
-        let flat_saved: serde_json::Value =
-            serde_json::from_str(&flat.save_state_json().unwrap()).unwrap();
-        assert_eq!(flat_saved, legacy_saved);
-        let legacy_json = legacy.save_state().unwrap();
-        let flat_json = flat.save_state_json().unwrap();
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut restored_flat = FlatRuntime::new(data).unwrap();
-        restored_flat.load_state_json(&legacy_json).unwrap();
-        let mut restored_legacy = LegacyStory::new_with_seed(json, 1).unwrap();
-        restored_legacy.load_state(&flat_json).unwrap();
-        restored_flat.choose_choice_index(0).unwrap();
-        restored_legacy.choose_choice_index(0).unwrap();
-        assert_eq!(
-            restored_flat.cont().unwrap(),
-            restored_legacy.cont().unwrap()
-        );
-    }
-
-    #[cfg(all(
-        not(any(feature = "stream-json-parser", feature = "binary-image")),
-        feature = "serde-json-parser"
-    ))]
-    #[test]
-    fn flat_state_roundtrips_multiple_flows_and_threads() {
+    fn stream_state_roundtrips_multiple_flows_and_threads() {
         let json = include_str!(
             "../../conformance-tests/inkfiles/runtime/multiflow-saveloadthreads.ink.json"
         );
-        let mut legacy = LegacyStory::new_with_seed(json, 1).unwrap();
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut flat = FlatRuntime::new(data).unwrap();
-        assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-        for (flow, path) in [("Blue Flow", "blue"), ("Red Flow", "red")] {
-            legacy.switch_flow(flow).unwrap();
-            flat.switch_flow(flow);
-            legacy.choose_path_string(path, true, None).unwrap();
-            flat.choose_path_string(path, true).unwrap();
-            assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-            while flat.can_continue() && legacy.can_continue() {
-                assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-            }
-            assert_eq!(
-                flat.choices().len(),
-                legacy.get_current_choices().len(),
-                "before save {flow}"
-            );
-            assert_eq!(flat.choices().len(), 2, "expected two choices in {flow}");
-        }
-        let flat_json = flat.save_state_json().unwrap();
-        let legacy_json = legacy.save_state().unwrap();
-        // The legacy serializer can retain a stale duplicate of the active
-        // flow after speculative continuation. The flat state keeps the
-        // active flow out of the inactive-flow map, preserving its choices.
-        let flat_value: serde_json::Value = serde_json::from_str(&flat_json).unwrap();
-        assert_eq!(
-            flat_value["flows"]["Red Flow"]["currentChoices"]
-                .as_array()
-                .unwrap()
-                .len(),
-            2
-        );
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut restored_flat = FlatRuntime::new(data).unwrap();
-        restored_flat.load_state_json(&flat_json).unwrap();
-        assert_eq!(
-            restored_flat.choices().len(),
-            2,
-            "after loading flat red state"
-        );
-        let mut restored_legacy = LegacyStory::new_with_seed(json, 1).unwrap();
-        restored_legacy.load_state(&flat_json).unwrap();
-        for flow in ["Red Flow", "Blue Flow"] {
-            restored_flat.switch_flow(flow);
-            restored_legacy.switch_flow(flow).unwrap();
-            assert_eq!(
-                restored_flat.choices().len(),
-                restored_legacy.get_current_choices().len(),
-                "{flow}"
-            );
-            restored_flat.choose_choice_index(0).unwrap();
-            restored_legacy.choose_choice_index(0).unwrap();
-            while restored_flat.can_continue() && restored_legacy.can_continue() {
-                assert_eq!(
-                    restored_flat.cont().unwrap(),
-                    restored_legacy.cont().unwrap()
-                );
-            }
-        }
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut from_legacy = FlatRuntime::new(data).unwrap();
-        from_legacy.load_state_json(&legacy_json).unwrap();
-        from_legacy.switch_flow("Blue Flow");
-        assert_eq!(from_legacy.choices().len(), 2);
-    }
-
-    #[cfg(feature = "stream-json-parser")]
-    #[test]
-    fn flat_stream_state_loads_in_legacy_runtime() {
-        let json = include_str!("../../conformance-tests/inkfiles/choices/single-choice.ink.json");
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut flat = FlatRuntime::new(data).unwrap();
-        flat.cont().unwrap();
-        let saved = flat.save_state_json().unwrap();
-        let mut legacy = LegacyStory::new_with_seed(json, 1).unwrap();
-        legacy.load_state(&saved).unwrap();
-        assert_eq!(flat.choices().len(), legacy.get_current_choices().len());
-        flat.choose_choice_index(0).unwrap();
-        legacy.choose_choice_index(0).unwrap();
-        assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-
-        let mut legacy = LegacyStory::new_with_seed(json, 1).unwrap();
-        legacy.cont().unwrap();
-        let legacy_saved = legacy.save_state().unwrap();
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut restored = FlatRuntime::new(data).unwrap();
-        restored.load_state_json(&legacy_saved).unwrap();
-        assert_eq!(restored.choices().len(), legacy.get_current_choices().len());
-        restored.choose_choice_index(0).unwrap();
-        legacy.choose_choice_index(0).unwrap();
-        assert_eq!(restored.cont().unwrap(), legacy.cont().unwrap());
-    }
-
-    #[cfg(feature = "stream-json-parser")]
-    #[test]
-    fn flat_stream_state_roundtrips_multiple_flows_and_threads() {
-        let json = include_str!(
-            "../../conformance-tests/inkfiles/runtime/multiflow-saveloadthreads.ink.json"
-        );
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut flat = FlatRuntime::new(data).unwrap();
+        let (_, data) = StoryData::from_json_reader(json.as_bytes()).unwrap();
+        let mut flat = Runtime::new(data).unwrap();
         flat.cont().unwrap();
         for (flow, path) in [("Blue Flow", "blue"), ("Red Flow", "red")] {
             flat.switch_flow(flow);
@@ -2695,8 +1706,8 @@ mod tests {
             assert_eq!(flat.choices().len(), 2);
         }
         let saved = flat.save_state_json().unwrap();
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let mut restored = FlatRuntime::new(data).unwrap();
+        let (_, data) = StoryData::from_json_reader(json.as_bytes()).unwrap();
+        let mut restored = Runtime::new(data).unwrap();
         restored.load_state_from_reader(saved.as_bytes()).unwrap();
         for flow in ["Red Flow", "Blue Flow"] {
             restored.switch_flow(flow);

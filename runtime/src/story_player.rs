@@ -1,4 +1,4 @@
-//! Public entry point for the flat interpreter.
+//! Public entry point for the Ink interpreter.
 //!
 //! It reads static instructions from an owned arena or a borrowed binary image.
 
@@ -10,28 +10,28 @@ use crate::{
     compat::collections::{HashMap, HashSet},
     compat::io::{Read, Write},
     compat::{cell::RefCell, rc::Rc},
-    flat_runtime::FlatRuntime,
-    flat_story::{FlatStoryData, LoadObserver, LoadPhase, NoopLoadObserver},
     ink_list::InkList,
+    runtime::Runtime,
     story::variable_observer::{VariableObserver, VariableObserverHandle, VariableObserverResult},
     story::{
         INK_VERSION_CURRENT, TimeSource,
         errors::{ErrorHandler, ErrorType},
         external_functions::{ExternalFunction, ExternalFunctionResult},
     },
+    story_content::{LoadObserver, LoadPhase, NoopLoadObserver, StoryData},
     story_error::StoryError,
     value_type::ValueType,
 };
 
 #[cfg(feature = "load-profile")]
-pub use crate::flat_story::FlatLoadProfile;
+pub use crate::story_content::LoadProfile;
 
 #[cfg(feature = "load-profile")]
-use crate::flat_story::TimedLoadObserver;
+use crate::story_content::TimedLoadObserver;
 
 /// A lightweight view of an available Ink choice.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FlatChoiceInfo {
+pub struct ChoiceInfo {
     /// Text visible to the player.
     pub text: String,
     /// Tags attached to this choice.
@@ -42,8 +42,8 @@ pub struct FlatChoiceInfo {
 ///
 /// This is the backing implementation of [`crate::story::Story`]. Construction
 /// from JSON still allocates the arena in RAM; binary images are read in place.
-pub struct FlatStory {
-    runtime: FlatRuntime,
+pub struct Story {
+    runtime: Runtime,
     fixed_seed: Option<i32>,
     observers: HashMap<VariableObserverHandle, Box<dyn VariableObserver>>,
     subscriptions: HashMap<String, Vec<VariableObserverHandle>>,
@@ -57,7 +57,7 @@ pub struct FlatStory {
     externals_validated: bool,
 }
 
-impl FlatStory {
+impl Story {
     /// Builds a story from compiled Ink JSON with a reproducible random seed.
     pub fn new_with_seed(json: &str, seed: i32) -> Result<Self, StoryError> {
         Self::new_from_reader_with_seed(json.as_bytes(), seed)
@@ -74,7 +74,7 @@ impl FlatStory {
     pub fn new_with_seed_profiled(
         json: &str,
         seed: i32,
-    ) -> Result<(Self, FlatLoadProfile), StoryError> {
+    ) -> Result<(Self, LoadProfile), StoryError> {
         Self::new_from_reader_with_seed_profiled(json.as_bytes(), seed)
     }
 
@@ -83,7 +83,7 @@ impl FlatStory {
     pub fn new_from_reader_with_seed_profiled(
         reader: impl Read,
         seed: i32,
-    ) -> Result<(Self, FlatLoadProfile), StoryError> {
+    ) -> Result<(Self, LoadProfile), StoryError> {
         let mut observer = TimedLoadObserver::new();
         let story = Self::new_from_reader_with_seed_observed(reader, seed, &mut observer)?;
         Ok((story, observer.profile))
@@ -94,8 +94,8 @@ impl FlatStory {
         seed: i32,
         observer: &mut impl LoadObserver,
     ) -> Result<Self, StoryError> {
-        let (version, data) = FlatStoryData::from_json_reader_observed(reader, observer)?;
-        let story = Self::from_runtime(FlatRuntime::new_with_seed(data, seed)?, seed, version);
+        let (version, data) = StoryData::from_json_reader_observed(reader, observer)?;
+        let story = Self::from_runtime(Runtime::new_with_seed(data, seed)?, seed, version);
         observer.record(LoadPhase::RuntimeInitialized);
         Ok(story)
     }
@@ -126,7 +126,7 @@ impl FlatStory {
     fn from_image_view(image: crate::image::ImageView, seed: i32) -> Result<Self, StoryError> {
         let version = image.ink_version;
         Ok(Self::from_runtime(
-            FlatRuntime::new_image(image, seed)?,
+            Runtime::new_image(image, seed)?,
             seed,
             version,
         ))
@@ -151,7 +151,7 @@ impl FlatStory {
         Ok(story)
     }
 
-    fn from_runtime(runtime: FlatRuntime, seed: i32, version: i32) -> Self {
+    fn from_runtime(runtime: Runtime, seed: i32, version: i32) -> Self {
         let mut story = Self {
             runtime,
             fixed_seed: Some(seed),
@@ -331,7 +331,7 @@ impl FlatStory {
     }
 
     /// Returns visible choices at the current boundary.
-    pub fn get_current_choice_infos(&self) -> Vec<FlatChoiceInfo> {
+    pub fn get_current_choice_infos(&self) -> Vec<ChoiceInfo> {
         if self.can_continue() {
             return Vec::new();
         }
@@ -339,7 +339,7 @@ impl FlatStory {
             .choices()
             .iter()
             .filter(|choice| !choice.is_invisible_default)
-            .map(|choice| FlatChoiceInfo {
+            .map(|choice| ChoiceInfo {
                 text: choice.text.clone(),
                 tags: choice.tags.clone(),
             })
@@ -703,9 +703,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn public_flat_story_runs_and_restores_a_choice() {
+    fn public_story_runs_and_restores_a_choice() {
         let json = include_str!("../../conformance-tests/inkfiles/choices/single-choice.ink.json");
-        let mut story = FlatStory::new_with_seed(json, 1).unwrap();
+        let mut story = Story::new_with_seed(json, 1).unwrap();
         assert_eq!(story.cont().unwrap(), "Hello, world!\n");
         while story.can_continue() {
             story.cont().unwrap();
@@ -714,7 +714,7 @@ mod tests {
         assert_eq!(choice[0].text, "Hello back!");
         assert!(Rc::ptr_eq(&choice[0], &story.get_current_choices()[0]));
         let saved = story.save_state().unwrap();
-        let mut restored = FlatStory::new_with_seed(json, 1).unwrap();
+        let mut restored = Story::new_with_seed(json, 1).unwrap();
         restored.load_state_from_reader(saved.as_bytes()).unwrap();
         assert_eq!(
             restored.get_current_choice_infos(),
@@ -725,76 +725,21 @@ mod tests {
     }
 
     #[test]
-    fn public_flat_story_reads_static_tags_and_list_definitions() {
-        let tags_json = include_str!("../../conformance-tests/inkfiles/tags/tags.ink.json");
-        let legacy = crate::story::LegacyStory::new_with_seed(tags_json, 1).unwrap();
-        let flat = FlatStory::new_with_seed(tags_json, 1).unwrap();
-        assert_eq!(
-            flat.get_global_tags().unwrap(),
-            legacy.get_global_tags().unwrap()
-        );
-
-        let lists_json =
-            include_str!("../../conformance-tests/inkfiles/lists/basic-operations.ink.json");
-        let legacy = crate::story::LegacyStory::new_with_seed(lists_json, 1).unwrap();
-        let flat = FlatStory::new_with_seed(lists_json, 1).unwrap();
-        let legacy_list = legacy.list_from_origin("list").unwrap();
-        let flat_list = flat.list_from_origin("list").unwrap();
-        assert_eq!(flat_list.get_origin_names(), legacy_list.get_origin_names());
-        assert_eq!(
-            flat.list_from_item("list.a").unwrap().items,
-            legacy.list_from_item("list.a").unwrap().items
-        );
-    }
-
-    #[test]
-    fn public_flat_story_evaluates_an_ink_function() {
-        let json = include_str!("../../conformance-tests/inkfiles/function/func-basic.ink.json");
-        let mut legacy = crate::story::LegacyStory::new_with_seed(json, 1).unwrap();
-        let mut flat = FlatStory::new_with_seed(json, 1).unwrap();
-        let args = vec![ValueType::Int(2), ValueType::Int(8), ValueType::Float(0.4)];
-        let mut legacy_output = String::new();
-        let mut flat_output = String::new();
-        let legacy_value = legacy
-            .evaluate_function("lerp", Some(&args), &mut legacy_output)
-            .unwrap();
-        let flat_value = flat
-            .evaluate_function("lerp", Some(&args), &mut flat_output)
-            .unwrap();
-        assert!(flat_value == legacy_value);
-        assert_eq!(flat_output, legacy_output);
-        assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-    }
-
-    #[test]
-    fn public_flat_story_resets_without_reparsing_static_content() {
+    fn public_story_resets_without_reparsing_static_content() {
         let json = include_str!("../../conformance-tests/inkfiles/choices/single-choice.ink.json");
-        let mut flat = FlatStory::new_with_seed(json, 1).unwrap();
+        let mut flat = Story::new_with_seed(json, 1).unwrap();
         let first = flat.cont().unwrap();
         flat.reset_state().unwrap();
         assert_eq!(flat.cont().unwrap(), first);
     }
 
     #[test]
-    fn public_flat_story_chooses_path_with_arguments() {
-        let json = include_str!("../../conformance-tests/inkfiles/knot/param-ints.ink.json");
-        let mut legacy = crate::story::LegacyStory::new_with_seed(json, 1).unwrap();
-        let mut flat = FlatStory::new_with_seed(json, 1).unwrap();
-        let args = vec![ValueType::Int(5)];
-        legacy
-            .choose_path_string("give", true, Some(&args))
-            .unwrap();
-        flat.choose_path_string("give", true, Some(&args)).unwrap();
-        assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-    }
-
-    #[test]
-    fn public_flat_story_observes_global_changes() {
+    fn public_story_observes_global_changes() {
         use crate::compat::{cell::RefCell, rc::Rc};
 
         let json =
             include_str!("../../conformance-tests/inkfiles/runtime/variable-observers.ink.json");
-        let mut story = FlatStory::new_with_seed(json, 1).unwrap();
+        let mut story = Story::new_with_seed(json, 1).unwrap();
         let observed = Rc::new(RefCell::new(Vec::new()));
         let captured = observed.clone();
         let handle = story
@@ -821,126 +766,12 @@ mod tests {
         assert_eq!(observed.borrow().len(), 2);
     }
 
-    #[cfg(feature = "std")]
     #[test]
-    fn flat_story_matches_legacy_across_compiled_fixtures() {
-        use std::{fs, path::Path};
-
-        fn files(path: &Path, output: &mut Vec<std::path::PathBuf>) {
-            for entry in fs::read_dir(path).unwrap() {
-                let path = entry.unwrap().path();
-                if path.is_dir() {
-                    files(&path, output);
-                } else if path.to_string_lossy().ends_with(".ink.json") {
-                    output.push(path);
-                }
-            }
-        }
-
-        let mut paths = Vec::new();
-        files(
-            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../conformance-tests/inkfiles"),
-            &mut paths,
-        );
-        paths.sort();
-        let mut differences = Vec::new();
-        let mut compared = 0;
-        for path in paths {
-            let json = fs::read_to_string(&path).unwrap();
-            let (Ok(mut legacy), Ok(mut flat)) = (
-                crate::story::LegacyStory::new_with_seed(&json, 1),
-                FlatStory::new_with_seed(&json, 1),
-            ) else {
-                continue;
-            };
-            compared += 1;
-            let mut mismatch = None;
-            for step in 0..500 {
-                if legacy.can_continue() != flat.can_continue() {
-                    mismatch = Some(format!("step {step}: can_continue differs"));
-                    break;
-                }
-                if legacy.can_continue() {
-                    match (legacy.cont(), flat.cont()) {
-                        (Ok(expected), Ok(actual)) if expected == actual => {}
-                        (Err(_), Err(_)) => break,
-                        (expected, actual) => {
-                            mismatch =
-                                Some(format!("step {step}: text {expected:?} != {actual:?}"));
-                            break;
-                        }
-                    }
-                } else {
-                    let expected = legacy.get_current_choices();
-                    let actual = flat.get_current_choices();
-                    let expected: Vec<_> = expected
-                        .iter()
-                        .map(|choice| (&choice.text, &choice.tags))
-                        .collect();
-                    let actual: Vec<_> = actual
-                        .iter()
-                        .map(|choice| (&choice.text, &choice.tags))
-                        .collect();
-                    if expected != actual {
-                        mismatch = Some(format!("step {step}: choices {expected:?} != {actual:?}"));
-                        break;
-                    }
-                    if actual.is_empty() {
-                        break;
-                    }
-                    legacy.choose_choice_index(0).unwrap();
-                    flat.choose_choice_index(0).unwrap();
-                }
-            }
-            if let Some(mismatch) = mismatch {
-                differences.push(format!("{}: {mismatch}", path.display()));
-            }
-        }
-        assert!(compared >= 100, "only compared {compared} fixtures");
-        assert!(differences.is_empty(), "{}", differences.join("\n"));
-    }
-
-    #[test]
-    fn flat_story_matches_legacy_on_intercept_playthrough() {
-        let json = include_str!("../../conformance-tests/inkfiles/TheIntercept.ink.json");
-        let mut legacy = crate::story::LegacyStory::new_with_seed(json, 7).unwrap();
-        let mut flat = FlatStory::new_with_seed(json, 7).unwrap();
-        let mut choices = 0_usize;
-        for step in 0..10_000_usize {
-            assert_eq!(flat.can_continue(), legacy.can_continue(), "step {step}");
-            if legacy.can_continue() {
-                assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap(), "step {step}");
-            } else {
-                let old_choices = legacy.get_current_choices();
-                let new_choices = flat.get_current_choices();
-                let old_text: Vec<_> = old_choices
-                    .iter()
-                    .map(|choice| (&choice.text, &choice.tags))
-                    .collect();
-                let new_text: Vec<_> = new_choices
-                    .iter()
-                    .map(|choice| (&choice.text, &choice.tags))
-                    .collect();
-                assert_eq!(new_text, old_text, "step {step}");
-                if new_choices.is_empty() {
-                    assert!(choices > 1);
-                    return;
-                }
-                let index = (choices * 7 + 1) % new_choices.len();
-                legacy.choose_choice_index(index).unwrap();
-                flat.choose_choice_index(index).unwrap();
-                choices += 1;
-            }
-        }
-        panic!("The Intercept did not finish after 10,000 steps");
-    }
-
-    #[test]
-    fn flat_story_async_continuation_pauses_and_resumes() {
+    fn story_async_continuation_pauses_and_resumes() {
         use crate::compat::cell::Cell;
 
         let json = r#"{"inkVersion":21,"root":["^one","^two","^three","done",null],"listDefs":{}}"#;
-        let mut story = FlatStory::new_with_seed(json, 1).unwrap();
+        let mut story = Story::new_with_seed(json, 1).unwrap();
         let tick = Rc::new(Cell::new(0_u64));
         let clock = tick.clone();
         story.set_time_source(move || {
@@ -961,11 +792,11 @@ mod tests {
     }
 
     #[test]
-    fn flat_story_rejects_backwards_async_clock() {
+    fn story_rejects_backwards_async_clock() {
         use crate::compat::cell::Cell;
 
         let json = r#"{"inkVersion":21,"root":["^text","done",null],"listDefs":{}}"#;
-        let mut story = FlatStory::new_with_seed(json, 1).unwrap();
+        let mut story = Story::new_with_seed(json, 1).unwrap();
         let first = Cell::new(true);
         story.set_time_source(move || {
             if first.replace(false) {
@@ -981,7 +812,7 @@ mod tests {
     }
 
     #[test]
-    fn flat_story_reports_runtime_error_to_handler() {
+    fn story_reports_runtime_error_to_handler() {
         struct Capture(Rc<RefCell<Vec<String>>>);
         impl ErrorHandler for Capture {
             fn error(&mut self, message: &str, error_type: ErrorType) {
@@ -991,35 +822,12 @@ mod tests {
         }
 
         let json = r#"{"inkVersion":21,"root":["^unfinished",null],"listDefs":{}}"#;
-        let mut story = FlatStory::new_with_seed(json, 1).unwrap();
+        let mut story = Story::new_with_seed(json, 1).unwrap();
         let messages = Rc::new(RefCell::new(Vec::new()));
         story.set_error_handler(Rc::new(RefCell::new(Capture(messages.clone()))));
         assert_eq!(story.cont().unwrap(), "unfinished");
         assert!(!story.can_continue());
         assert!(!story.has_error());
         assert_eq!(messages.borrow().len(), 1);
-    }
-
-    #[test]
-    fn flat_story_preserves_version_warning() {
-        let json = r#"{"inkVersion":20,"root":["^text","done",null],"listDefs":{}}"#;
-        let mut legacy = crate::story::LegacyStory::new_with_seed(json, 1).unwrap();
-        let mut flat = FlatStory::new_with_seed(json, 1).unwrap();
-        assert_eq!(flat.get_current_warnings(), legacy.get_current_warnings());
-        assert_eq!(flat.cont().unwrap(), legacy.cont().unwrap());
-        assert!(flat.get_current_warnings().is_empty());
-    }
-
-    #[test]
-    fn flat_story_validates_external_bindings_before_continuing() {
-        let json = include_str!(
-            "../../conformance-tests/inkfiles/runtime/external-function-0-arg.ink.json"
-        );
-        let mut legacy = crate::story::LegacyStory::new_with_seed(json, 1).unwrap();
-        let mut flat = FlatStory::new_with_seed(json, 1).unwrap();
-        assert_eq!(
-            flat.cont().unwrap_err().to_string(),
-            legacy.cont().unwrap_err().to_string()
-        );
     }
 }

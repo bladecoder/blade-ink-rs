@@ -15,47 +15,34 @@ use serde_json::Map;
 
 use crate::{
     callstack::CallStack,
-    flat_callstack::FlatCallStack,
-    flat_story::StoryContent,
     ink_list::InkList,
-    list_definitions_origin::ListDefinitionsOrigin,
-    state_patch::StatePatch,
+    story_content::{StaticStoryView, StoryContent},
     story_error::StoryError,
     value::Value,
     value_type::{ValueType, VariablePointerValue},
-    variable_assigment::VariableAssignment,
+    variable_assignment::VariableAssignment,
 };
 
 #[derive(Clone)]
-pub(crate) enum VariableCallStack {
-    Legacy(Rc<RefCell<CallStack>>),
-    #[allow(dead_code)] // Connected when StoryState switches to the flat call stack.
-    Flat(Rc<RefCell<FlatCallStack>>),
-}
+pub(crate) struct VariableCallStack(Rc<RefCell<CallStack>>);
 
 #[derive(Clone)]
-enum ListOrigins {
-    Legacy(Rc<ListDefinitionsOrigin>),
-    Flat {
-        data: Rc<StoryContent>,
-        values: RefCell<HashMap<String, Rc<Value>>>,
-    },
+struct ListOrigins {
+    data: Rc<StoryContent>,
+    values: RefCell<HashMap<String, Rc<Value>>>,
 }
 
 impl ListOrigins {
     fn single_item(&self, name: &str) -> Option<Rc<Value>> {
-        match self {
-            Self::Legacy(definitions) => definitions.find_single_item_list_with_name(name).cloned(),
-            Self::Flat { data, values } => {
-                if let Some(value) = values.borrow().get(name) {
-                    return Some(value.clone());
-                }
-                let item = data.list_item(name)?;
-                let value = Rc::new(Value::new(InkList::from_single_element(item)));
-                values.borrow_mut().insert(name.to_owned(), value.clone());
-                Some(value)
-            }
+        if let Some(value) = self.values.borrow().get(name) {
+            return Some(value.clone());
         }
+        let item = self.data.list_item(name)?;
+        let value = Rc::new(Value::new(InkList::from_single_element(item)));
+        self.values
+            .borrow_mut()
+            .insert(name.to_owned(), value.clone());
+        Some(value)
     }
 }
 
@@ -67,46 +54,29 @@ impl VariableCallStack {
         declare_new: bool,
         context_index: i32,
     ) -> Result<(), StoryError> {
-        match self {
-            Self::Legacy(stack) => {
-                stack
-                    .borrow_mut()
-                    .set_temporary_variable(name, value, declare_new, context_index)
-            }
-            Self::Flat(stack) => {
-                stack
-                    .borrow_mut()
-                    .set_temporary_variable(name, value, declare_new, context_index)
-            }
-        }
+        self.0
+            .borrow_mut()
+            .set_temporary_variable(name, value, declare_new, context_index)
     }
 
     fn current_element_index(&self) -> i32 {
-        match self {
-            Self::Legacy(stack) => stack.borrow().get_current_element_index(),
-            Self::Flat(stack) => stack.borrow().current_element_index(),
-        }
+        self.0.borrow().current_element_index()
     }
 
     fn temporary_variable(&self, name: &str, context_index: i32) -> Option<Rc<Value>> {
-        match self {
-            Self::Legacy(stack) => stack
-                .borrow()
-                .get_temporary_variable_with_name(name, context_index),
-            Self::Flat(stack) => stack.borrow().temporary_variable(name, context_index),
-        }
+        self.0.borrow().temporary_variable(name, context_index)
     }
 }
 
 #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
 use crate::compat::io::Write;
+#[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
+use crate::json::{json_writer::JsonWriter, state_write_stream};
 #[cfg(all(
     not(any(feature = "stream-json-parser", feature = "binary-image")),
     feature = "serde-json-parser"
 ))]
-use crate::json::{json_read, json_write};
-#[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
-use crate::json::{json_write_stream, json_writer::JsonWriter};
+use crate::json::{state_read_serde, state_write_serde};
 
 #[derive(Clone)]
 pub(crate) struct VariablesState {
@@ -115,39 +85,18 @@ pub(crate) struct VariablesState {
     pub batch_observing_variable_changes: bool,
     pub callstack: VariableCallStack,
     pub changed_variables_for_batch_obs: Option<HashSet<String>>,
-    pub patch: Option<StatePatch>,
     list_defs_origin: ListOrigins,
 }
 
 impl VariablesState {
-    pub fn new(
-        callstack: Rc<RefCell<CallStack>>,
-        list_defs_origin: Rc<ListDefinitionsOrigin>,
-    ) -> VariablesState {
+    pub(crate) fn new(callstack: Rc<RefCell<CallStack>>, data: Rc<StoryContent>) -> VariablesState {
         VariablesState {
             global_variables: HashMap::new(),
             default_global_variables: HashMap::new(),
             batch_observing_variable_changes: false,
-            callstack: VariableCallStack::Legacy(callstack),
+            callstack: VariableCallStack(callstack),
             changed_variables_for_batch_obs: None,
-            patch: None,
-            list_defs_origin: ListOrigins::Legacy(list_defs_origin),
-        }
-    }
-
-    #[allow(dead_code)] // Activated when StoryState owns the flat flow.
-    pub(crate) fn new_flat(
-        callstack: Rc<RefCell<FlatCallStack>>,
-        data: Rc<StoryContent>,
-    ) -> VariablesState {
-        VariablesState {
-            global_variables: HashMap::new(),
-            default_global_variables: HashMap::new(),
-            batch_observing_variable_changes: false,
-            callstack: VariableCallStack::Flat(callstack),
-            changed_variables_for_batch_obs: None,
-            patch: None,
-            list_defs_origin: ListOrigins::Flat {
+            list_defs_origin: ListOrigins {
                 data,
                 values: RefCell::new(HashMap::new()),
             },
@@ -174,15 +123,6 @@ impl VariablesState {
             }
         }
 
-        // Patch may still be active - e.g. if we were in the middle of a background save
-        if let Some(patch) = &self.patch {
-            for variable_name in patch.changed_variables.iter() {
-                if let Some(patched_val) = patch.get_global(variable_name) {
-                    changed_vars.insert(variable_name.to_string(), patched_val.value.clone());
-                }
-            }
-        }
-
         changed_vars
     }
 
@@ -190,20 +130,6 @@ impl VariablesState {
         for (k, v) in self.global_variables.iter() {
             self.default_global_variables.insert(k.clone(), v.clone());
         }
-    }
-
-    pub fn apply_patch(&mut self) {
-        for (name, value) in self.patch.as_ref().unwrap().globals.iter() {
-            self.global_variables.insert(name.clone(), value.clone());
-        }
-
-        if let Some(changed_variables) = &mut self.changed_variables_for_batch_obs {
-            for name in self.patch.as_ref().unwrap().changed_variables.iter() {
-                changed_variables.insert(name.clone());
-            }
-        }
-
-        self.patch = None;
     }
 
     pub fn assign(
@@ -317,12 +243,6 @@ impl VariablesState {
     }
 
     pub fn get(&self, variable_name: &str) -> Option<ValueType> {
-        if self.patch.is_some()
-            && let Some(var) = self.patch.as_ref().unwrap().get_global(variable_name)
-        {
-            return Some(var.value.clone());
-        }
-
         // Search main dictionary first.
         // If it's not found, it might be because the story content has changed,
         // and the original default value hasn't be instantiated.
@@ -352,12 +272,6 @@ impl VariablesState {
     fn get_raw_variable_with_name(&self, name: &str, context_index: i32) -> Option<Rc<Value>> {
         // 0 context = global
         if context_index == 0 || context_index == -1 {
-            if let Some(patch) = &self.patch
-                && let Some(global) = patch.get_global(name)
-            {
-                return Some(global);
-            }
-
             if let Some(global) = self.global_variables.get(name) {
                 return Some(global.clone());
             }
@@ -385,32 +299,18 @@ impl VariablesState {
 
     // Returns true if global var has changed and we need to notify observers
     fn set_global(&mut self, name: &str, value: Rc<Value>) -> bool {
-        let mut old_value: Option<Rc<Value>> = None;
-
-        if let Some(patch) = &self.patch {
-            old_value = patch.get_global(name);
-        }
-
-        if old_value.is_none() {
-            old_value = self.global_variables.get(name).cloned();
-        }
+        let old_value = self.global_variables.get(name).cloned();
 
         if let Some(old_value) = &old_value {
             Value::retain_list_origins_for_assignment(old_value.as_ref(), value.as_ref());
         }
 
-        if let Some(patch) = &mut self.patch {
-            patch.set_global(name, value.clone());
-        } else {
-            self.global_variables
-                .insert(name.to_string(), value.clone());
-        }
+        self.global_variables
+            .insert(name.to_string(), value.clone());
 
         if old_value.is_none() || old_value.as_ref().unwrap().value != value.value {
             if self.batch_observing_variable_changes {
-                if let Some(patch) = &mut self.patch {
-                    patch.add_changed_variable(name);
-                } else if let Some(changed_variables) = &mut self.changed_variables_for_batch_obs {
+                if let Some(changed_variables) = &mut self.changed_variables_for_batch_obs {
                     changed_variables.insert(name.to_string());
                 }
             } else {
@@ -437,13 +337,8 @@ impl VariablesState {
         self.get_variable_with_name(&pointer.variable_name, pointer.context_index)
     }
 
-    pub fn set_callstack(&mut self, callstack: Rc<RefCell<CallStack>>) {
-        self.callstack = VariableCallStack::Legacy(callstack);
-    }
-
-    #[allow(dead_code)] // Connected when StoryState switches to the flat call stack.
-    pub(crate) fn set_flat_callstack(&mut self, callstack: Rc<RefCell<FlatCallStack>>) {
-        self.callstack = VariableCallStack::Flat(callstack);
+    pub(crate) fn set_callstack(&mut self, callstack: Rc<RefCell<CallStack>>) {
+        self.callstack = VariableCallStack(callstack);
     }
 
     #[cfg(all(
@@ -462,7 +357,10 @@ impl VariablesState {
                 continue;
             }
 
-            jobj.insert(name.clone(), json_write::write_rtobject(val.clone())?);
+            jobj.insert(
+                name.clone(),
+                state_write_serde::write_rtobject(val.clone())?,
+            );
         }
 
         Ok(serde_json::Value::Object(jobj))
@@ -486,7 +384,7 @@ impl VariablesState {
                 continue;
             }
             writer.key(&mut first, name)?;
-            json_write_stream::write_rtobject(writer, value.clone())?;
+            state_write_stream::write_rtobject(writer, value.clone())?;
         }
         writer.raw("}")?;
         Ok(())
@@ -541,7 +439,7 @@ impl VariablesState {
             if let Some(loaded_token) = loaded_token {
                 self.global_variables.insert(
                     k.to_string(),
-                    json_read::jtoken_to_runtime_object(loaded_token, None)?
+                    state_read_serde::jtoken_to_runtime_object(loaded_token, None)?
                         .into_any()
                         .downcast::<Value>()
                         .unwrap(),
@@ -570,22 +468,20 @@ impl VariablesState {
     test,
     any(feature = "stream-json-parser", feature = "serde-json-parser")
 ))]
-mod flat_tests {
+mod tests {
     use super::*;
-    use crate::flat_story::FlatStoryData;
+    use crate::story_content::StoryData;
 
     #[test]
-    fn flat_list_definitions_materialize_values_only_when_referenced() {
+    fn list_definitions_materialize_values_only_when_referenced() {
         let json =
             r#"{"inkVersion":21,"root":["done",null],"listDefs":{"Color":{"Red":1,"Blue":2}}}"#;
-        let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
+        let (_, data) = StoryData::from_json_reader(json.as_bytes()).unwrap();
         let data = Rc::new(StoryContent::Arena(data));
         let root = data.container_id(data.root()).unwrap();
-        let stack = Rc::new(RefCell::new(FlatCallStack::new(root)));
-        let vars = VariablesState::new_flat(stack, data);
-        let ListOrigins::Flat { values, .. } = &vars.list_defs_origin else {
-            panic!("expected flat list definitions")
-        };
+        let stack = Rc::new(RefCell::new(CallStack::new(root)));
+        let vars = VariablesState::new(stack, data);
+        let values = &vars.list_defs_origin.values;
         assert!(values.borrow().is_empty());
         let qualified = vars.get_variable_with_name("Color.Red", 0).unwrap();
         assert_eq!(values.borrow().len(), 1);

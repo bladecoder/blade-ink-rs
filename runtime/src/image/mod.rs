@@ -12,14 +12,14 @@ pub use encoder::compile_json_to_image;
 use crate::prelude::*;
 use crate::{
     control_command::ControlCommand,
-    flat_story::{
-        ContainerId, ListView, NamedChildView, NodeId, NodeKindView, NodeView, PathView,
-        StaticStoryView, ValueView,
-    },
     ink_list_item::InkListItem,
     native_function_call::NativeFunctionCall,
     push_pop::PushPopType,
     story::{INK_VERSION_CURRENT, INK_VERSION_MINIMUM_COMPATIBLE},
+    story_content::{
+        ContainerId, ListView, NamedChildView, NodeId, NodeKindView, NodeView, PathView,
+        StaticStoryView, ValueView,
+    },
     story_error::StoryError,
 };
 

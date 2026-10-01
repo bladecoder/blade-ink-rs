@@ -4,7 +4,6 @@ use crate::prelude::*;
 use crate::compat::{fmt, rc::Rc};
 
 use crate::{
-    container::Container,
     object::{Object, RTObject},
     path::Path,
 };
@@ -29,16 +28,6 @@ impl VariableReference {
             obj: Object::new(),
             name: String::new(),
             path_for_count: Some(Path::new_with_components_string(Some(path_for_count))),
-        }
-    }
-
-    pub fn get_container_for_count(self: &Rc<Self>) -> Result<Rc<Container>, String> {
-        if let Some(path) = &self.path_for_count {
-            Ok(Object::resolve_path(self.clone(), path)
-                .container()
-                .unwrap())
-        } else {
-            Err("Path for count is not set.".to_owned())
         }
     }
 

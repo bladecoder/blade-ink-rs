@@ -21,7 +21,7 @@ use crate::{
     tag::Tag,
     value::Value,
     value_type::{StringValue, VariablePointerValue},
-    variable_assigment::VariableAssignment,
+    variable_assignment::VariableAssignment,
     variable_reference::VariableReference,
     void::Void,
 };
@@ -312,15 +312,4 @@ pub(crate) fn write_list_rt_objs(
     }
 
     Ok(serde_json::Value::Array(c_array))
-}
-
-#[cfg(not(feature = "binary-image"))]
-pub(crate) fn write_int_dictionary(map: &HashMap<String, i32>) -> serde_json::Value {
-    let mut jobj: Map<String, serde_json::Value> = Map::new();
-
-    for (key, val) in map {
-        jobj.insert(key.clone(), json!(*val));
-    }
-
-    serde_json::Value::Object(jobj)
 }

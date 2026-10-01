@@ -6,19 +6,19 @@ use std::collections::BTreeMap;
 
 use crate::{
     control_command::ControlCommand,
-    flat_story::{
-        ContainerId, FlatStoryData, NodeId, NodeKind, StaticList, StaticPath, StaticValue,
-    },
     io::Read,
     native_function_call::NativeFunctionCall,
     push_pop::PushPopType,
+    story_content::{
+        ContainerId, NodeId, NodeKind, StaticList, StaticPath, StaticValue, StoryData,
+    },
     story_error::StoryError,
 };
 
 /// Compile an already compiled Ink JSON document into a flash story image.
 /// The result contains no pointers or Rust struct layouts.
 pub fn compile_json_to_image(reader: impl Read) -> Result<Vec<u8>, StoryError> {
-    let (ink_version, story) = FlatStoryData::from_json_reader(reader)?;
+    let (ink_version, story) = StoryData::from_json_reader(reader)?;
     let story = canonicalize(story)?;
     Encoder::new().encode(ink_version, &story)
 }
@@ -26,7 +26,7 @@ pub fn compile_json_to_image(reader: impl Read) -> Result<Vec<u8>, StoryError> {
 /// JSON object property order can change the IDs assigned to named-only
 /// containers. Reorder those IDs before encoding so both JSON readers and
 /// different property orders produce the same image.
-fn canonicalize(mut story: FlatStoryData) -> Result<FlatStoryData, StoryError> {
+fn canonicalize(mut story: StoryData) -> Result<StoryData, StoryError> {
     let mut order = Vec::with_capacity(story.nodes.len());
     let mut seen = vec![false; story.nodes.len()];
     let mut pending = vec![NodeId(0)];
@@ -74,7 +74,7 @@ fn canonicalize(mut story: FlatStoryData) -> Result<FlatStoryData, StoryError> {
                 container.children = start..story.children.len();
                 let start = story.named.len();
                 for entry in &old_named[container.named.clone()] {
-                    story.named.push(crate::flat_story::NamedChild {
+                    story.named.push(crate::story_content::NamedChild {
                         name: entry.name.clone(),
                         node: new_id[entry.node.index()],
                     });
@@ -119,7 +119,7 @@ impl Encoder {
         }
     }
 
-    fn encode(mut self, ink_version: i32, story: &FlatStoryData) -> Result<Vec<u8>, StoryError> {
+    fn encode(mut self, ink_version: i32, story: &StoryData) -> Result<Vec<u8>, StoryError> {
         let mut nodes = Vec::with_capacity(story.nodes.len() * NODE_WORDS * 4);
         for node in &story.nodes {
             let mut fields = [NONE; 7];
@@ -459,12 +459,12 @@ mod tests {
     use super::*;
     use crate::{
         control_command::CommandType,
-        flat_story::{
+        ink_list_item::InkListItem,
+        native_function_call::Op,
+        story_content::{
             ChoiceRecord, ContainerRecord, DivertRecord, NamedChild, NodeRecord,
             StaticListDefinition, VariableReferenceRecord,
         },
-        ink_list_item::InkListItem,
-        native_function_call::Op,
     };
 
     fn read_word(bytes: &[u8], offset: usize) -> u32 {
@@ -521,7 +521,7 @@ mod tests {
             }),
             NodeKind::Void,
         ];
-        let mut story = FlatStoryData {
+        let mut story = StoryData {
             nodes: vec![NodeRecord {
                 parent: None,
                 child_index: None,

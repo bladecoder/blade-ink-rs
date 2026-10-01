@@ -7,15 +7,15 @@ use super::json_tokenizer::{JsonTokenizer, JsonValue};
 use crate::{
     compat::{collections::HashMap, io::Read},
     control_command::ControlCommand,
-    flat_story::{
-        ChoiceRecord, ContainerRecord, DivertRecord, FlatStoryData, LoadObserver, LoadPhase,
-        NamedChild, NodeId, NodeKind, NodeRecord, StaticList, StaticListDefinition, StaticPath,
-        StaticValue, VariableReferenceRecord,
-    },
     ink_list_item::InkListItem,
     native_function_call::NativeFunctionCall,
     push_pop::PushPopType,
     story::{INK_VERSION_CURRENT, INK_VERSION_MINIMUM_COMPATIBLE},
+    story_content::{
+        ChoiceRecord, ContainerRecord, DivertRecord, LoadObserver, LoadPhase, NamedChild, NodeId,
+        NodeKind, NodeRecord, StaticList, StaticListDefinition, StaticPath, StaticValue, StoryData,
+        VariableReferenceRecord,
+    },
     story_error::StoryError,
 };
 
@@ -61,12 +61,12 @@ fn runtime_object_key(key: &str) -> bool {
 pub(crate) fn load_from_reader(
     reader: impl Read,
     observer: &mut impl LoadObserver,
-) -> Result<(i32, FlatStoryData), StoryError> {
+) -> Result<(i32, StoryData), StoryError> {
     let mut tok = JsonTokenizer::new(reader);
     tok.expect('{')?;
     let mut version = None;
     let mut root = false;
-    let mut data = FlatStoryData {
+    let mut data = StoryData {
         nodes: Vec::new(),
         children: Vec::new(),
         named: Vec::new(),
@@ -170,7 +170,7 @@ fn read_list_definitions<R: Read>(
 
 fn read_node<R: Read>(
     tok: &mut JsonTokenizer<R>,
-    data: &mut FlatStoryData,
+    data: &mut StoryData,
     token: JsonValue,
     name: Option<String>,
     parent: Option<NodeId>,
@@ -218,7 +218,7 @@ fn read_node<R: Read>(
 
 fn read_container<R: Read>(
     tok: &mut JsonTokenizer<R>,
-    data: &mut FlatStoryData,
+    data: &mut StoryData,
     id: NodeId,
 ) -> Result<(), StoryError> {
     let mut children = Vec::new();
@@ -311,7 +311,7 @@ fn read_container<R: Read>(
 
 fn read_terminator<R: Read>(
     tok: &mut JsonTokenizer<R>,
-    data: &mut FlatStoryData,
+    data: &mut StoryData,
     parent: NodeId,
     first_key: String,
     named: &mut HashMap<String, NodeId>,

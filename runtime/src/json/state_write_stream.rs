@@ -19,7 +19,7 @@ use crate::{
     tag::Tag,
     value::Value,
     value_type::{StringValue, VariablePointerValue},
-    variable_assigment::VariableAssignment,
+    variable_assignment::VariableAssignment,
     variable_reference::VariableReference,
     void::Void,
 };

@@ -1,13 +1,15 @@
 //! Serde JSON tokens to owned arena records, without a runtime-object tree.
 
 use super::*;
+use crate::compat::collections::HashMap;
 use crate::story::{INK_VERSION_CURRENT, INK_VERSION_MINIMUM_COMPATIBLE};
+use crate::{control_command::ControlCommand, native_function_call::NativeFunctionCall};
 use serde_json::{Map, Value as JsonValue};
 
 pub(super) fn load_from_reader(
     reader: impl Read,
     observer: &mut impl LoadObserver,
-) -> Result<(i32, FlatStoryData), StoryError> {
+) -> Result<(i32, StoryData), StoryError> {
     let json: JsonValue = serde_json::from_reader(reader)
         .map_err(|_| StoryError::BadJson("Story not in JSON format.".to_owned()))?;
     observer.record(LoadPhase::JsonDecoded);
@@ -49,7 +51,7 @@ pub(super) fn load_from_reader(
         });
     }
     list_definitions.sort_unstable_by(|left, right| left.name.cmp(&right.name));
-    let mut data = FlatStoryData {
+    let mut data = StoryData {
         nodes: Vec::new(),
         children: Vec::new(),
         named: Vec::new(),
@@ -88,7 +90,7 @@ fn path(value: &str) -> StaticPath {
     StaticPath::from_text(value)
 }
 
-impl FlatStoryData {
+impl StoryData {
     fn parse_node(
         &mut self,
         token: &JsonValue,
