@@ -1,7 +1,6 @@
-//! Public entry point for the arena-based interpreter.
+//! Public entry point for the flat interpreter.
 //!
-//! It uses the same compiled Ink JSON as [`crate::story::Story`] while keeping
-//! static instructions in an owned arena without a runtime object tree.
+//! It reads static instructions from an owned arena or a borrowed binary image.
 
 #[allow(unused_imports)]
 use crate::prelude::*;
@@ -42,8 +41,7 @@ pub struct FlatChoiceInfo {
 /// Runs an Ink story through flat, ID-addressed static content.
 ///
 /// This is the backing implementation of [`crate::story::Story`]. Construction
-/// from JSON still allocates the arena in RAM; binary image loading belongs
-/// to a later milestone.
+/// from JSON still allocates the arena in RAM; binary images are read in place.
 pub struct FlatStory {
     runtime: FlatRuntime,
     fixed_seed: Option<i32>,

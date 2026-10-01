@@ -65,6 +65,8 @@ Ejecutar historias JSON e imagen con la misma semilla y secuencia de elecciones.
 
 **Criterio de cierre:** ambos backends producen los mismos resultados observables y los estados guardados pueden cargarse con la misma historia en el otro backend.
 
+**Estado:** implementado. `conformance-tests/tests/image_equivalence.rs` convierte y abre los 121 JSON compilados del corpus, y compara hasta 200 pasos de ejecución por archivo con la misma semilla y elecciones. La prueba de *The Intercept* recorre una partida completa. Los casos focalizados cubren rutas relativas, desvíos por variable, texto y etiquetas dinámicos, listas, funciones, variables, flujos y navegación por ruta. Las pruebas intercambian estados guardados en ambos sentidos y continúan desde ellos. Pasan con el parser predeterminado y con `stream-json-parser`.
+
 ### Milestone 5 — Memoria, documentación y cierre
 
 Generar imágenes para las historias inglesa y española de `ink-tts-esp32`. Registrar tamaño de cada imagen y asignaciones al crear y ejecutar la historia en host, separando el estado mutable del contenido estático. Documentar el paso de generación durante la construcción y el embebido de bytes en flash.
