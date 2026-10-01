@@ -3,6 +3,8 @@
 use bladeink::story::Story;
 
 const IMAGE: &[u8] = include_bytes!("fixtures/image_smoke.inkb");
+const INK_TTS_EN: &[u8] = include_bytes!("../../assets/ink-tts-esp32/story_en.inkb");
+const INK_TTS_ES: &[u8] = include_bytes!("../../assets/ink-tts-esp32/story_es.inkb");
 #[cfg(any(feature = "serde-json-parser", feature = "stream-json-parser"))]
 const JSON: &str = include_str!("../../conformance-tests/inkfiles/test1.ink.json");
 
@@ -68,6 +70,26 @@ fn image_loader_rejects_truncated_corrupt_and_incompatible_bytes() {
     let strings = u32::from_le_bytes(bad[76..80].try_into().unwrap()) as usize;
     bad[strings] = 0xff;
     assert!(Story::new_from_image_with_seed(Box::leak(bad.into_boxed_slice()), 1).is_err());
+}
+
+#[test]
+fn generated_ink_tts_images_open_and_restore() {
+    for image in [INK_TTS_EN, INK_TTS_ES] {
+        let mut story = Story::new_from_image_with_seed(image, 1).unwrap();
+        let mut lines = 0;
+        while story.can_continue() {
+            story.cont().unwrap();
+            lines += 1;
+            assert!(lines < 100);
+        }
+        assert!(lines > 0);
+        let choices = story.get_current_choices();
+        assert!(!choices.is_empty());
+        let saved = story.save_state().unwrap();
+        let mut restored = Story::new_from_image_with_seed(image, 1).unwrap();
+        restored.load_state(&saved).unwrap();
+        assert_eq!(choices.len(), restored.get_current_choices().len());
+    }
 }
 
 #[cfg(all(

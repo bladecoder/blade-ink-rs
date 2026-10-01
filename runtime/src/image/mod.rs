@@ -1,7 +1,7 @@
 //! Read-only view of a versioned story image.
 //!
 //! The image owns no runtime nodes: every lookup reads its fields from the
-//! caller's static byte slice. See `docs/flash-story-image-format.md`.
+//! caller's static byte slice. See `docs/flash-story-image.md`.
 
 #[cfg(feature = "std")]
 mod encoder;

@@ -16,6 +16,10 @@ edition.workspace = true
 name = "bladeink"
 path = "src/lib.rs"
 
+[[example]]
+name = "image_story_cost"
+required-features = ["std", "binary-image"]
+
 [dependencies]
 serde_json = { workspace = true, optional = true }
 strum = { version = "0.28", default-features = false, features = ["derive"] }
