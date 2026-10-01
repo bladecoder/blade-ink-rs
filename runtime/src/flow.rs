@@ -3,7 +3,10 @@ use crate::prelude::*;
 
 use crate::compat::{cell::RefCell, rc::Rc};
 
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
 use serde_json::Map;
 
 use crate::{
@@ -14,11 +17,14 @@ use crate::{
     story_error::StoryError,
 };
 
-#[cfg(feature = "stream-json-parser")]
+#[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
 use crate::compat::{collections::BTreeMap, collections::HashMap, io::Write};
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
 use crate::json::{json_read, json_write};
-#[cfg(feature = "stream-json-parser")]
+#[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
 use crate::json::{json_write_stream, json_writer::JsonWriter};
 
 #[derive(Clone)]
@@ -39,7 +45,10 @@ impl Flow {
         }
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub fn from_json(
         name: &str,
         main_content_container: Rc<Container>,
@@ -84,7 +93,10 @@ impl Flow {
         Ok(flow)
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub(crate) fn write_json(&self) -> Result<serde_json::Value, StoryError> {
         let mut flow: Map<String, serde_json::Value> = Map::new();
 
@@ -140,7 +152,7 @@ impl Flow {
         Ok(serde_json::Value::Object(flow))
     }
 
-    #[cfg(feature = "stream-json-parser")]
+    #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
     pub(crate) fn from_stream_parts(
         name: String,
         callstack: CallStack,
@@ -169,7 +181,7 @@ impl Flow {
         Ok(flow)
     }
 
-    #[cfg(feature = "stream-json-parser")]
+    #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
     pub(crate) fn write_json_stream<W: Write>(
         &self,
         writer: &mut JsonWriter<W>,
@@ -215,7 +227,10 @@ impl Flow {
         Ok(())
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub fn load_flow_choice_threads(
         &mut self,
         j_choice_threads: Option<&serde_json::Value>,

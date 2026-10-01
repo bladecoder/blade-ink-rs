@@ -101,7 +101,7 @@ impl FlatPointer {
         data.child_at(container.node(), index)
     }
 
-    pub(crate) fn path(self, data: &FlatStoryData) -> Option<Path> {
+    pub(crate) fn path(self, data: &impl StaticStoryView) -> Option<Path> {
         let container = self.container?;
         let path = data.path_for(container.node())?;
         if self.index < 0 {
@@ -302,12 +302,16 @@ pub(crate) struct NodeRecord {
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum PathView<'a> {
     Arena(&'a StaticPath),
+    #[cfg(feature = "binary-image")]
+    Image(&'a str),
 }
 
 impl PathView<'_> {
     pub(crate) fn to_runtime(self) -> Path {
         match self {
             Self::Arena(path) => path.runtime_path(),
+            #[cfg(feature = "binary-image")]
+            Self::Image(path) => Path::new_with_components_string(Some(path)),
         }
     }
 }
@@ -315,12 +319,49 @@ impl PathView<'_> {
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ListView<'a> {
     Arena(&'a StaticList),
+    #[cfg(feature = "binary-image")]
+    Image {
+        payload: &'a [u8],
+        strings: &'a [u8],
+    },
 }
 
 impl ListView<'_> {
     fn to_runtime(self) -> InkList {
         match self {
             Self::Arena(list) => list.to_runtime(),
+            #[cfg(feature = "binary-image")]
+            Self::Image { payload, strings } => {
+                fn word(bytes: &[u8], at: usize) -> usize {
+                    u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()) as usize
+                }
+                fn string(bytes: &[u8], offset: usize, len: usize) -> &str {
+                    core::str::from_utf8(&bytes[offset..offset + len]).unwrap()
+                }
+                let item_count = word(payload, 0);
+                let origin_count = word(payload, 4);
+                let mut list = InkList::new();
+                for index in 0..item_count {
+                    let at = 8 + index * 20;
+                    let origin = if word(payload, at) == u32::MAX as usize {
+                        None
+                    } else {
+                        Some(string(strings, word(payload, at), word(payload, at + 4)).to_owned())
+                    };
+                    let name = string(strings, word(payload, at + 8), word(payload, at + 12));
+                    let value = word(payload, at + 16) as u32 as i32;
+                    list.items
+                        .insert(InkListItem::new(origin, name.to_owned()), value);
+                }
+                let mut origins = Vec::with_capacity(origin_count);
+                for index in 0..origin_count {
+                    let at = 8 + item_count * 20 + index * 8;
+                    origins
+                        .push(string(strings, word(payload, at), word(payload, at + 4)).to_owned());
+                }
+                list.set_initial_origin_names(origins);
+                list
+            }
         }
     }
 }
@@ -360,6 +401,7 @@ impl ValueView<'_> {
 pub(crate) enum NodeKindView<'a> {
     Container {
         count_flags: i32,
+        name: Option<&'a str>,
     },
     ChoicePoint {
         flags: i32,
@@ -408,6 +450,123 @@ pub(crate) trait StaticStoryView {
     fn child_at(&self, id: NodeId, index: usize) -> Option<NodeId>;
     fn named_child_count(&self, id: NodeId) -> Option<usize>;
     fn named_child_at(&self, id: NodeId, index: usize) -> Option<NamedChildView<'_>>;
+    fn list_item(&self, name: &str) -> Option<(InkListItem, i32)>;
+    fn list_definition_count(&self) -> usize;
+    fn list_definition_name(&self, index: usize) -> Option<&str>;
+    fn list_definition_item_count(&self, index: usize) -> Option<usize>;
+    fn list_definition_item_at(&self, index: usize, item: usize) -> Option<(&str, i32)>;
+
+    fn root(&self) -> NodeId {
+        NodeId(0)
+    }
+
+    fn container_id(&self, id: NodeId) -> Option<ContainerId> {
+        matches!(self.node_view(id)?.kind, NodeKindView::Container { .. })
+            .then_some(ContainerId(id))
+    }
+
+    fn named_child(&self, id: NodeId, name: &str) -> Option<NodeId> {
+        self.find_named_child(id, name)
+    }
+
+    fn resolve_path(&self, origin: NodeId, path: &Path) -> Option<NodeId> {
+        let (mut current, start) = if path.is_relative() {
+            match self.node_view(origin)?.kind {
+                NodeKindView::Container { .. } => (origin, 0),
+                _ => (self.node_view(origin)?.parent?, 1),
+            }
+        } else {
+            (self.root(), 0)
+        };
+        for component in path.components().iter().skip(start) {
+            if component.is_parent() {
+                current = self.node_view(current)?.parent?;
+            } else if let Some(index) = component.index {
+                current = self.child_at(current, index)?;
+            } else {
+                current = self.named_child(current, component.name.as_deref()?)?;
+            }
+        }
+        Some(current)
+    }
+
+    fn pointer_at_path(&self, path: &Path) -> Option<FlatPointer> {
+        if path.is_empty() {
+            return Some(FlatPointer::NULL);
+        }
+        let last = path.get_last_component()?;
+        if let Some(index) = last.index {
+            let components: Vec<_> = (0..path.len() - 1)
+                .map(|position| path.get_component(position).cloned())
+                .collect::<Option<_>>()?;
+            let parent_path = Path::new(&components, path.is_relative());
+            let parent = self.resolve_path(self.root(), &parent_path)?;
+            Some(FlatPointer {
+                container: Some(self.container_id(parent)?),
+                index: i32::try_from(index).ok()?,
+            })
+        } else {
+            let target = self.resolve_path(self.root(), path)?;
+            Some(FlatPointer::at_container(self.container_id(target)?))
+        }
+    }
+
+    fn pointer_for(&self, id: NodeId) -> Option<FlatPointer> {
+        if let Some(container) = self.container_id(id) {
+            return Some(FlatPointer::at_container(container));
+        }
+        let node = self.node_view(id)?;
+        Some(FlatPointer {
+            container: Some(self.container_id(node.parent?)?),
+            index: i32::try_from(node.child_index?).ok()?,
+        })
+    }
+
+    fn path_for(&self, id: NodeId) -> Option<Path> {
+        let mut components = Vec::new();
+        let mut current = id;
+        while let Some(parent) = self.node_view(current)?.parent {
+            let node = self.node_view(current)?;
+            if let NodeKindView::Container {
+                name: Some(name), ..
+            } = node.kind
+                && !name.is_empty()
+            {
+                components.push(Component::new(name));
+            } else {
+                components.push(Component::new_i(node.child_index? as usize));
+            }
+            current = parent;
+        }
+        components.reverse();
+        Some(Path::new(&components, false))
+    }
+
+    fn canonical_path_text(&self, id: NodeId) -> Option<String> {
+        let mut lineage = Vec::new();
+        let mut current = id;
+        while self.node_view(current)?.parent.is_some() {
+            lineage.push(current);
+            current = self.node_view(current)?.parent?;
+        }
+        let mut text = String::new();
+        for id in lineage.into_iter().rev() {
+            if !text.is_empty() {
+                text.push('.');
+            }
+            let node = self.node_view(id)?;
+            if let NodeKindView::Container {
+                name: Some(name), ..
+            } = node.kind
+                && !name.is_empty()
+            {
+                text.push_str(name);
+            } else {
+                write!(&mut text, "{}", node.child_index?).ok()?;
+            }
+        }
+        Some(text)
+    }
 
     fn find_named_child(&self, id: NodeId, name: &str) -> Option<NodeId> {
         let mut low = 0;
@@ -449,6 +608,23 @@ impl<T: StaticStoryView> StaticStoryView for Rc<T> {
     fn named_child_at(&self, id: NodeId, index: usize) -> Option<NamedChildView<'_>> {
         self.as_ref().named_child_at(id, index)
     }
+
+    fn list_item(&self, name: &str) -> Option<(InkListItem, i32)> {
+        self.as_ref().list_item(name)
+    }
+
+    fn list_definition_count(&self) -> usize {
+        self.as_ref().list_definition_count()
+    }
+    fn list_definition_name(&self, index: usize) -> Option<&str> {
+        self.as_ref().list_definition_name(index)
+    }
+    fn list_definition_item_count(&self, index: usize) -> Option<usize> {
+        self.as_ref().list_definition_item_count(index)
+    }
+    fn list_definition_item_at(&self, index: usize, item: usize) -> Option<(&str, i32)> {
+        self.as_ref().list_definition_item_at(index, item)
+    }
 }
 
 #[derive(Debug)]
@@ -477,6 +653,145 @@ pub(crate) struct FlatStoryData {
     pub(crate) list_definitions: Vec<StaticListDefinition>,
 }
 
+/// Storage selected when a story is opened. The image arm retains only a
+/// static byte slice and its validated section bounds.
+pub(crate) enum StoryContent {
+    Arena(FlatStoryData),
+    #[cfg(feature = "binary-image")]
+    Image(crate::image::ImageView),
+}
+
+impl StoryContent {
+    pub(crate) fn root(&self) -> NodeId {
+        StaticStoryView::root(self)
+    }
+    pub(crate) fn container_id(&self, id: NodeId) -> Option<ContainerId> {
+        StaticStoryView::container_id(self, id)
+    }
+    pub(crate) fn named_child(&self, id: NodeId, name: &str) -> Option<NodeId> {
+        StaticStoryView::named_child(self, id, name)
+    }
+    pub(crate) fn resolve_path(&self, id: NodeId, path: &Path) -> Option<NodeId> {
+        StaticStoryView::resolve_path(self, id, path)
+    }
+    pub(crate) fn pointer_at_path(&self, path: &Path) -> Option<FlatPointer> {
+        StaticStoryView::pointer_at_path(self, path)
+    }
+    pub(crate) fn pointer_for(&self, id: NodeId) -> Option<FlatPointer> {
+        StaticStoryView::pointer_for(self, id)
+    }
+    pub(crate) fn path_for(&self, id: NodeId) -> Option<Path> {
+        StaticStoryView::path_for(self, id)
+    }
+    pub(crate) fn canonical_path_text(&self, id: NodeId) -> Option<String> {
+        StaticStoryView::canonical_path_text(self, id)
+    }
+    pub(crate) fn list_item(&self, name: &str) -> Option<(InkListItem, i32)> {
+        StaticStoryView::list_item(self, name)
+    }
+
+    pub(crate) fn list_definition_index(&self, name: &str) -> Option<usize> {
+        let mut low = 0;
+        let mut high = self.list_definition_count();
+        while low < high {
+            let middle = low + (high - low) / 2;
+            match self.list_definition_name(middle)?.cmp(name) {
+                core::cmp::Ordering::Less => low = middle + 1,
+                core::cmp::Ordering::Greater => high = middle,
+                core::cmp::Ordering::Equal => return Some(middle),
+            }
+        }
+        None
+    }
+}
+
+impl StaticStoryView for StoryContent {
+    fn node_count(&self) -> usize {
+        match self {
+            Self::Arena(data) => data.node_count(),
+            #[cfg(feature = "binary-image")]
+            Self::Image(data) => data.node_count(),
+        }
+    }
+
+    fn node_view(&self, id: NodeId) -> Option<NodeView<'_>> {
+        match self {
+            Self::Arena(data) => data.node_view(id),
+            #[cfg(feature = "binary-image")]
+            Self::Image(data) => data.node_view(id),
+        }
+    }
+
+    fn child_count(&self, id: NodeId) -> Option<usize> {
+        match self {
+            Self::Arena(data) => data.child_count(id),
+            #[cfg(feature = "binary-image")]
+            Self::Image(data) => data.child_count(id),
+        }
+    }
+
+    fn child_at(&self, id: NodeId, index: usize) -> Option<NodeId> {
+        match self {
+            Self::Arena(data) => data.child_at(id, index),
+            #[cfg(feature = "binary-image")]
+            Self::Image(data) => data.child_at(id, index),
+        }
+    }
+
+    fn named_child_count(&self, id: NodeId) -> Option<usize> {
+        match self {
+            Self::Arena(data) => data.named_child_count(id),
+            #[cfg(feature = "binary-image")]
+            Self::Image(data) => data.named_child_count(id),
+        }
+    }
+
+    fn named_child_at(&self, id: NodeId, index: usize) -> Option<NamedChildView<'_>> {
+        match self {
+            Self::Arena(data) => data.named_child_at(id, index),
+            #[cfg(feature = "binary-image")]
+            Self::Image(data) => data.named_child_at(id, index),
+        }
+    }
+
+    fn list_item(&self, name: &str) -> Option<(InkListItem, i32)> {
+        match self {
+            Self::Arena(data) => data.list_item(name),
+            #[cfg(feature = "binary-image")]
+            Self::Image(data) => data.list_item(name),
+        }
+    }
+
+    fn list_definition_count(&self) -> usize {
+        match self {
+            Self::Arena(data) => data.list_definition_count(),
+            #[cfg(feature = "binary-image")]
+            Self::Image(data) => data.list_definition_count(),
+        }
+    }
+    fn list_definition_name(&self, index: usize) -> Option<&str> {
+        match self {
+            Self::Arena(data) => data.list_definition_name(index),
+            #[cfg(feature = "binary-image")]
+            Self::Image(data) => data.list_definition_name(index),
+        }
+    }
+    fn list_definition_item_count(&self, index: usize) -> Option<usize> {
+        match self {
+            Self::Arena(data) => data.list_definition_item_count(index),
+            #[cfg(feature = "binary-image")]
+            Self::Image(data) => data.list_definition_item_count(index),
+        }
+    }
+    fn list_definition_item_at(&self, index: usize, item: usize) -> Option<(&str, i32)> {
+        match self {
+            Self::Arena(data) => data.list_definition_item_at(index, item),
+            #[cfg(feature = "binary-image")]
+            Self::Image(data) => data.list_definition_item_at(index, item),
+        }
+    }
+}
+
 impl StaticStoryView for FlatStoryData {
     fn node_count(&self) -> usize {
         self.nodes.len()
@@ -487,6 +802,7 @@ impl StaticStoryView for FlatStoryData {
         let kind = match &node.kind {
             NodeKind::Container(record) => NodeKindView::Container {
                 count_flags: record.count_flags,
+                name: record.name.as_deref(),
             },
             NodeKind::ChoicePoint(record) => NodeKindView::ChoicePoint {
                 flags: record.flags,
@@ -563,6 +879,24 @@ impl StaticStoryView for FlatStoryData {
             name: &entry.name,
             node: entry.node,
         })
+    }
+
+    fn list_item(&self, name: &str) -> Option<(InkListItem, i32)> {
+        FlatStoryData::list_item(self, name)
+    }
+
+    fn list_definition_count(&self) -> usize {
+        self.list_definitions.len()
+    }
+    fn list_definition_name(&self, index: usize) -> Option<&str> {
+        Some(&self.list_definitions.get(index)?.name)
+    }
+    fn list_definition_item_count(&self, index: usize) -> Option<usize> {
+        Some(self.list_definitions.get(index)?.items.len())
+    }
+    fn list_definition_item_at(&self, index: usize, item: usize) -> Option<(&str, i32)> {
+        let (name, value) = self.list_definitions.get(index)?.items.get(item)?;
+        Some((name, *value))
     }
 }
 
@@ -653,7 +987,11 @@ impl FlatRuntimeCaches {
     }
 
     /// Only visited nodes can occupy the cache. Eviction affects speed only.
-    pub(crate) fn path<'a>(&'a mut self, data: &FlatStoryData, id: NodeId) -> Option<&'a str> {
+    pub(crate) fn path<'a>(
+        &'a mut self,
+        data: &impl StaticStoryView,
+        id: NodeId,
+    ) -> Option<&'a str> {
         if self.clock == u64::MAX {
             self.paths.clear();
             self.clock = 0;
@@ -724,21 +1062,21 @@ impl FlatCounters {
 
     pub(crate) fn visit_paths_for_save(
         &self,
-        data: &FlatStoryData,
+        data: &impl StaticStoryView,
     ) -> Result<HashMap<String, i32>, StoryError> {
         Self::encode_paths(data, &self.visits)
     }
 
     pub(crate) fn turn_paths_for_save(
         &self,
-        data: &FlatStoryData,
+        data: &impl StaticStoryView,
     ) -> Result<HashMap<String, i32>, StoryError> {
         Self::encode_paths(data, &self.turns)
     }
 
     pub(crate) fn restore_visit_paths(
         &mut self,
-        data: &FlatStoryData,
+        data: &impl StaticStoryView,
         paths: &HashMap<String, i32>,
     ) -> Result<(), StoryError> {
         self.visits = Self::decode_paths(data, paths)?;
@@ -747,7 +1085,7 @@ impl FlatCounters {
 
     pub(crate) fn restore_turn_paths(
         &mut self,
-        data: &FlatStoryData,
+        data: &impl StaticStoryView,
         paths: &HashMap<String, i32>,
     ) -> Result<(), StoryError> {
         self.turns = Self::decode_paths(data, paths)?;
@@ -755,7 +1093,7 @@ impl FlatCounters {
     }
 
     fn encode_paths(
-        data: &FlatStoryData,
+        data: &impl StaticStoryView,
         counts: &HashMap<ContainerId, i32>,
     ) -> Result<HashMap<String, i32>, StoryError> {
         let mut paths = HashMap::with_capacity(counts.len());
@@ -769,7 +1107,7 @@ impl FlatCounters {
     }
 
     fn decode_paths(
-        data: &FlatStoryData,
+        data: &impl StaticStoryView,
         paths: &HashMap<String, i32>,
     ) -> Result<HashMap<ContainerId, i32>, StoryError> {
         let mut counts = HashMap::with_capacity(paths.len());
@@ -801,6 +1139,13 @@ impl FlatStoryData {
         reader: impl Read,
         observer: &mut impl LoadObserver,
     ) -> Result<(i32, Self), StoryError> {
+        #[cfg(not(any(feature = "stream-json-parser", feature = "serde-json-parser")))]
+        {
+            let _ = (reader, observer);
+            Err(StoryError::BadArgument(
+                "JSON story parser is not enabled".to_owned(),
+            ))
+        }
         #[cfg(feature = "stream-json-parser")]
         {
             crate::json::flat_json_stream::load_from_reader(reader, observer)
@@ -1297,7 +1642,10 @@ fn classify(node: &dyn RTObject) -> Result<NodeKind, StoryError> {
     Ok(kind)
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(feature = "stream-json-parser", feature = "serde-json-parser")
+))]
 mod tests {
     use super::*;
     use crate::list_definitions_origin::ListDefinitionsOrigin;

@@ -12,7 +12,7 @@ use crate::{
     },
     control_command::{CommandType, ControlCommand},
     flat_callstack::{FlatCallStack, FlatElement, FlatThread},
-    flat_story::{FlatPointer, FlatStoryData},
+    flat_story::{FlatPointer, StoryContent},
     json::{
         json_read_stream::{read_runtime_object, read_runtime_object_list},
         json_tokenizer::JsonTokenizer,
@@ -356,14 +356,14 @@ fn parse_int_map<R: Read>(
     Ok(values)
 }
 
-fn pointer_at_text(data: &FlatStoryData, text: &str) -> Result<FlatPointer, StoryError> {
+fn pointer_at_text(data: &StoryContent, text: &str) -> Result<FlatPointer, StoryError> {
     data.pointer_at_path(&Path::new_with_components_string(Some(text)))
         .ok_or_else(|| bad(format!("pointer path '{text}' does not resolve")))
 }
 
 fn parse_element<R: Read>(
     reader: &mut JsonTokenizer<R>,
-    data: &FlatStoryData,
+    data: &StoryContent,
 ) -> Result<FlatElement, StoryError> {
     reader.expect('{')?;
     let mut path = None;
@@ -411,7 +411,7 @@ fn parse_element<R: Read>(
 
 fn parse_thread<R: Read>(
     reader: &mut JsonTokenizer<R>,
-    data: &FlatStoryData,
+    data: &StoryContent,
 ) -> Result<FlatThread, StoryError> {
     reader.expect('{')?;
     let mut frames = Vec::new();
@@ -452,7 +452,7 @@ fn parse_thread<R: Read>(
 
 fn parse_stack<R: Read>(
     reader: &mut JsonTokenizer<R>,
-    data: &FlatStoryData,
+    data: &StoryContent,
 ) -> Result<FlatCallStack, StoryError> {
     reader.expect('{')?;
     let mut threads = None;
@@ -578,7 +578,7 @@ fn parse_output(output: Vec<Rc<dyn RTObject>>) -> (String, Vec<String>) {
 
 fn parse_flow<R: Read>(
     reader: &mut JsonTokenizer<R>,
-    data: &FlatStoryData,
+    data: &StoryContent,
 ) -> Result<FlatFlow, StoryError> {
     reader.expect('{')?;
     let mut stack = None;
@@ -693,7 +693,7 @@ struct ParsedState {
 
 fn parse_document<R: Read>(
     reader: &mut JsonTokenizer<R>,
-    data: &FlatStoryData,
+    data: &StoryContent,
 ) -> Result<ParsedState, StoryError> {
     reader.expect('{')?;
     let mut state = ParsedState::default();

@@ -97,8 +97,35 @@ impl FlatStory {
         observer: &mut impl LoadObserver,
     ) -> Result<Self, StoryError> {
         let (version, data) = FlatStoryData::from_json_reader_observed(reader, observer)?;
+        let story = Self::from_runtime(FlatRuntime::new_with_seed(data, seed)?, seed, version);
+        observer.record(LoadPhase::RuntimeInitialized);
+        Ok(story)
+    }
+
+    /// Opens a validated, static binary image without copying its nodes into RAM.
+    #[cfg(feature = "binary-image")]
+    pub fn new_from_image_with_seed(bytes: &'static [u8], seed: i32) -> Result<Self, StoryError> {
+        let image = crate::image::ImageView::new(bytes)?;
+        let version = image.ink_version;
+        Ok(Self::from_runtime(
+            FlatRuntime::new_image(image, seed)?,
+            seed,
+            version,
+        ))
+    }
+
+    /// Opens a static binary image with a generated random seed.
+    #[cfg(all(feature = "binary-image", feature = "std"))]
+    pub fn new_from_image(bytes: &'static [u8]) -> Result<Self, StoryError> {
+        let seed = rand::RngExt::random_range(&mut rand::rng(), 0..100);
+        let mut story = Self::new_from_image_with_seed(bytes, seed)?;
+        story.fixed_seed = None;
+        Ok(story)
+    }
+
+    fn from_runtime(runtime: FlatRuntime, seed: i32, version: i32) -> Self {
         let mut story = Self {
-            runtime: FlatRuntime::new_with_seed(data, seed)?,
+            runtime,
             fixed_seed: Some(seed),
             observers: HashMap::new(),
             subscriptions: HashMap::new(),
@@ -122,8 +149,7 @@ impl FlatStory {
                 format!("RUNTIME WARNING: ({path}): {message}")
             });
         }
-        observer.record(LoadPhase::RuntimeInitialized);
-        Ok(story)
+        story
     }
 
     /// Builds a story from compiled Ink JSON.
@@ -595,13 +621,16 @@ impl FlatStory {
     }
 
     /// Writes a save state in the existing Ink JSON format.
-    #[cfg(feature = "stream-json-parser")]
+    #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
     pub fn save_state_to_writer(&self, writer: impl Write) -> Result<(), StoryError> {
         self.runtime.save_state_to_writer(writer)
     }
 
     /// Writes a save state in the existing Ink JSON format.
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub fn save_state_to_writer(&self, mut writer: impl Write) -> Result<(), StoryError> {
         writer.write_all(self.runtime.save_state_json()?.as_bytes())?;
         Ok(())
@@ -613,14 +642,17 @@ impl FlatStory {
     }
 
     /// Loads a state written by this runtime or the existing Ink runtime.
-    #[cfg(feature = "stream-json-parser")]
+    #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
     pub fn load_state_from_reader(&mut self, reader: impl Read) -> Result<(), StoryError> {
         self.choice_cache.borrow_mut().take();
         self.runtime.load_state_from_reader(reader)
     }
 
     /// Loads a state written by this runtime or the existing Ink runtime.
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub fn load_state_from_reader(&mut self, mut reader: impl Read) -> Result<(), StoryError> {
         self.choice_cache.borrow_mut().take();
         let mut saved = String::new();
@@ -635,7 +667,10 @@ impl FlatStory {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(feature = "stream-json-parser", feature = "serde-json-parser")
+))]
 mod tests {
     use super::*;
 

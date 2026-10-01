@@ -7,13 +7,16 @@ use crate::compat::{
     rc::Rc,
 };
 
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
 use serde_json::Map;
 
 use crate::{
     callstack::CallStack,
     flat_callstack::FlatCallStack,
-    flat_story::FlatStoryData,
+    flat_story::StoryContent,
     ink_list::InkList,
     list_definitions_origin::ListDefinitionsOrigin,
     state_patch::StatePatch,
@@ -34,7 +37,7 @@ pub(crate) enum VariableCallStack {
 enum ListOrigins {
     Legacy(Rc<ListDefinitionsOrigin>),
     Flat {
-        data: Rc<FlatStoryData>,
+        data: Rc<StoryContent>,
         values: RefCell<HashMap<String, Rc<Value>>>,
     },
 }
@@ -95,11 +98,14 @@ impl VariableCallStack {
     }
 }
 
-#[cfg(feature = "stream-json-parser")]
+#[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
 use crate::compat::io::Write;
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
 use crate::json::{json_read, json_write};
-#[cfg(feature = "stream-json-parser")]
+#[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
 use crate::json::{json_write_stream, json_writer::JsonWriter};
 
 #[derive(Clone)]
@@ -132,7 +138,7 @@ impl VariablesState {
     #[allow(dead_code)] // Activated when StoryState owns the flat flow.
     pub(crate) fn new_flat(
         callstack: Rc<RefCell<FlatCallStack>>,
-        data: Rc<FlatStoryData>,
+        data: Rc<StoryContent>,
     ) -> VariablesState {
         VariablesState {
             global_variables: HashMap::new(),
@@ -440,7 +446,10 @@ impl VariablesState {
         self.callstack = VariableCallStack::Flat(callstack);
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub(crate) fn write_json(&self) -> Result<serde_json::Value, StoryError> {
         let mut jobj: Map<String, serde_json::Value> = Map::new();
 
@@ -459,7 +468,7 @@ impl VariablesState {
         Ok(serde_json::Value::Object(jobj))
     }
 
-    #[cfg(feature = "stream-json-parser")]
+    #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
     pub(crate) fn write_json_stream<W: Write>(
         &self,
         writer: &mut JsonWriter<W>,
@@ -516,7 +525,10 @@ impl VariablesState {
         }
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub(crate) fn load_json(
         &mut self,
         jobj: &Map<String, serde_json::Value>,
@@ -542,7 +554,7 @@ impl VariablesState {
         Ok(())
     }
 
-    #[cfg(feature = "stream-json-parser")]
+    #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
     pub(crate) fn load_stream_values(&mut self, loaded: HashMap<String, Rc<Value>>) {
         self.global_variables.clear();
         for (name, default) in &self.default_global_variables {
@@ -554,16 +566,20 @@ impl VariablesState {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(feature = "stream-json-parser", feature = "serde-json-parser")
+))]
 mod flat_tests {
     use super::*;
+    use crate::flat_story::FlatStoryData;
 
     #[test]
     fn flat_list_definitions_materialize_values_only_when_referenced() {
         let json =
             r#"{"inkVersion":21,"root":["done",null],"listDefs":{"Color":{"Red":1,"Blue":2}}}"#;
         let (_, data) = FlatStoryData::from_json_reader(json.as_bytes()).unwrap();
-        let data = Rc::new(data);
+        let data = Rc::new(StoryContent::Arena(data));
         let root = data.container_id(data.root()).unwrap();
         let stack = Rc::new(RefCell::new(FlatCallStack::new(root)));
         let vars = VariablesState::new_flat(stack, data);

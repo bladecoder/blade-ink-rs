@@ -469,6 +469,7 @@ pub fn jtoken_to_list_definitions(
     Ok(ListDefinitionsOrigin::new(&mut all_defs))
 }
 
+#[cfg(not(feature = "binary-image"))]
 pub(crate) fn jobject_to_hashmap_values(
     jobj: &Map<String, serde_json::Value>,
 ) -> Result<HashMap<String, Rc<Value>>, StoryError> {
@@ -487,6 +488,7 @@ pub(crate) fn jobject_to_hashmap_values(
     Ok(dict)
 }
 
+#[cfg(not(feature = "binary-image"))]
 pub(crate) fn jobject_to_int_hashmap(
     jobj: &Map<String, serde_json::Value>,
 ) -> Result<HashMap<String, i32>, StoryError> {

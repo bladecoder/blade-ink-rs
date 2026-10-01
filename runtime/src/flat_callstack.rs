@@ -12,10 +12,22 @@ use crate::{
     value::Value,
 };
 
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
+use crate::flat_story::StaticStoryView;
+
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
 use serde_json::{Map, json};
 
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
 use crate::json::{json_read, json_write};
 
 #[derive(Clone)]
@@ -59,10 +71,13 @@ impl FlatThread {
         }
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub(crate) fn write_json(
         &self,
-        data: &crate::flat_story::FlatStoryData,
+        data: &impl StaticStoryView,
     ) -> Result<serde_json::Value, StoryError> {
         let mut thread = Map::new();
         let mut elements = Vec::with_capacity(self.callstack.len());
@@ -102,9 +117,12 @@ impl FlatThread {
         Ok(serde_json::Value::Object(thread))
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub(crate) fn from_json(
-        data: &crate::flat_story::FlatStoryData,
+        data: &impl StaticStoryView,
         encoded: &serde_json::Value,
     ) -> Result<Self, StoryError> {
         let object = encoded
@@ -212,10 +230,13 @@ impl FlatCallStack {
         self.threads.push(thread);
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub(crate) fn write_json(
         &self,
-        data: &crate::flat_story::FlatStoryData,
+        data: &impl StaticStoryView,
     ) -> Result<serde_json::Value, StoryError> {
         let mut stack = Map::new();
         stack.insert(
@@ -231,10 +252,13 @@ impl FlatCallStack {
         Ok(serde_json::Value::Object(stack))
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub(crate) fn load_json(
         &mut self,
-        data: &crate::flat_story::FlatStoryData,
+        data: &impl StaticStoryView,
         encoded: &serde_json::Value,
     ) -> Result<(), StoryError> {
         let object = encoded
@@ -446,7 +470,10 @@ impl FlatCallStack {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(feature = "stream-json-parser", feature = "serde-json-parser")
+))]
 mod tests {
     use super::*;
     use crate::flat_story::FlatStoryData;

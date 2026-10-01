@@ -1,7 +1,6 @@
-//! Versioned, deterministic encoding of the immutable Ink story arena.
-//!
-//! The on-flash reader is added in the next milestone. See
-//! `docs/flash-story-image-format.md` for the byte-level format.
+//! Host-side encoding of the immutable Ink story arena.
+
+use super::{FORMAT_VERSION, HEADER_SIZE, MAGIC, NODE_WORDS, NONE, checksum};
 
 use std::collections::BTreeMap;
 
@@ -15,13 +14,6 @@ use crate::{
     push_pop::PushPopType,
     story_error::StoryError,
 };
-
-/// The format changes whenever a record layout or tag meaning changes.
-pub const FORMAT_VERSION: u32 = 1;
-pub const MAGIC: &[u8; 8] = b"BLINKIMG";
-const NONE: u32 = u32::MAX;
-const HEADER_SIZE: usize = 88;
-const NODE_WORDS: usize = 10;
 
 /// Compile an already compiled Ink JSON document into a flash story image.
 /// The result contains no pointers or Rust struct layouts.
@@ -216,7 +208,7 @@ impl Encoder {
         section(&mut image, next, self.payload.len())?;
         next += self.payload.len();
         section(&mut image, next, self.strings.len())?;
-        word(&mut image, 0); // reserved
+        word(&mut image, 0); // checksum, filled after appending sections
         debug_assert_eq!(image.len(), HEADER_SIZE);
         image.extend_from_slice(&nodes);
         image.extend_from_slice(&children);
@@ -228,6 +220,8 @@ impl Encoder {
         image.extend_from_slice(&self.strings);
         let total = count(image.len())?;
         image[16..20].copy_from_slice(&total.to_le_bytes());
+        let crc = checksum(&image);
+        image[84..88].copy_from_slice(&crc.to_le_bytes());
         Ok(image)
     }
 
@@ -579,7 +573,7 @@ mod tests {
                 .any(|bytes| bytes == b".relative")
         );
         assert_eq!(read_word(&image, 64), 1); // root path index
-        assert_eq!(read_word(&image, 84), 0);
+        assert_eq!(read_word(&image, 84), checksum(&image));
     }
 
     #[test]

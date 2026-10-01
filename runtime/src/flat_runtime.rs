@@ -11,7 +11,7 @@ use crate::{
     flat_callstack::{FlatCallStack, FlatThread},
     flat_story::{
         ContainerId, FlatCounters, FlatPointer, FlatStoryData, NodeId, NodeKindView,
-        StaticStoryView, ValueView,
+        StaticStoryView, StoryContent, ValueView,
     },
     ink_list::InkList,
     ink_list_item::InkListItem,
@@ -32,13 +32,19 @@ use crate::{
 };
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
-#[cfg(feature = "stream-json-parser")]
+#[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
 mod state_stream;
 
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
 use serde_json::{Map, json};
 
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
 use crate::{
     control_command::ControlCommand,
     json::{json_read, json_write},
@@ -56,7 +62,7 @@ pub(crate) struct FlatChoice {
 }
 
 pub(crate) struct FlatRuntime {
-    data: Rc<FlatStoryData>,
+    data: Rc<StoryContent>,
     callstack: Rc<RefCell<FlatCallStack>>,
     variables: VariablesState,
     counters: FlatCounters,
@@ -122,10 +128,15 @@ impl FlatRuntime {
     }
 
     pub(crate) fn new_with_seed(data: FlatStoryData, seed: i32) -> Result<Self, StoryError> {
-        Self::new_shared(Rc::new(data), seed)
+        Self::new_shared(Rc::new(StoryContent::Arena(data)), seed)
     }
 
-    fn new_shared(data: Rc<FlatStoryData>, seed: i32) -> Result<Self, StoryError> {
+    #[cfg(feature = "binary-image")]
+    pub(crate) fn new_image(data: crate::image::ImageView, seed: i32) -> Result<Self, StoryError> {
+        Self::new_shared(Rc::new(StoryContent::Image(data)), seed)
+    }
+
+    fn new_shared(data: Rc<StoryContent>, seed: i32) -> Result<Self, StoryError> {
         let root = data
             .container_id(data.root())
             .ok_or_else(|| StoryError::BadJson("root is not a container".to_owned()))?;
@@ -337,7 +348,8 @@ impl FlatRuntime {
         })?;
 
         while let Some(container) = data.container_id(id) {
-            let NodeKindView::Container { count_flags } = data.node_view(id).unwrap().kind else {
+            let NodeKindView::Container { count_flags, .. } = data.node_view(id).unwrap().kind
+            else {
                 unreachable!()
             };
             let already_open = previous.resolve(&data).is_some_and(|previous_id| {
@@ -822,21 +834,18 @@ impl FlatRuntime {
                     })?
                     .string
                     .clone();
-                let definition = self
+                let definition = self.data.list_definition_index(&name).ok_or_else(|| {
+                    StoryError::InvalidStoryState(format!("Failed to find List called {name}"))
+                })?;
+                let list = (0..self
                     .data
-                    .list_definitions
-                    .iter()
-                    .find(|definition| definition.name == name)
-                    .ok_or_else(|| {
-                        StoryError::InvalidStoryState(format!("Failed to find List called {name}"))
-                    })?;
-                let list = definition
-                    .items
-                    .iter()
+                    .list_definition_item_count(definition)
+                    .unwrap_or(0))
+                    .filter_map(|index| self.data.list_definition_item_at(definition, index))
                     .find(|(_, item_value)| *item_value == value)
                     .map_or_else(InkList::new, |(item_name, _)| {
                         InkList::from_single_element((
-                            InkListItem::new(Some(name.clone()), item_name.clone()),
+                            InkListItem::new(Some(name.clone()), item_name.to_owned()),
                             value,
                         ))
                     });
@@ -1154,13 +1163,14 @@ impl FlatRuntime {
             let mut origins = list.origins.borrow_mut();
             origins.clear();
             for name in names {
-                if let Some(definition) = self
-                    .data
-                    .list_definitions
-                    .iter()
-                    .find(|item| item.name == name)
-                {
-                    let items: HashMap<_, _> = definition.items.iter().cloned().collect();
+                if let Some(definition) = self.data.list_definition_index(&name) {
+                    let items: HashMap<_, _> = (0..self
+                        .data
+                        .list_definition_item_count(definition)
+                        .unwrap_or(0))
+                        .filter_map(|index| self.data.list_definition_item_at(definition, index))
+                        .map(|(item, value)| (item.to_owned(), value))
+                        .collect();
                     origins.push(ListDefinition::new(name, items));
                 }
             }
@@ -1250,7 +1260,7 @@ impl FlatRuntime {
         self.record_entered_ancestors(previous, pointer);
         if let Some(container) = pointer.container.filter(|_| pointer.index < 0) {
             let flags = match self.data.node_view(container.node()).unwrap().kind {
-                NodeKindView::Container { count_flags } => count_flags,
+                NodeKindView::Container { count_flags, .. } => count_flags,
                 _ => 0,
             };
             if flags & 1 != 0 {
@@ -1284,7 +1294,7 @@ impl FlatRuntime {
             if previous_ancestors.contains(&parent) {
                 break;
             }
-            if let NodeKindView::Container { count_flags } =
+            if let NodeKindView::Container { count_flags, .. } =
                 self.data.node_view(parent).unwrap().kind
                 && (count_flags & 4 == 0 || entered_at_start)
             {
@@ -1503,15 +1513,19 @@ impl FlatRuntime {
     pub(crate) fn list_from_origin(&self, origin_name: &str) -> Result<InkList, StoryError> {
         let definition = self
             .data
-            .list_definitions
-            .iter()
-            .find(|item| item.name == origin_name)
+            .list_definition_index(origin_name)
             .ok_or_else(|| {
                 StoryError::BadArgument(format!("List origin '{origin_name}' does not exist."))
             })?;
         let list = InkList::new();
         list.set_initial_origin_names(vec![origin_name.to_owned()]);
-        let values: HashMap<_, _> = definition.items.iter().cloned().collect();
+        let values: HashMap<_, _> = (0..self
+            .data
+            .list_definition_item_count(definition)
+            .unwrap_or(0))
+            .filter_map(|index| self.data.list_definition_item_at(definition, index))
+            .map(|(name, value)| (name.to_owned(), value))
+            .collect();
         list.origins
             .borrow_mut()
             .push(ListDefinition::new(origin_name.to_owned(), values));
@@ -1528,15 +1542,8 @@ impl FlatRuntime {
         let mut list = self.list_from_origin(origin_name)?;
         let value = self
             .data
-            .list_definitions
-            .iter()
-            .find(|def| def.name == *origin_name)
-            .and_then(|def| {
-                def.items
-                    .iter()
-                    .find(|(name, _)| name == item.get_item_name())
-            })
-            .map(|(_, value)| *value)
+            .list_item(full_item_name)
+            .map(|(_, value)| value)
             .ok_or_else(|| {
                 StoryError::BadArgument(format!("List item '{full_item_name}' does not exist."))
             })?;
@@ -1664,7 +1671,10 @@ impl FlatRuntime {
         core::mem::take(&mut self.changed_variables)
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     fn write_flow_json(
         &self,
         stack: &FlatCallStack,
@@ -1745,7 +1755,10 @@ impl FlatRuntime {
         Ok(serde_json::Value::Object(flow))
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub(crate) fn save_state_json(&self) -> Result<String, StoryError> {
         let mut state = Map::new();
         let mut flows = Map::new();
@@ -1808,7 +1821,10 @@ impl FlatRuntime {
         serde_json::to_string(&state).map_err(|error| StoryError::BadJson(error.to_string()))
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     fn load_flow_json(&self, encoded: &serde_json::Value) -> Result<FlatFlow, StoryError> {
         let object = encoded
             .as_object()
@@ -1919,7 +1935,10 @@ impl FlatRuntime {
         Ok(flow)
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub(crate) fn load_state_json(&mut self, saved: &str) -> Result<(), StoryError> {
         let encoded: serde_json::Value =
             serde_json::from_str(saved).map_err(|error| StoryError::BadJson(error.to_string()))?;
@@ -2022,7 +2041,10 @@ impl FlatRuntime {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(feature = "stream-json-parser", feature = "serde-json-parser")
+))]
 mod tests {
     use super::*;
     use crate::story::LegacyStory;
@@ -2494,7 +2516,10 @@ mod tests {
         }
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     #[test]
     fn flat_callstack_uses_legacy_save_shape() {
         let json = include_str!("../../conformance-tests/inkfiles/choices/single-choice.ink.json");
@@ -2517,7 +2542,10 @@ mod tests {
         assert_eq!(loaded.write_json(&flat.data).unwrap(), legacy_stack);
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     #[test]
     fn flat_state_uses_legacy_save_shape() {
         let json = include_str!("../../conformance-tests/inkfiles/choices/single-choice.ink.json");
@@ -2546,7 +2574,10 @@ mod tests {
         );
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     #[test]
     fn flat_state_roundtrips_multiple_flows_and_threads() {
         let json = include_str!(

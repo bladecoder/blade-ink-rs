@@ -71,7 +71,9 @@ mod misc {
     #[allow(unused_imports)]
     use crate::prelude::*;
 
-    use crate::compat::{collections::HashMap, io::Read, rc::Rc};
+    #[cfg(any(feature = "stream-json-parser", feature = "serde-json-parser"))]
+    use crate::compat::collections::HashMap;
+    use crate::compat::{io::Read, rc::Rc};
     #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
     use crate::json::json_read;
     #[cfg(feature = "stream-json-parser")]
@@ -81,11 +83,12 @@ mod misc {
         ink_list_item::InkListItem,
         object::{Object, RTObject},
         path::Path,
-        story::{INK_VERSION_CURRENT, LegacyStory},
+        story::LegacyStory,
         story_error::StoryError,
-        story_state::StoryState,
         value::Value,
     };
+    #[cfg(any(feature = "stream-json-parser", feature = "serde-json-parser"))]
+    use crate::{story::INK_VERSION_CURRENT, story_state::StoryState};
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
     impl LegacyStory {
@@ -114,6 +117,7 @@ mod misc {
             Self::new_from_reader_internal(reader, seed, Some(seed))
         }
 
+        #[cfg(any(feature = "stream-json-parser", feature = "serde-json-parser"))]
         fn new_from_reader_internal(
             reader: impl Read,
             seed: i32,
@@ -163,13 +167,30 @@ mod misc {
             Ok(story)
         }
 
-        #[cfg(feature = "std")]
+        #[cfg(not(any(feature = "stream-json-parser", feature = "serde-json-parser")))]
+        fn new_from_reader_internal(
+            _reader: impl Read,
+            _seed: i32,
+            _fixed_seed: Option<i32>,
+        ) -> Result<Self, StoryError> {
+            Err(StoryError::BadArgument(
+                "JSON story parser is not enabled".to_owned(),
+            ))
+        }
+
+        #[cfg(all(
+            feature = "std",
+            any(feature = "stream-json-parser", feature = "serde-json-parser")
+        ))]
         fn default_time_source() -> Option<Rc<dyn super::TimeSource>> {
             let origin = web_time::Instant::now();
             Some(Rc::new(move || origin.elapsed()))
         }
 
-        #[cfg(not(feature = "std"))]
+        #[cfg(all(
+            not(feature = "std"),
+            any(feature = "stream-json-parser", feature = "serde-json-parser")
+        ))]
         fn default_time_source() -> Option<Rc<dyn super::TimeSource>> {
             None
         }
@@ -314,7 +335,10 @@ mod state;
 mod tags;
 pub mod variable_observer;
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(feature = "stream-json-parser", feature = "serde-json-parser")
+))]
 mod tests {
     use super::LegacyStory;
     #[allow(unused_imports)]

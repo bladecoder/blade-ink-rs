@@ -26,12 +26,18 @@ use crate::{
     void::Void,
 };
 
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
 use serde_json::{Map, json};
 
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
 use crate::json::{json_read, json_write};
-#[cfg(feature = "stream-json-parser")]
+#[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
 use crate::json::{json_state_stream, json_write_stream, json_writer::JsonWriter};
 
 pub const INK_SAVE_STATE_VERSION: u32 = 10;
@@ -1218,10 +1224,13 @@ impl StoryState {
         &mut self,
         reader: impl crate::compat::io::Read,
     ) -> Result<(), StoryError> {
-        #[cfg(feature = "stream-json-parser")]
+        #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
         return json_state_stream::load_state(self, reader);
 
-        #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+        #[cfg(all(
+            not(any(feature = "stream-json-parser", feature = "binary-image")),
+            feature = "serde-json-parser"
+        ))]
         match serde_json::from_reader(reader) {
             Ok(value) => self.load_json_obj(value),
             Err(_) => Err(StoryError::BadJson("State not in JSON format.".to_owned())),
@@ -1229,15 +1238,21 @@ impl StoryState {
     }
 
     pub fn write_json_to(&self, writer: impl Write) -> Result<(), StoryError> {
-        #[cfg(feature = "stream-json-parser")]
+        #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
         return self.write_json_stream(writer);
 
-        #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+        #[cfg(all(
+            not(any(feature = "stream-json-parser", feature = "binary-image")),
+            feature = "serde-json-parser"
+        ))]
         serde_json::to_writer(writer, &self.write_json()?)
             .map_err(|error| StoryError::BadJson(error.to_string()))
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     fn write_json(&self) -> Result<serde_json::Value, StoryError> {
         let mut obj: Map<String, serde_json::Value> = Map::new();
 
@@ -1302,7 +1317,7 @@ impl StoryState {
         Ok(serde_json::Value::Object(obj))
     }
 
-    #[cfg(feature = "stream-json-parser")]
+    #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
     fn write_json_stream(&self, output: impl Write) -> Result<(), StoryError> {
         let mut writer = JsonWriter::new(output);
         writer.raw("{\"flows\":{")?;
@@ -1352,7 +1367,10 @@ impl StoryState {
         Ok(())
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     fn load_json_obj(&mut self, j_object: serde_json::Value) -> Result<(), StoryError> {
         let j_save_version = match j_object.get("inkSaveVersion") {
             Some(version) => version,

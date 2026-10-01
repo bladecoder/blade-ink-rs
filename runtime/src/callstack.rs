@@ -3,7 +3,10 @@ use crate::prelude::*;
 
 use crate::compat::{collections::HashMap, rc::Rc};
 
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
 use serde_json::{Map, json};
 
 use crate::{
@@ -15,13 +18,19 @@ use crate::{
     value::Value,
 };
 
-#[cfg(feature = "stream-json-parser")]
+#[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
 use crate::compat::io::Write;
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
 use crate::json::{json_read, json_write};
-#[cfg(feature = "stream-json-parser")]
+#[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
 use crate::json::{json_write_stream, json_writer::JsonWriter};
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
 use crate::{path::Path, story::LegacyStory};
 
 #[derive(Clone)]
@@ -50,7 +59,7 @@ impl Element {
         }
     }
 
-    #[cfg(feature = "stream-json-parser")]
+    #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
     pub(crate) fn from_json_parts(
         push_pop_type: PushPopType,
         current_pointer: Pointer,
@@ -84,7 +93,7 @@ impl Thread {
         }
     }
 
-    #[cfg(feature = "stream-json-parser")]
+    #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
     pub(crate) fn from_json_parts(
         callstack: Vec<Element>,
         previous_pointer: Pointer,
@@ -97,7 +106,10 @@ impl Thread {
         }
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub fn from_json(
         main_content_container: &Rc<Container>,
         j_obj: &Map<String, serde_json::Value>,
@@ -179,7 +191,10 @@ impl Thread {
         Ok(thread)
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub(crate) fn write_json(&self) -> Result<serde_json::Value, StoryError> {
         let mut thread: Map<String, serde_json::Value> = Map::new();
 
@@ -226,7 +241,7 @@ impl Thread {
         Ok(serde_json::Value::Object(thread))
     }
 
-    #[cfg(feature = "stream-json-parser")]
+    #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
     pub(crate) fn write_json_stream<W: Write>(
         &self,
         writer: &mut JsonWriter<W>,
@@ -290,7 +305,7 @@ impl CallStack {
         cs
     }
 
-    #[cfg(feature = "stream-json-parser")]
+    #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
     pub(crate) fn load_stream_parts(
         &mut self,
         main_content_container: &Rc<Container>,
@@ -499,7 +514,10 @@ impl CallStack {
         self.get_callstack_mut().push(element);
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub(crate) fn write_json(&self) -> Result<serde_json::Value, StoryError> {
         let mut cs: Map<String, serde_json::Value> = Map::new();
 
@@ -515,7 +533,7 @@ impl CallStack {
         Ok(serde_json::Value::Object(cs))
     }
 
-    #[cfg(feature = "stream-json-parser")]
+    #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
     pub(crate) fn write_json_stream<W: Write>(
         &self,
         writer: &mut JsonWriter<W>,
@@ -536,7 +554,10 @@ impl CallStack {
         self.threads.iter().find(|&t| t.thread_index == index)
     }
 
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
     pub fn load_json(
         &mut self,
         main_content_container: &Rc<Container>,

@@ -1,6 +1,6 @@
-# Formato binario de la historia (versión 1)
+# Formato binario de la historia (versión 2)
 
-El generador `bladeink::image::compile_json_to_image` recibe un `.ink.json` compilado y escribe una imagen determinista. `rinklecate --image` permite partir de `.ink` o `.ink.json`. Esta versión define **cómo se escribe** el archivo; la lectura directa desde flash se implementará en el Milestone 3.
+El generador `bladeink::image::compile_json_to_image` recibe un `.ink.json` compilado y escribe una imagen determinista. `rinklecate --image` permite partir de `.ink` o `.ink.json`. El runtime valida el archivo y lee el contenido directamente desde los bytes embebidos.
 
 Todos los enteros ocupan 32 bits little endian. Los offsets son absolutos desde el principio de la imagen; dentro de un registro, los offsets de cadenas y payloads son relativos a la sección correspondiente. El valor `0xffffffff` indica un campo opcional ausente. No se serializan punteros ni representaciones de estructuras Rust.
 
@@ -9,7 +9,7 @@ Todos los enteros ocupan 32 bits little endian. Los offsets son absolutos desde 
 | Offset | Contenido |
 | ---: | --- |
 | 0 | Magic ASCII de 8 bytes: `BLINKIMG` |
-| 8 | Versión de formato: `1` |
+| 8 | Versión de formato: `2` |
 | 12 | Versión Ink (`i32`) |
 | 16 | Longitud total en bytes |
 | 20 | Offset y número de nodos |
@@ -20,7 +20,7 @@ Todos los enteros ocupan 32 bits little endian. Los offsets son absolutos desde 
 | 60 | Offset y número de rutas de contenedores |
 | 68 | Offset y longitud de payloads |
 | 76 | Offset y longitud de cadenas |
-| 84 | Reservado, cero |
+| 84 | CRC-32 de toda la imagen excepto estos cuatro bytes |
 
 Las secciones se concatenan en el orden de la cabecera. Los nodos, hijos, hijos con nombre, definiciones, elementos y rutas ocupan 40, 4, 12, 16, 12 y 12 bytes por entrada, respectivamente. El ID de un nodo es su posición en la sección de nodos; el ID `0` es la raíz.
 
@@ -59,4 +59,4 @@ En desvíos, los bits 0, 1 y 2 de `f6` indican condición, llamada externa y api
 - **Payload de lista:** `n_items`, `n_origins`, seguido de `n_items` entradas `(offset de origen, longitud, offset de nombre, longitud, valor i32)` y `n_origins` pares `(offset, longitud)`. Los offsets y longitudes se expresan en bytes.
 - **Cadenas:** bytes UTF-8 concatenados, sin terminador. Se reutiliza el primer offset de cada cadena repetida.
 
-El generador rechaza el JSON inválido, las referencias estáticas irresolubles y los tamaños que no caben en campos de 32 bits. La futura vista binaria validará todos los límites y referencias antes de ejecutar la historia.
+El generador rechaza el JSON inválido, las referencias estáticas irresolubles y los tamaños que no caben en campos de 32 bits. Al abrir la imagen, el runtime comprueba la versión, longitud, CRC-32, límites, referencias y cadenas UTF-8 antes de ejecutar la historia. El CRC usa el polinomio IEEE reflejado `0xedb88320`, valor inicial `0xffffffff` y XOR final `0xffffffff`.

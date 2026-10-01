@@ -8,37 +8,30 @@ use crate::prelude::*;
 use crate::compat::{collections::HashMap, io::Read, rc::Rc};
 
 use crate::{
-    choice_point::ChoicePoint,
-    container::Container,
-    control_command::ControlCommand,
-    divert::Divert,
-    glue::Glue,
-    ink_list::InkList,
-    ink_list_item::InkListItem,
+    choice_point::ChoicePoint, container::Container, control_command::ControlCommand,
+    divert::Divert, glue::Glue, ink_list::InkList, ink_list_item::InkListItem,
+    native_function_call::NativeFunctionCall, object::RTObject, path::Path, push_pop::PushPopType,
+    story_error::StoryError, tag::Tag, value::Value, variable_assigment::VariableAssignment,
+    variable_reference::VariableReference, void::Void,
+};
+
+#[cfg(feature = "stream-json-parser")]
+use crate::{
     list_definition::ListDefinition,
     list_definitions_origin::ListDefinitionsOrigin,
-    native_function_call::NativeFunctionCall,
-    object::RTObject,
-    path::Path,
-    push_pop::PushPopType,
     story::{INK_VERSION_CURRENT, INK_VERSION_MINIMUM_COMPATIBLE},
-    story_error::StoryError,
-    tag::Tag,
-    value::Value,
-    variable_assigment::VariableAssignment,
-    variable_reference::VariableReference,
-    void::Void,
 };
 
 use super::json_tokenizer::{JsonTokenizer, JsonValue};
 
-#[cfg(test)]
+#[cfg(all(test, feature = "stream-json-parser"))]
 pub fn load_from_string(
     s: &str,
 ) -> Result<(i32, Rc<Container>, Rc<ListDefinitionsOrigin>), StoryError> {
     load_from_reader(s.as_bytes())
 }
 
+#[cfg(feature = "stream-json-parser")]
 pub fn load_from_reader<R: Read>(
     reader: R,
 ) -> Result<(i32, Rc<Container>, Rc<ListDefinitionsOrigin>), StoryError> {
@@ -48,6 +41,7 @@ pub fn load_from_reader<R: Read>(
     Ok(parsed)
 }
 
+#[cfg(feature = "stream-json-parser")]
 fn parse<R: Read>(
     tok: &mut JsonTokenizer<R>,
 ) -> Result<(i32, Rc<Container>, Rc<ListDefinitionsOrigin>), StoryError> {
@@ -603,6 +597,7 @@ fn jarray_to_runtime_obj_list<R: Read>(tok: &mut JsonTokenizer<R>) -> RuntimeObj
     Ok((list, last_element))
 }
 
+#[cfg(feature = "stream-json-parser")]
 fn jtoken_to_list_definitions<R: Read>(
     tok: &mut JsonTokenizer<R>,
 ) -> Result<ListDefinitionsOrigin, StoryError> {
@@ -628,7 +623,7 @@ fn jtoken_to_list_definitions<R: Read>(
     Ok(ListDefinitionsOrigin::new(&mut all_defs))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "stream-json-parser"))]
 mod tests {
     use super::*;
 

@@ -49,13 +49,15 @@ Implementar el codificador de la representación inmutable y su formato versiona
 
 **Criterio de cierre:** la misma entrada produce bytes idénticos en ejecuciones repetidas; el generador rechaza entradas inválidas y los archivos resultantes incluyen todos los tipos de contenido cubiertos por el runtime.
 
-**Estado:** implementado en `binary-image`. El formato v1 está documentado en [flash-story-image-format.md](flash-story-image-format.md). `compile_json_to_image` codifica el arena después de normalizar el orden de IDs de contenido con nombre; `rinklecate --image` acepta `.ink` y `.ink.json`. Las pruebas cubren todas las variantes de nodo, determinismo, entradas inválidas y el CLI. Los 121 JSON del corpus de conformidad se codificaron con ambos lectores y produjeron imágenes idénticas. La lectura directa de la imagen queda para el Milestone 3.
+**Estado:** implementado en `binary-image`. El formato v2, que añade CRC-32 para detectar corrupción, está documentado en [flash-story-image-format.md](flash-story-image-format.md). `compile_json_to_image` codifica el arena después de normalizar el orden de IDs de contenido con nombre; `rinklecate --image` acepta `.ink` y `.ink.json`. Las pruebas cubren todas las variantes de nodo, determinismo, entradas inválidas y el CLI. Los 121 JSON del corpus de conformidad se codificaron con ambos lectores y produjeron imágenes idénticas.
 
 ### Milestone 3 — Vista binaria desde flash
 
 Implementar la validación y lectura por offsets desde `&'static [u8]`. Añadir los constructores de imagen y la configuración `binary-image` sin parser de historias JSON. Mantener el codec del estado JSON y evitar asignaciones persistentes por nodo al crear o ejecutar una historia desde la imagen.
 
 **Criterio de cierre:** una historia embebida con `include_bytes!` se ejecuta en host con `binary-image` y la biblioteca compila en un objetivo `no_std` real. Las imágenes truncadas, corruptas o de versión incompatible se rechazan sin fallos de memoria.
+
+**Estado:** implementado. `Story::new_from_image_with_seed` valida la cabecera, el CRC-32, las secciones y las referencias, y ejecuta desde una vista prestada de la imagen. `binary-image` funciona sin parser de historias JSON y conserva el guardado y la carga del estado JSON. La prueba con `include_bytes!` ejecuta y restaura una historia; las pruebas rechazan imágenes truncadas, corruptas y de versión incompatible. El runtime compila para `thumbv7em-none-eabihf` con solo `binary-image`. La equivalencia exhaustiva con JSON corresponde al Milestone 4.
 
 ### Milestone 4 — Equivalencia funcional
 

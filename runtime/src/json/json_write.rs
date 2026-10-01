@@ -301,6 +301,7 @@ fn write_choice_tags(choice: &Choice) -> serde_json::Value {
     serde_json::Value::Array(tags)
 }
 
+#[cfg(not(feature = "binary-image"))]
 pub(crate) fn write_list_rt_objs(
     objs: &[Rc<dyn RTObject>],
 ) -> Result<serde_json::Value, StoryError> {
@@ -313,6 +314,7 @@ pub(crate) fn write_list_rt_objs(
     Ok(serde_json::Value::Array(c_array))
 }
 
+#[cfg(not(feature = "binary-image"))]
 pub(crate) fn write_int_dictionary(map: &HashMap<String, i32>) -> serde_json::Value {
     let mut jobj: Map<String, serde_json::Value> = Map::new();
 
