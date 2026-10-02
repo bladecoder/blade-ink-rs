@@ -3,7 +3,10 @@
 use super::*;
 
 impl Runtime {
-    #[cfg(test)]
+    #[cfg(all(
+        test,
+        any(feature = "stream-json-parser", feature = "serde-json-parser")
+    ))]
     pub(crate) fn new(data: StoryData) -> Result<Self, StoryError> {
         Self::new_with_seed(data, 1)
     }
