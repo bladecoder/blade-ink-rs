@@ -1,17 +1,10 @@
-#[allow(unused_imports)]
-use crate::prelude::*;
+//! JSON parsing and serialization for compiled stories and saved state.
 
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
-pub mod json_read;
-#[cfg(feature = "stream-json-parser")]
-pub mod json_read_stream;
-#[cfg(feature = "stream-json-parser")]
-pub(crate) mod json_state_stream;
-#[cfg(feature = "stream-json-parser")]
-mod json_tokenizer;
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
-pub mod json_write;
-#[cfg(feature = "stream-json-parser")]
-pub(crate) mod json_write_stream;
-#[cfg(feature = "stream-json-parser")]
-pub(crate) mod json_writer;
+#[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
+pub(crate) mod tokenizer;
+#[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
+pub(crate) mod writer;
+
+pub(crate) mod object;
+pub(crate) mod state;
+pub(crate) mod story;

@@ -1,7 +1,7 @@
 //! A combination of an Ink value with its type.
 #[allow(unused_imports)]
 use crate::prelude::*;
-use crate::{ink_list::InkList, path::Path, story_error::StoryError};
+use crate::{ink_list::InkList, path::Path, story::error::StoryError};
 
 /// An Ink value, tagged with its type.
 #[repr(u8)]

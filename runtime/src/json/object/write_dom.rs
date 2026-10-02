@@ -17,11 +17,11 @@ use crate::{
     object::RTObject,
     path::Path,
     push_pop::PushPopType,
-    story_error::StoryError,
+    story::error::StoryError,
     tag::Tag,
     value::Value,
     value_type::{StringValue, VariablePointerValue},
-    variable_assigment::VariableAssignment,
+    variable_assignment::VariableAssignment,
     variable_reference::VariableReference,
     void::Void,
 };
@@ -32,15 +32,15 @@ pub fn write_dictionary_values(
     let mut jobjs: Map<String, serde_json::Value> = Map::new();
 
     for (k, o) in objs {
-        jobjs.insert(k.clone(), write_rtobject(o.clone())?);
+        jobjs.insert(k.clone(), write_runtime_object(o.clone())?);
     }
 
     Ok(serde_json::Value::Object(jobjs))
 }
 
-pub fn write_rtobject(o: Rc<dyn RTObject>) -> Result<serde_json::Value, StoryError> {
+pub fn write_runtime_object(o: Rc<dyn RTObject>) -> Result<serde_json::Value, StoryError> {
     if let Some(c) = o.as_any().downcast_ref::<Container>() {
-        return write_rt_container(c, false);
+        return write_runtime_container(c, false);
     }
 
     if let Ok(divert) = o.clone().into_any().downcast::<Divert>() {
@@ -205,14 +205,14 @@ pub fn write_rtobject(o: Rc<dyn RTObject>) -> Result<serde_json::Value, StoryErr
     )))
 }
 
-pub fn write_rt_container(
+pub fn write_runtime_container(
     container: &Container,
     without_name: bool,
 ) -> Result<serde_json::Value, StoryError> {
     let mut c_array: Vec<serde_json::Value> = Vec::new();
 
     for c in container.content.iter() {
-        c_array.push(write_rtobject(c.clone())?);
+        c_array.push(write_runtime_object(c.clone())?);
     }
 
     // Container is always an array [...]
@@ -230,7 +230,7 @@ pub fn write_rt_container(
         let mut t_obj: Map<String, serde_json::Value> = Map::new();
 
         for (name, c) in named_only_content {
-            t_obj.insert(name.clone(), write_rt_container(c.as_ref(), true)?);
+            t_obj.insert(name.clone(), write_runtime_container(c.as_ref(), true)?);
         }
 
         if count_flags > 0 {
@@ -301,24 +301,15 @@ fn write_choice_tags(choice: &Choice) -> serde_json::Value {
     serde_json::Value::Array(tags)
 }
 
-pub(crate) fn write_list_rt_objs(
+#[cfg(not(feature = "binary-image"))]
+pub(crate) fn write_runtime_object_list(
     objs: &[Rc<dyn RTObject>],
 ) -> Result<serde_json::Value, StoryError> {
     let mut c_array: Vec<serde_json::Value> = Vec::new();
 
     for o in objs {
-        c_array.push(write_rtobject(o.clone())?);
+        c_array.push(write_runtime_object(o.clone())?);
     }
 
     Ok(serde_json::Value::Array(c_array))
-}
-
-pub(crate) fn write_int_dictionary(map: &HashMap<String, i32>) -> serde_json::Value {
-    let mut jobj: Map<String, serde_json::Value> = Map::new();
-
-    for (key, val) in map {
-        jobj.insert(key.clone(), json!(*val));
-    }
-
-    serde_json::Value::Object(jobj)
 }

@@ -17,6 +17,8 @@ pub enum StoryError {
     InvalidStoryState(String),
     /// JSON for the ink was not valid.
     BadJson(String),
+    /// A binary story image was invalid or incompatible.
+    BadImage(String),
     /// A method was called with an inappropriate argument.
     BadArgument(String),
     /// A client-provided external function failed.
@@ -36,6 +38,7 @@ impl StoryError {
         match self {
             StoryError::InvalidStoryState(msg)
             | StoryError::BadJson(msg)
+            | StoryError::BadImage(msg)
             | StoryError::BadArgument(msg) => msg.clone(),
             StoryError::ExternalFunctionFailed { error, .. } => error.to_string(),
             StoryError::VariableObserverFailed { error, .. } => error.to_string(),
@@ -56,6 +59,7 @@ impl fmt::Display for StoryError {
         match self {
             StoryError::InvalidStoryState(desc) => write!(f, "Invalid story state: {}", desc),
             StoryError::BadJson(desc) => write!(f, "Error parsing JSON: {}", desc),
+            StoryError::BadImage(desc) => write!(f, "Error reading story image: {}", desc),
             StoryError::BadArgument(arg) => write!(f, "Bad argument: {}", arg),
             StoryError::ExternalFunctionFailed {
                 function_name,
@@ -67,4 +71,18 @@ impl fmt::Display for StoryError {
             } => write!(f, "Variable observer for '{variable_name}' failed: {error}"),
         }
     }
+}
+
+/// Receives runtime errors and warnings while playing a story.
+pub trait ErrorHandler {
+    fn error(&mut self, message: &str, error_type: ErrorType);
+}
+
+/// Severity of an Ink runtime diagnostic.
+#[derive(PartialEq, Clone, Copy)]
+pub enum ErrorType {
+    /// Problem that is not critical, but should be fixed.
+    Warning,
+    /// Critical error that cannot be recovered from.
+    Error,
 }

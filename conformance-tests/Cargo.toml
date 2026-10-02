@@ -9,3 +9,6 @@ bladeink.workspace = true
 bladeink-compiler.workspace = true
 rand = { workspace = true, features = ["std_rng", "thread_rng"] }
 serde_json.workspace = true
+
+[features]
+binary-image = ["bladeink/binary-image"]

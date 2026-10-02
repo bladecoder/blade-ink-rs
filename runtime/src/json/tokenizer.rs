@@ -8,31 +8,58 @@ use crate::compat::io::{self, Read};
 #[cfg(feature = "std")]
 use crate::compat::io::BufReader;
 
+// Keep the no_std buffer small enough for an embedded task stack.
 #[cfg(not(feature = "std"))]
-struct BufReader<R>(R);
+const JSON_READ_BUFFER_SIZE: usize = 512;
+
+#[cfg(not(feature = "std"))]
+struct BufReader<R> {
+    reader: R,
+    bytes: [u8; JSON_READ_BUFFER_SIZE],
+    position: usize,
+    length: usize,
+}
 
 #[cfg(not(feature = "std"))]
 impl<R> BufReader<R> {
     fn new(reader: R) -> Self {
-        Self(reader)
+        Self {
+            reader,
+            bytes: [0; JSON_READ_BUFFER_SIZE],
+            position: 0,
+            length: 0,
+        }
     }
 }
 
 #[cfg(not(feature = "std"))]
 impl<R: Read> Read for BufReader<R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        self.0.read(buffer)
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if self.position == self.length {
+            self.length = self.reader.read(&mut self.bytes)?;
+            self.position = 0;
+            if self.length == 0 {
+                return Ok(0);
+            }
+        }
+        let count = buffer.len().min(self.length - self.position);
+        buffer[..count].copy_from_slice(&self.bytes[self.position..self.position + count]);
+        self.position += count;
+        Ok(count)
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) enum Number {
+pub(crate) enum Number {
     Int(i32),
     Float(f32),
 }
 
 impl Number {
-    pub(super) fn as_integer(self) -> Option<i32> {
+    pub(crate) fn as_integer(self) -> Option<i32> {
         match self {
             Self::Int(value) => Some(value),
             Self::Float(_) => None,
@@ -77,7 +104,7 @@ impl JsonValue {
     }
 }
 
-pub(super) struct JsonTokenizer<R: Read> {
+pub(crate) struct JsonTokenizer<R: Read> {
     reader: BufReader<R>,
     lookahead: Option<u8>,
     offset: usize,
@@ -86,7 +113,7 @@ pub(super) struct JsonTokenizer<R: Read> {
 }
 
 impl<R: Read> JsonTokenizer<R> {
-    pub(super) fn new(reader: R) -> Self {
+    pub(crate) fn new(reader: R) -> Self {
         Self {
             reader: BufReader::new(reader),
             lookahead: None,
@@ -154,14 +181,14 @@ impl<R: Read> JsonTokenizer<R> {
         Ok(())
     }
 
-    pub(super) fn peek(&mut self) -> io::Result<char> {
+    pub(crate) fn peek(&mut self) -> io::Result<char> {
         self.skip_whitespace()?;
         self.peek_raw()?
             .map(char::from)
             .ok_or_else(|| self.invalid("unexpected end of input"))
     }
 
-    pub(super) fn expect(&mut self, expected: char) -> io::Result<()> {
+    pub(crate) fn expect(&mut self, expected: char) -> io::Result<()> {
         self.skip_whitespace()?;
         let Some(found) = self.read_raw()? else {
             return Err(self.invalid(format!("expected '{expected}', found end of input")));
@@ -194,7 +221,7 @@ impl<R: Read> JsonTokenizer<R> {
         Ok(())
     }
 
-    pub(super) fn read_boolean(&mut self) -> io::Result<bool> {
+    pub(crate) fn read_boolean(&mut self) -> io::Result<bool> {
         self.skip_whitespace()?;
         match self.peek_raw()? {
             Some(b't') => {
@@ -247,7 +274,7 @@ impl<R: Read> JsonTokenizer<R> {
         char::from_u32(scalar).ok_or_else(|| self.invalid("invalid Unicode scalar value"))
     }
 
-    pub(super) fn read_string(&mut self) -> io::Result<String> {
+    pub(crate) fn read_string(&mut self) -> io::Result<String> {
         self.skip_whitespace()?;
         self.expect('"')?;
         let mut bytes = Vec::new();
@@ -283,7 +310,7 @@ impl<R: Read> JsonTokenizer<R> {
         String::from_utf8(bytes).map_err(|_| self.invalid("invalid UTF-8 in string"))
     }
 
-    pub(super) fn read_number(&mut self) -> io::Result<Number> {
+    pub(crate) fn read_number(&mut self) -> io::Result<Number> {
         self.skip_whitespace()?;
         let mut bytes = Vec::new();
         if self.peek_raw()? == Some(b'-') {
@@ -351,7 +378,7 @@ impl<R: Read> JsonTokenizer<R> {
         }
     }
 
-    pub(super) fn read_obj_key(&mut self) -> io::Result<String> {
+    pub(crate) fn read_obj_key(&mut self) -> io::Result<String> {
         let key = self.read_string()?;
         self.expect(':')?;
         Ok(key)
@@ -392,7 +419,7 @@ impl<R: Read> JsonTokenizer<R> {
         }
     }
 
-    pub(super) fn expect_eof(&mut self) -> io::Result<()> {
+    pub(crate) fn expect_eof(&mut self) -> io::Result<()> {
         self.skip_whitespace()?;
         if self.peek_raw()?.is_none() {
             Ok(())
@@ -401,7 +428,7 @@ impl<R: Read> JsonTokenizer<R> {
         }
     }
 
-    pub(super) fn skip_value(&mut self) -> io::Result<()> {
+    pub(crate) fn skip_value(&mut self) -> io::Result<()> {
         match self.read_value()? {
             JsonValue::Array => {
                 if self.peek()? != ']' {
@@ -436,6 +463,39 @@ impl<R: Read> JsonTokenizer<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(not(feature = "std"))]
+    #[test]
+    fn no_std_buffer_handles_short_reads() {
+        use core::cell::Cell;
+
+        struct ShortReader<'a> {
+            remaining: &'a [u8],
+            calls: Rc<Cell<usize>>,
+        }
+
+        impl Read for ShortReader<'_> {
+            fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+                self.calls.set(self.calls.get() + 1);
+                let count = buffer.len().min(self.remaining.len()).min(128);
+                buffer[..count].copy_from_slice(&self.remaining[..count]);
+                self.remaining = &self.remaining[count..];
+                Ok(count)
+            }
+        }
+
+        let mut input = vec![b' '; 2048];
+        input.extend_from_slice(b"true");
+        let calls = Rc::new(Cell::new(0));
+        let reader = ShortReader {
+            remaining: &input,
+            calls: calls.clone(),
+        };
+        let mut tokenizer = JsonTokenizer::new(reader);
+        assert!(tokenizer.read_boolean().unwrap());
+        tokenizer.expect_eof().unwrap();
+        assert!(calls.get() < 100, "{} source reads", calls.get());
+    }
 
     struct OneByteReader<'a>(&'a [u8]);
 

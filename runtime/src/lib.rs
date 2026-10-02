@@ -8,7 +8,10 @@
 //! the `bladeink` crate.
 //!
 //! ```
-//! # use bladeink::{story::Story, story_error::StoryError};
+//! # use bladeink::{story::Story, story::error::StoryError};
+//! # #[cfg(not(any(feature = "serde-json-parser", feature = "stream-json-parser")))]
+//! # fn main() {}
+//! # #[cfg(any(feature = "serde-json-parser", feature = "stream-json-parser"))]
 //! # fn main() -> Result<(), StoryError> {
 //! # let json_string = r##"{"inkVersion":21, "root":["done",null],"listDefs":{}}"##;
 //! # let read_input = |_:&_| 0;
@@ -74,8 +77,12 @@ mod compat {
     }
 }
 
-#[cfg(not(any(feature = "serde-json-parser", feature = "stream-json-parser")))]
-compile_error!("enable either the `serde-json-parser` or `stream-json-parser` feature");
+#[cfg(not(any(
+    feature = "serde-json-parser",
+    feature = "stream-json-parser",
+    feature = "binary-image"
+)))]
+compile_error!("enable a JSON parser or the `binary-image` feature");
 #[cfg(all(feature = "serde-json-parser", not(feature = "std")))]
 compile_error!("the `serde-json-parser` feature requires the `std` feature");
 
@@ -147,8 +154,9 @@ mod choice_point;
 mod container;
 mod control_command;
 mod divert;
-mod flow;
 mod glue;
+#[cfg(feature = "binary-image")]
+pub mod image;
 pub mod ink_list;
 pub mod ink_list_item;
 mod json;
@@ -156,18 +164,18 @@ mod list_definition;
 mod list_definitions_origin;
 mod native_function_call;
 mod object;
+mod output_text;
 mod path;
 mod pointer;
 mod push_pop;
+mod runtime;
 mod search_result;
-mod state_patch;
 pub mod story;
-pub mod story_error;
-mod story_state;
+mod story_content;
 mod tag;
 mod value;
 pub mod value_type;
-mod variable_assigment;
+mod variable_assignment;
 mod variable_reference;
 mod variables_state;
 mod void;

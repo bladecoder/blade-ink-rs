@@ -2,7 +2,7 @@
 
 use std::{error::Error, fs, path::Path};
 
-use bladeink::{story::Story, story_error::StoryError};
+use bladeink::{story::Story, story::error::StoryError};
 use bladeink_compiler::Compiler;
 use rand::RngExt;
 

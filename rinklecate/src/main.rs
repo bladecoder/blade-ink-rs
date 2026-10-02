@@ -3,8 +3,9 @@
 //! Mirrors the interface of the official `inklecate` tool and the
 //! blade-ink-java `CommandLineTool`.
 //!
-//! Usage: rinklecate <options> <ink file>
+//! Usage: rinklecate <options> <ink, ink.json or inkb file>
 //!    -o <filename>   Output file name
+//!    --image         Write a binary story image (.inkb)
 //!    -c              Count all visits to knots, stitches and weave points
 //!    -p              Play mode
 //!    -j              JSON output mode (for communication with tools like Inky)
@@ -27,6 +28,7 @@ pub struct Options {
     pub play_mode: bool,
     pub stats: bool,
     pub json_output: bool,
+    pub image_output: bool,
     pub input_file: Option<String>,
     pub output_file: Option<String>,
     pub count_all_visits: bool,
@@ -42,6 +44,7 @@ impl Default for Options {
             play_mode: false,
             stats: false,
             json_output: false,
+            image_output: false,
             input_file: None,
             output_file: None,
             // Match inklecate: always count visits by default.
@@ -78,6 +81,9 @@ fn run(mut opts: Options) -> anyhow::Result<()> {
     use std::path::Path;
 
     let input_file = opts.input_file.as_ref().unwrap().clone();
+    if opts.image_output && (opts.play_mode || opts.stats) {
+        anyhow::bail!("--image cannot be combined with -p or -s");
+    }
 
     // Resolve input path to absolute
     let working_dir = std::env::current_dir()?;
@@ -100,13 +106,54 @@ fn run(mut opts: Options) -> anyhow::Result<()> {
         .unwrap()
         .to_string_lossy()
         .to_string();
+    let extension = full_input
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("");
+
+    if !opts.plugin_directories.is_empty() {
+        eprintln!(
+            "Warning: -x (plugin directories) is not supported in this implementation and will be ignored."
+        );
+    }
+
+    if extension.eq_ignore_ascii_case("inkb") {
+        if opts.stats {
+            anyhow::bail!("Cannot show stats for .inkb, only for .ink");
+        }
+        if opts.image_output {
+            anyhow::bail!("--image requires .ink or .json input");
+        }
+        let t0 = Instant::now();
+        // Story images currently borrow static bytes. The CLI loads one image
+        // for the lifetime of its process, so retain this buffer until exit.
+        let bytes = Box::leak(std::fs::read(&full_input)?.into_boxed_slice());
+        let story = bladeink::story::Story::new_from_image_validated(bytes)
+            .map_err(|e| anyhow::anyhow!("Failed to load story: {e}"))?;
+        if opts.verbose {
+            eprintln!(
+                "Story loaded in {:.1}ms",
+                t0.elapsed().as_secs_f64() * 1000.0
+            );
+        }
+        opts.play_mode = true;
+        return player::play(story, &opts);
+    }
 
     // Resolve output path
     if opts.output_file.is_none() {
+        let output_name = if opts.image_output {
+            let base = filename_only
+                .strip_suffix(".ink.json")
+                .unwrap_or(&filename_only);
+            change_extension(base, ".inkb")
+        } else {
+            change_extension(&filename_only, ".ink.json")
+        };
         let out = input_base_dir
             .as_deref()
             .unwrap_or(&working_dir)
-            .join(change_extension(&filename_only, ".ink.json"));
+            .join(output_name);
         opts.output_file = Some(out.to_string_lossy().to_string());
     } else {
         // If output was given as relative, resolve it relative to input dir
@@ -127,31 +174,44 @@ fn run(mut opts: Options) -> anyhow::Result<()> {
         .unwrap_or(&input_string)
         .to_owned();
 
-    let input_is_json = filename_only.to_lowercase().ends_with(".json");
+    let input_is_json = extension.eq_ignore_ascii_case("json");
 
     if input_is_json && opts.stats {
         anyhow::bail!("Cannot show stats for .json, only for .ink");
     }
 
-    if !opts.plugin_directories.is_empty() {
-        eprintln!(
-            "Warning: -x (plugin directories) is not supported in this implementation and will be ignored."
-        );
-    }
-
     if input_is_json {
-        // Play directly from compiled JSON — force play mode
-        opts.play_mode = true;
-        let t0 = Instant::now();
-        let story = bladeink::story::Story::new(&input_string)
-            .map_err(|e| anyhow::anyhow!("Failed to load story: {e}"))?;
-        if opts.verbose {
-            eprintln!(
-                "Story loaded in {:.1}ms",
-                t0.elapsed().as_secs_f64() * 1000.0
-            );
+        if opts.image_output {
+            let t0 = Instant::now();
+            let image = bladeink::image::compile_json_to_image(input_string.as_bytes())?;
+            let output_path = opts.output_file.as_ref().unwrap();
+            std::fs::write(output_path, image).map_err(|error| {
+                anyhow::anyhow!(
+                    "Could not write to output file '{}': {}",
+                    output_path,
+                    error
+                )
+            })?;
+            if opts.verbose {
+                eprintln!(
+                    "Image compiled in {:.1}ms",
+                    t0.elapsed().as_secs_f64() * 1000.0
+                );
+            }
+        } else {
+            // Play directly from compiled JSON — force play mode
+            opts.play_mode = true;
+            let t0 = Instant::now();
+            let story = bladeink::story::Story::new(&input_string)
+                .map_err(|e| anyhow::anyhow!("Failed to load story: {e}"))?;
+            if opts.verbose {
+                eprintln!(
+                    "Story loaded in {:.1}ms",
+                    t0.elapsed().as_secs_f64() * 1000.0
+                );
+            }
+            player::play(story, &opts)?;
         }
-        player::play(story, &opts)?;
     } else {
         // Compile .ink
         let t0 = Instant::now();
@@ -196,6 +256,11 @@ fn parse_arguments(args: &[String]) -> Option<Options> {
         }
 
         if arg.starts_with('-') && arg.len() > 1 {
+            if arg == "--image" {
+                opts.image_output = true;
+                i += 1;
+                continue;
+            }
             for ch in arg.chars().skip(1) {
                 match ch {
                     'p' => opts.play_mode = true,
@@ -222,8 +287,9 @@ fn parse_arguments(args: &[String]) -> Option<Options> {
 
 fn print_usage() {
     eprintln!(
-        "Usage: rinklecate <options> <ink file>
+        "Usage: rinklecate <options> <ink, ink.json or inkb file>
    -o <filename>   Output file name
+   --image         Write a binary story image (.inkb)
    -c              Count all visits to knots, stitches and weave points, not
                    just those referenced by TURNS_SINCE and read counts.
    -p              Play mode

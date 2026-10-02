@@ -1,593 +1,506 @@
+//! Call stack for the ID-based interpreter. Values are mutable run state;
+//! instruction locations are compact IDs rather than container `Rc`s.
+
 #[allow(unused_imports)]
 use crate::prelude::*;
 
-use crate::compat::{collections::HashMap, rc::Rc};
-
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
-use serde_json::{Map, json};
-
 use crate::{
-    container::Container,
-    object::Object,
-    pointer::{self, Pointer},
+    compat::{collections::HashMap, rc::Rc},
     push_pop::PushPopType,
-    story_error::StoryError,
+    story::error::StoryError,
+    story_content::{ContainerId, ContentPointer},
     value::Value,
 };
 
-#[cfg(feature = "stream-json-parser")]
-use crate::compat::io::Write;
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
-use crate::json::{json_read, json_write};
-#[cfg(feature = "stream-json-parser")]
-use crate::json::{json_write_stream, json_writer::JsonWriter};
-#[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
-use crate::{path::Path, story::Story};
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
+use crate::story_content::StaticStoryView;
+
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
+use serde_json::{Map, json};
+
+#[cfg(all(
+    not(any(feature = "stream-json-parser", feature = "binary-image")),
+    feature = "serde-json-parser"
+))]
+use crate::json::object::{read_dom, write_dom};
 
 #[derive(Clone)]
-pub struct Element {
-    pub current_pointer: Pointer,
-    pub in_expression_evaluation: bool,
-    pub temporary_variables: HashMap<String, Rc<Value>>,
-    pub push_pop_type: PushPopType,
-    pub evaluation_stack_height_when_pushed: usize,
-    pub function_start_in_output_stream: i32,
+pub(crate) struct CallStackElement {
+    pub(crate) current_pointer: ContentPointer,
+    pub(crate) in_expression_evaluation: bool,
+    pub(crate) temporary_variables: HashMap<String, Rc<Value>>,
+    pub(crate) push_pop_type: PushPopType,
+    pub(crate) evaluation_stack_height_when_pushed: usize,
+    pub(crate) function_start_in_output_stream: i32,
+    pub(crate) function_output_started: bool,
 }
 
-impl Element {
-    fn new(
-        push_pop_type: PushPopType,
-        pointer: Pointer,
-        in_expression_evaluation: bool,
-    ) -> Element {
-        Element {
+impl CallStackElement {
+    pub(crate) fn new(push_pop_type: PushPopType, pointer: ContentPointer) -> Self {
+        Self {
             current_pointer: pointer,
-            in_expression_evaluation,
+            in_expression_evaluation: false,
             temporary_variables: HashMap::new(),
             push_pop_type,
             evaluation_stack_height_when_pushed: 0,
             function_start_in_output_stream: 0,
-        }
-    }
-
-    #[cfg(feature = "stream-json-parser")]
-    pub(crate) fn from_json_parts(
-        push_pop_type: PushPopType,
-        current_pointer: Pointer,
-        in_expression_evaluation: bool,
-        temporary_variables: HashMap<String, Rc<Value>>,
-    ) -> Self {
-        Self {
-            current_pointer,
-            in_expression_evaluation,
-            temporary_variables,
-            push_pop_type,
-            evaluation_stack_height_when_pushed: 0,
-            function_start_in_output_stream: 0,
+            function_output_started: false,
         }
     }
 }
 
 #[derive(Clone)]
-pub struct Thread {
-    pub callstack: Vec<Element>,
-    pub previous_pointer: Pointer,
-    pub thread_index: usize,
+pub(crate) struct Thread {
+    pub(crate) callstack: Vec<CallStackElement>,
+    pub(crate) previous_pointer: ContentPointer,
+    pub(crate) thread_index: usize,
 }
 
 impl Thread {
-    fn new() -> Thread {
-        Thread {
+    fn new() -> Self {
+        Self {
             callstack: Vec::new(),
-            previous_pointer: pointer::NULL.clone(),
+            previous_pointer: ContentPointer::NULL,
             thread_index: 0,
         }
     }
 
-    #[cfg(feature = "stream-json-parser")]
-    pub(crate) fn from_json_parts(
-        callstack: Vec<Element>,
-        previous_pointer: Pointer,
-        thread_index: usize,
-    ) -> Self {
-        Self {
-            callstack,
-            previous_pointer,
-            thread_index,
-        }
-    }
-
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
-    pub fn from_json(
-        main_content_container: &Rc<Container>,
-        j_obj: &Map<String, serde_json::Value>,
-    ) -> Result<Thread, StoryError> {
-        let mut thread = Thread::new();
-
-        thread.thread_index = j_obj
-            .get("threadIndex")
-            .and_then(|i| i.as_i64())
-            .ok_or(StoryError::BadJson("Invalid thread index".to_owned()))?
-            as usize;
-
-        if let Some(j_thread_callstack) = j_obj
-            .get("callstack")
-            .and_then(|callstack| callstack.as_array())
-        {
-            for j_el_tok in j_thread_callstack.iter() {
-                if let Some(j_element_obj) = j_el_tok.as_object() {
-                    let push_pop_type = PushPopType::from_value(
-                        j_element_obj
-                            .get("type")
-                            .and_then(|t| t.as_i64())
-                            .ok_or(StoryError::BadJson("Invalid push/pop type".to_owned()))?
-                            as usize,
-                    )?;
-
-                    let mut pointer = pointer::NULL.clone();
-
-                    let current_container_path_str =
-                        j_element_obj.get("cPath").and_then(|c| c.as_str());
-                    if current_container_path_str.is_some() {
-                        let thread_pointer_result = main_content_container.content_at_path(
-                            &Path::new_with_components_string(current_container_path_str),
-                            0,
-                            -1,
-                        );
-
-                        pointer.container = thread_pointer_result.container();
-                        let pointer_index = j_element_obj
-                            .get("idx")
-                            .and_then(|i| i.as_i64())
-                            .ok_or(StoryError::BadJson("Invalid pointer index".to_owned()))?
-                            as i32;
-                        pointer.index = pointer_index;
-
-                        if thread_pointer_result.approximate {
-                            // TODO warning not accessible from here
-                            // story_context.warning(format!("When loading state, exact internal story location couldn't be found: '{}', so it was approximated to '{}' to recover. Has the story changed since this save data was created?", current_container_path_str, pointer_container.get_path().to_string()));
-                        }
-                    }
-
-                    let in_expression_evaluation = j_element_obj
-                        .get("exp")
-                        .and_then(|exp| exp.as_bool())
-                        .unwrap_or(false);
-
-                    let mut el = Element::new(push_pop_type, pointer, in_expression_evaluation);
-
-                    if let Some(temps) = j_element_obj.get("temp").and_then(|temp| temp.as_object())
-                    {
-                        el.temporary_variables = json_read::jobject_to_hashmap_values(temps)?;
-                    } else {
-                        el.temporary_variables.clear();
-                    }
-
-                    thread.callstack.push(el);
-                }
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
+    pub(crate) fn write_json(
+        &self,
+        data: &impl StaticStoryView,
+    ) -> Result<serde_json::Value, StoryError> {
+        let mut thread = Map::new();
+        let mut elements = Vec::with_capacity(self.callstack.len());
+        for element in &self.callstack {
+            let mut encoded = Map::new();
+            if !element.current_pointer.is_null() {
+                let container = element.current_pointer.container.unwrap();
+                let path = data.canonical_path_text(container.node()).ok_or_else(|| {
+                    StoryError::InvalidStoryState(
+                        "callstack pointer has invalid container".to_owned(),
+                    )
+                })?;
+                encoded.insert("cPath".to_owned(), json!(path));
+                encoded.insert("idx".to_owned(), json!(element.current_pointer.index));
             }
-        }
-
-        if let Some(prev_content_obj_path) =
-            j_obj.get("previousContentObject").and_then(|p| p.as_str())
-        {
-            let prev_path = Path::new_with_components_string(Some(prev_content_obj_path));
-            thread.previous_pointer = Story::pointer_at_path(main_content_container, &prev_path)?;
-        }
-
-        Ok(thread)
-    }
-
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
-    pub(crate) fn write_json(&self) -> Result<serde_json::Value, StoryError> {
-        let mut thread: Map<String, serde_json::Value> = Map::new();
-
-        let mut cs_array: Vec<serde_json::Value> = Vec::new();
-
-        for el in self.callstack.iter() {
-            let mut el_map: Map<String, serde_json::Value> = Map::new();
-
-            if !el.current_pointer.is_null() {
-                el_map.insert(
-                    "cPath".to_owned(),
-                    json!(
-                        Object::get_path(el.current_pointer.container.as_ref().unwrap().as_ref())
-                            .get_components_string()
-                    ),
-                );
-                el_map.insert("idx".to_owned(), json!(el.current_pointer.index));
-            }
-            el_map.insert("exp".to_owned(), json!(el.in_expression_evaluation));
-            el_map.insert("type".to_owned(), json!(el.push_pop_type as u32));
-
-            if !el.temporary_variables.is_empty() {
-                el_map.insert(
+            encoded.insert("exp".to_owned(), json!(element.in_expression_evaluation));
+            encoded.insert("type".to_owned(), json!(element.push_pop_type as u32));
+            if !element.temporary_variables.is_empty() {
+                encoded.insert(
                     "temp".to_owned(),
-                    json_write::write_dictionary_values(&el.temporary_variables)?,
+                    write_dom::write_dictionary_values(&element.temporary_variables)?,
                 );
             }
-
-            cs_array.push(serde_json::Value::Object(el_map));
+            elements.push(serde_json::Value::Object(encoded));
         }
-
-        thread.insert("callstack".to_owned(), serde_json::Value::Array(cs_array));
+        thread.insert("callstack".to_owned(), serde_json::Value::Array(elements));
         thread.insert("threadIndex".to_owned(), json!(self.thread_index));
-
         if !self.previous_pointer.is_null() {
+            let previous = self.previous_pointer.path(data).ok_or_else(|| {
+                StoryError::InvalidStoryState("previous pointer does not resolve".to_owned())
+            })?;
             thread.insert(
                 "previousContentObject".to_owned(),
-                json!(
-                    Object::get_path(self.previous_pointer.resolve().unwrap().as_ref()).to_string()
-                ),
+                json!(previous.to_string()),
             );
         }
-
         Ok(serde_json::Value::Object(thread))
     }
 
-    #[cfg(feature = "stream-json-parser")]
-    pub(crate) fn write_json_stream<W: Write>(
-        &self,
-        writer: &mut JsonWriter<W>,
-    ) -> Result<(), StoryError> {
-        writer.raw("{\"callstack\":[")?;
-        let mut first = true;
-        for element in &self.callstack {
-            writer.separator(&mut first)?;
-            writer.raw("{")?;
-            let mut first_property = true;
-            if !element.current_pointer.is_null() {
-                writer.key(&mut first_property, "cPath")?;
-                let container = element.current_pointer.container.as_ref().ok_or_else(|| {
-                    StoryError::InvalidStoryState("pointer has no container".to_owned())
-                })?;
-                writer.string(&Object::get_path(container.as_ref()).get_components_string())?;
-                writer.key(&mut first_property, "idx")?;
-                writer.integer(element.current_pointer.index)?;
-            }
-            writer.key(&mut first_property, "exp")?;
-            writer.boolean(element.in_expression_evaluation)?;
-            writer.key(&mut first_property, "type")?;
-            writer.integer(element.push_pop_type as u32)?;
-            if !element.temporary_variables.is_empty() {
-                writer.key(&mut first_property, "temp")?;
-                json_write_stream::write_dictionary_values(writer, &element.temporary_variables)?;
-            }
-            writer.raw("}")?;
-        }
-        writer.raw("],\"threadIndex\":")?;
-        writer.integer(self.thread_index)?;
-        if !self.previous_pointer.is_null() {
-            let previous = self.previous_pointer.resolve().ok_or_else(|| {
-                StoryError::InvalidStoryState("previous pointer does not resolve".to_owned())
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
+    pub(crate) fn from_json(
+        data: &impl StaticStoryView,
+        encoded: &serde_json::Value,
+    ) -> Result<Self, StoryError> {
+        let object = encoded
+            .as_object()
+            .ok_or_else(|| StoryError::BadJson("callstack thread must be an object".to_owned()))?;
+        let thread_index = object
+            .get("threadIndex")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| StoryError::BadJson("Invalid thread index".to_owned()))?
+            as usize;
+        let encoded_elements = object
+            .get("callstack")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| StoryError::BadJson("callstack elements not found".to_owned()))?;
+        let mut elements = Vec::with_capacity(encoded_elements.len());
+        for encoded in encoded_elements {
+            let entry = encoded.as_object().ok_or_else(|| {
+                StoryError::BadJson("callstack element must be an object".to_owned())
             })?;
-            writer.raw(",\"previousContentObject\":")?;
-            writer.string(&Object::get_path(previous.as_ref()).to_string())?;
+            let push_pop_type = PushPopType::from_value(
+                entry
+                    .get("type")
+                    .and_then(serde_json::Value::as_u64)
+                    .ok_or_else(|| StoryError::BadJson("Invalid push/pop type".to_owned()))?
+                    as usize,
+            )?;
+            let pointer = if let Some(path) = entry.get("cPath").and_then(serde_json::Value::as_str)
+            {
+                let container = data
+                    .resolve_path(
+                        data.root(),
+                        &crate::path::Path::new_with_components_string(Some(path)),
+                    )
+                    .and_then(|id| data.container_id(id))
+                    .ok_or_else(|| {
+                        StoryError::BadJson(format!("callstack path '{path}' does not resolve"))
+                    })?;
+                let index = entry
+                    .get("idx")
+                    .and_then(serde_json::Value::as_i64)
+                    .ok_or_else(|| StoryError::BadJson("Invalid pointer index".to_owned()))?
+                    as i32;
+                ContentPointer {
+                    container: Some(container),
+                    index,
+                }
+            } else {
+                ContentPointer::NULL
+            };
+            let mut element = CallStackElement::new(push_pop_type, pointer);
+            element.in_expression_evaluation = entry
+                .get("exp")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            if let Some(temps) = entry.get("temp").and_then(serde_json::Value::as_object) {
+                element.temporary_variables = read_dom::read_value_map(temps)?;
+            }
+            elements.push(element);
         }
-        writer.raw("}")?;
-        Ok(())
+        let previous_pointer = object
+            .get("previousContentObject")
+            .and_then(serde_json::Value::as_str)
+            .map(|path| {
+                data.pointer_at_path(&crate::path::Path::new_with_components_string(Some(path)))
+                    .ok_or_else(|| {
+                        StoryError::BadJson(format!(
+                            "previous pointer path '{path}' does not resolve"
+                        ))
+                    })
+            })
+            .transpose()?
+            .unwrap_or(ContentPointer::NULL);
+        Ok(Self {
+            callstack: elements,
+            previous_pointer,
+            thread_index,
+        })
     }
 }
 
 #[derive(Clone)]
-pub struct CallStack {
+pub(crate) struct CallStack {
     thread_counter: usize,
-    start_of_root: Pointer,
+    start_of_root: ContentPointer,
     threads: Vec<Thread>,
 }
 
 impl CallStack {
-    pub fn new(main_content_container: Rc<Container>) -> CallStack {
-        let mut cs = CallStack {
+    pub(crate) fn new(root: ContainerId) -> Self {
+        let mut stack = Self {
             thread_counter: 0,
-            start_of_root: Pointer::start_of(main_content_container),
+            start_of_root: ContentPointer::start_of(root),
             threads: Vec::new(),
         };
-
-        cs.reset();
-
-        cs
+        stack.reset();
+        stack
     }
 
-    #[cfg(feature = "stream-json-parser")]
-    pub(crate) fn load_stream_parts(
-        &mut self,
-        main_content_container: &Rc<Container>,
-        threads: Vec<Thread>,
-        thread_counter: usize,
-    ) {
-        self.threads = threads;
-        self.thread_counter = thread_counter;
-        self.start_of_root = Pointer::start_of(main_content_container.clone());
-    }
-
-    pub fn get_current_element(&self) -> &Element {
-        let thread = self.threads.last().unwrap();
-        let cs = &thread.callstack;
-        cs.last().unwrap()
-    }
-
-    pub fn get_current_element_mut(&mut self) -> &mut Element {
-        let thread = self.threads.last_mut().unwrap();
-        let cs = &mut thread.callstack;
-        cs.last_mut().unwrap()
-    }
-
-    pub fn get_current_element_index(&self) -> i32 {
-        self.get_callstack().len() as i32 - 1
-    }
-
-    pub fn reset(&mut self) {
-        self.threads.clear();
-        self.threads.push(Thread::new());
-        self.threads[0].callstack.push(Element::new(
+    pub(crate) fn reset(&mut self) {
+        let mut thread = Thread::new();
+        thread.callstack.push(CallStackElement::new(
             PushPopType::Tunnel,
-            self.start_of_root.clone(),
-            false,
+            self.start_of_root,
         ));
+        self.threads.clear();
+        self.threads.push(thread);
     }
 
-    pub fn can_pop_thread(&self) -> bool {
-        self.threads.len() > 1 && !self.element_is_evaluate_from_game()
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
+    pub(crate) fn write_json(
+        &self,
+        data: &impl StaticStoryView,
+    ) -> Result<serde_json::Value, StoryError> {
+        let mut stack = Map::new();
+        stack.insert(
+            "threads".to_owned(),
+            serde_json::Value::Array(
+                self.threads
+                    .iter()
+                    .map(|thread| thread.write_json(data))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+        );
+        stack.insert("threadCounter".to_owned(), json!(self.thread_counter));
+        Ok(serde_json::Value::Object(stack))
     }
 
-    pub fn pop_thread(&mut self) -> Result<(), StoryError> {
-        if self.can_pop_thread() {
-            self.threads.remove(self.threads.len() - 1);
-            Ok(())
-        } else {
-            Err(StoryError::InvalidStoryState("Can't pop thread".to_owned()))
+    #[cfg(all(
+        not(any(feature = "stream-json-parser", feature = "binary-image")),
+        feature = "serde-json-parser"
+    ))]
+    pub(crate) fn load_json(
+        &mut self,
+        data: &impl StaticStoryView,
+        encoded: &serde_json::Value,
+    ) -> Result<(), StoryError> {
+        let object = encoded
+            .as_object()
+            .ok_or_else(|| StoryError::BadJson("callstack must be an object".to_owned()))?;
+        let thread_counter = object
+            .get("threadCounter")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| StoryError::BadJson("Invalid thread counter".to_owned()))?
+            as usize;
+        let encoded_threads = object
+            .get("threads")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| StoryError::BadJson("callstack threads not found".to_owned()))?;
+        let threads = encoded_threads
+            .iter()
+            .map(|thread| Thread::from_json(data, thread))
+            .collect::<Result<Vec<_>, _>>()?;
+        if threads.is_empty() || threads.iter().any(|thread| thread.callstack.is_empty()) {
+            return Err(StoryError::BadJson(
+                "callstack has no active frame".to_owned(),
+            ));
         }
+        self.thread_counter = thread_counter;
+        self.threads = threads;
+        Ok(())
     }
 
-    pub fn push_thread(&mut self) {
-        let mut new_thread = self.get_current_thread().clone();
-        self.thread_counter += 1;
-        new_thread.thread_index = self.thread_counter;
-        self.threads.push(new_thread);
+    pub(crate) fn current_thread(&self) -> &Thread {
+        self.threads.last().unwrap()
     }
 
-    pub fn can_pop(&self) -> bool {
-        self.get_callstack().len() > 1
+    pub(crate) fn current_thread_mut(&mut self) -> &mut Thread {
+        self.threads.last_mut().unwrap()
     }
 
-    pub fn can_pop_type(&self, t: Option<PushPopType>) -> bool {
-        if !self.can_pop() {
-            return false;
+    pub(crate) fn set_current_thread(&mut self, thread: Thread) {
+        self.threads.clear();
+        self.threads.push(thread);
+    }
+
+    pub(crate) fn get_thread_with_index(&self, index: usize) -> Option<&Thread> {
+        self.threads
+            .iter()
+            .find(|thread| thread.thread_index == index)
+    }
+
+    #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
+    pub(crate) fn threads(&self) -> &[Thread] {
+        &self.threads
+    }
+
+    #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
+    pub(crate) fn thread_counter(&self) -> usize {
+        self.thread_counter
+    }
+
+    #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
+    pub(crate) fn replace_threads(
+        &mut self,
+        threads: Vec<Thread>,
+        counter: usize,
+    ) -> Result<(), StoryError> {
+        if threads.is_empty() || threads.iter().any(|thread| thread.callstack.is_empty()) {
+            return Err(StoryError::BadJson(
+                "callstack has no active frame".to_owned(),
+            ));
         }
-
-        if t.is_none() {
-            return true;
-        }
-
-        self.get_current_element().push_pop_type == t.unwrap()
+        self.threads = threads;
+        self.thread_counter = counter;
+        Ok(())
     }
 
-    pub fn pop(&mut self, t: Option<PushPopType>) -> Result<(), StoryError> {
-        if self.can_pop_type(t) {
-            let l = self.get_callstack().len() - 1;
-            self.get_callstack_mut().remove(l);
-        } else {
+    pub(crate) fn current_element(&self) -> &CallStackElement {
+        self.current_thread().callstack.last().unwrap()
+    }
+
+    pub(crate) fn current_element_index(&self) -> i32 {
+        self.current_thread().callstack.len() as i32 - 1
+    }
+
+    pub(crate) fn current_element_mut(&mut self) -> &mut CallStackElement {
+        self.current_thread_mut().callstack.last_mut().unwrap()
+    }
+
+    pub(crate) fn current_pointer(&self) -> ContentPointer {
+        self.current_element().current_pointer
+    }
+
+    pub(crate) fn set_current_pointer(&mut self, pointer: ContentPointer) {
+        self.current_element_mut().current_pointer = pointer;
+    }
+
+    pub(crate) fn can_pop(&self) -> bool {
+        self.current_thread().callstack.len() > 1
+    }
+
+    pub(crate) fn can_pop_type(&self, kind: Option<PushPopType>) -> bool {
+        self.can_pop() && kind.is_none_or(|kind| self.current_element().push_pop_type == kind)
+    }
+
+    pub(crate) fn pop(&mut self, kind: Option<PushPopType>) -> Result<(), StoryError> {
+        if !self.can_pop_type(kind) {
             return Err(StoryError::InvalidStoryState(
                 "Mismatched push/pop in Callstack".to_owned(),
             ));
         }
-
+        self.current_thread_mut().callstack.pop();
         Ok(())
     }
 
-    pub fn element_is_evaluate_from_game(&self) -> bool {
-        self.get_current_element().push_pop_type == PushPopType::FunctionEvaluationFromGame
+    pub(crate) fn push(
+        &mut self,
+        kind: PushPopType,
+        evaluation_stack_height: usize,
+        output_stream_length: i32,
+    ) {
+        let mut element = CallStackElement::new(kind, self.current_pointer());
+        element.evaluation_stack_height_when_pushed = evaluation_stack_height;
+        element.function_start_in_output_stream = output_stream_length;
+        self.current_thread_mut().callstack.push(element);
     }
 
-    pub fn get_elements_mut(&mut self) -> &mut Vec<Element> {
-        self.get_callstack_mut()
+    pub(crate) fn can_pop_thread(&self) -> bool {
+        self.threads.len() > 1
+            && self.current_element().push_pop_type != PushPopType::FunctionEvaluationFromGame
     }
 
-    pub fn get_callstack(&self) -> &Vec<Element> {
-        &self.get_current_thread().callstack
-    }
-
-    pub fn get_callstack_mut(&mut self) -> &mut Vec<Element> {
-        &mut self.get_current_thread_mut().callstack
-    }
-
-    pub fn get_current_thread(&self) -> &Thread {
-        self.threads.last().unwrap()
-    }
-
-    pub fn get_current_thread_mut(&mut self) -> &mut Thread {
-        self.threads.last_mut().unwrap()
-    }
-
-    pub fn set_current_thread(&mut self, value: Thread) {
-        // Debug.Assert (threads.Count == 1, "Shouldn't be directly setting the
-        // current thread when we have a stack of them");
-        self.threads.clear();
-        self.threads.push(value);
-    }
-
-    pub fn fork_thread(&mut self) -> Thread {
-        let mut forked_thread = self.get_current_thread().clone();
+    pub(crate) fn push_thread(&mut self) {
+        let mut thread = self.current_thread().clone();
         self.thread_counter += 1;
-        forked_thread.thread_index = self.thread_counter;
-        forked_thread
+        thread.thread_index = self.thread_counter;
+        self.threads.push(thread);
     }
 
-    pub fn set_temporary_variable(
+    pub(crate) fn pop_thread(&mut self) -> Result<(), StoryError> {
+        if !self.can_pop_thread() {
+            return Err(StoryError::InvalidStoryState("Can't pop thread".to_owned()));
+        }
+        self.threads.pop();
+        Ok(())
+    }
+
+    pub(crate) fn fork_thread(&mut self) -> Thread {
+        let mut thread = self.current_thread().clone();
+        self.thread_counter += 1;
+        thread.thread_index = self.thread_counter;
+        thread
+    }
+
+    pub(crate) fn context_for_variable_named(&self, name: &str) -> usize {
+        if self
+            .current_element()
+            .temporary_variables
+            .contains_key(name)
+        {
+            self.current_thread().callstack.len()
+        } else {
+            0
+        }
+    }
+
+    pub(crate) fn temporary_variable(&self, name: &str, context_index: i32) -> Option<Rc<Value>> {
+        let context_index = if context_index == -1 {
+            self.current_thread().callstack.len()
+        } else {
+            usize::try_from(context_index).ok()?
+        };
+        self.current_thread()
+            .callstack
+            .get(context_index.checked_sub(1)?)?
+            .temporary_variables
+            .get(name)
+            .cloned()
+    }
+
+    pub(crate) fn set_temporary_variable(
         &mut self,
         name: String,
         value: Rc<Value>,
         declare_new: bool,
-        mut context_index: i32,
+        context_index: i32,
     ) -> Result<(), StoryError> {
-        if context_index == -1 {
-            context_index = self.get_current_element_index() + 1;
-        }
+        let context_index = if context_index == -1 {
+            self.current_thread().callstack.len()
+        } else {
+            usize::try_from(context_index).map_err(|_| {
+                StoryError::InvalidStoryState("Invalid temporary variable context".to_owned())
+            })?
+        };
+        let element = self
+            .current_thread_mut()
+            .callstack
+            .get_mut(context_index.checked_sub(1).ok_or_else(|| {
+                StoryError::InvalidStoryState("Invalid temporary variable context".to_owned())
+            })?)
+            .ok_or_else(|| {
+                StoryError::InvalidStoryState("Invalid temporary variable context".to_owned())
+            })?;
 
-        let context_element = self
-            .get_callstack_mut()
-            .get_mut((context_index - 1) as usize)
-            .unwrap();
-
-        if !declare_new && !context_element.temporary_variables.contains_key(&name) {
+        if !declare_new && !element.temporary_variables.contains_key(&name) {
             return Err(StoryError::InvalidStoryState(format!(
                 "Could not find temporary variable to set: {}",
                 name
             )));
         }
-
-        let old_value = context_element.temporary_variables.get(&name).cloned();
-
-        if let Some(old_value) = &old_value {
-            Value::retain_list_origins_for_assignment(old_value.as_ref(), value.as_ref());
+        if let Some(old) = element.temporary_variables.get(&name) {
+            Value::retain_list_origins_for_assignment(old.as_ref(), value.as_ref());
         }
-
-        context_element.temporary_variables.insert(name, value);
-
+        element.temporary_variables.insert(name, value);
         Ok(())
     }
+}
 
-    pub fn context_for_variable_named(&self, name: &str) -> usize {
-        // Check if the current temporary context contains the variable.
-        if self
-            .get_current_element()
-            .temporary_variables
-            .contains_key(name)
-        {
-            return (self.get_current_element_index() + 1) as usize;
-        }
+#[cfg(all(
+    test,
+    any(feature = "stream-json-parser", feature = "serde-json-parser")
+))]
+mod tests {
+    use super::*;
+    use crate::story_content::StoryData;
 
-        // Otherwise, it's a global variable.
-        0
-    }
+    #[test]
+    fn stack_keeps_pointers_and_temporaries_in_run_state() {
+        let json = r#"{"inkVersion":21,"root":["done",null],"listDefs":{}}"#;
+        let (_, data) = StoryData::from_json_reader(json.as_bytes()).unwrap();
+        let root = data.container_id(data.root()).unwrap();
+        let mut stack = CallStack::new(root);
+        assert_eq!(stack.current_pointer(), ContentPointer::start_of(root));
 
-    // Get variable value, dereferencing a variable pointer if necessary
-    pub fn get_temporary_variable_with_name(
-        &self,
-        name: &str,
-        context_index: i32,
-    ) -> Option<Rc<Value>> {
-        let mut context_index = context_index;
-        // contextIndex 0 means global, so index is actually 1-based
-        if context_index == -1 {
-            context_index = self.get_current_element_index() + 1;
-        }
+        stack.push(PushPopType::Function, 0, 0);
+        stack
+            .set_temporary_variable("x".to_owned(), Rc::new(Value::new(3)), true, -1)
+            .unwrap();
+        assert_eq!(stack.context_for_variable_named("x"), 2);
+        assert!(stack.temporary_variable("x", -1).is_some());
 
-        let context_element = self.get_callstack().get((context_index - 1) as usize);
-        let var_value = context_element.unwrap().temporary_variables.get(name);
-
-        var_value.cloned()
-    }
-
-    pub fn push(
-        &mut self,
-        t: PushPopType,
-        external_evaluation_stack_height: usize,
-        output_stream_length_with_pushed: i32,
-    ) {
-        // When pushing to callstack, maintain the current content path, but
-        // jump
-        // out of expressions by default
-        let mut element =
-            Element::new(t, self.get_current_element().current_pointer.clone(), false);
-
-        element.evaluation_stack_height_when_pushed = external_evaluation_stack_height;
-        element.function_start_in_output_stream = output_stream_length_with_pushed;
-
-        self.get_callstack_mut().push(element);
-    }
-
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
-    pub(crate) fn write_json(&self) -> Result<serde_json::Value, StoryError> {
-        let mut cs: Map<String, serde_json::Value> = Map::new();
-
-        let mut treads_array: Vec<serde_json::Value> = Vec::new();
-
-        for thread in &self.threads {
-            treads_array.push(thread.write_json()?);
-        }
-
-        cs.insert("threads".to_owned(), serde_json::Value::Array(treads_array));
-        cs.insert("threadCounter".to_owned(), json!(self.thread_counter));
-
-        Ok(serde_json::Value::Object(cs))
-    }
-
-    #[cfg(feature = "stream-json-parser")]
-    pub(crate) fn write_json_stream<W: Write>(
-        &self,
-        writer: &mut JsonWriter<W>,
-    ) -> Result<(), StoryError> {
-        writer.raw("{\"threads\":[")?;
-        let mut first = true;
-        for thread in &self.threads {
-            writer.separator(&mut first)?;
-            thread.write_json_stream(writer)?;
-        }
-        writer.raw("],\"threadCounter\":")?;
-        writer.integer(self.thread_counter)?;
-        writer.raw("}")?;
-        Ok(())
-    }
-
-    pub fn get_thread_with_index(&self, index: usize) -> Option<&Thread> {
-        self.threads.iter().find(|&t| t.thread_index == index)
-    }
-
-    #[cfg(all(not(feature = "stream-json-parser"), feature = "serde-json-parser"))]
-    pub fn load_json(
-        &mut self,
-        main_content_container: &Rc<Container>,
-        j_obj: &Map<String, serde_json::Value>,
-    ) -> Result<(), StoryError> {
-        self.threads.clear();
-
-        let j_threads = j_obj.get("threads").unwrap();
-
-        for j_thread_tok in j_threads.as_array().unwrap().iter() {
-            let j_thread_obj = j_thread_tok.as_object().unwrap();
-            let thread = Thread::from_json(main_content_container, j_thread_obj)?;
-            self.threads.push(thread);
-        }
-
-        self.thread_counter = j_obj.get("threadCounter").unwrap().as_i64().unwrap() as usize;
-        self.start_of_root = Pointer::start_of(main_content_container.clone()).clone();
-
-        Ok(())
-    }
-
-    pub fn get_callstack_trace(&self) -> String {
-        let mut sb = String::new();
-
-        for (t, thread) in self.threads.iter().enumerate() {
-            let is_current = t == self.threads.len() - 1;
-
-            sb.push_str(&format!(
-                "=== THREAD {}/{} {}===",
-                t + 1,
-                self.threads.len(),
-                if is_current { &"(current) " } else { &"" }
-            ));
-
-            for element in &thread.callstack {
-                if element.push_pop_type == PushPopType::Function {
-                    sb.push_str("  [FUNCTION] ");
-                } else {
-                    sb.push_str("  [TUNNEL] ");
-                }
-
-                let pointer = &element.current_pointer;
-
-                if !pointer.is_null() {
-                    sb.push_str(&format!(
-                        "<SOMEWHERE IN {}>\n",
-                        pointer.container.as_ref().unwrap().get_path()
-                    ))
-                }
-            }
-        }
-
-        sb
+        stack.push_thread();
+        assert!(stack.can_pop_thread());
+        stack.pop_thread().unwrap();
+        stack.pop(Some(PushPopType::Function)).unwrap();
+        assert!(!stack.can_pop());
     }
 }

@@ -15,16 +15,16 @@ use crate::{
     object::RTObject,
     path::Path,
     push_pop::PushPopType,
-    story_error::StoryError,
+    story::error::StoryError,
     tag::Tag,
     value::Value,
     value_type::{StringValue, VariablePointerValue},
-    variable_assigment::VariableAssignment,
+    variable_assignment::VariableAssignment,
     variable_reference::VariableReference,
     void::Void,
 };
 
-use super::json_writer::JsonWriter;
+use crate::json::writer::JsonWriter;
 
 pub(crate) fn write_dictionary_values<W: Write>(
     writer: &mut JsonWriter<W>,
@@ -36,18 +36,18 @@ pub(crate) fn write_dictionary_values<W: Write>(
     entries.sort_unstable_by(|left, right| left.0.cmp(right.0));
     for (key, value) in entries {
         writer.key(&mut first, key)?;
-        write_rtobject(writer, value.clone())?;
+        write_runtime_object(writer, value.clone())?;
     }
     writer.raw("}")?;
     Ok(())
 }
 
-pub(crate) fn write_rtobject<W: Write>(
+pub(crate) fn write_runtime_object<W: Write>(
     writer: &mut JsonWriter<W>,
     object: Rc<dyn RTObject>,
 ) -> Result<(), StoryError> {
     if let Some(container) = object.as_any().downcast_ref::<Container>() {
-        return write_rt_container(writer, container, false);
+        return write_runtime_container(writer, container, false);
     }
     if let Ok(divert) = object.clone().into_any().downcast::<Divert>() {
         writer.raw("{")?;
@@ -194,7 +194,7 @@ pub(crate) fn write_rtobject<W: Write>(
     )))
 }
 
-pub(crate) fn write_rt_container<W: Write>(
+pub(crate) fn write_runtime_container<W: Write>(
     writer: &mut JsonWriter<W>,
     container: &Container,
     without_name: bool,
@@ -203,7 +203,7 @@ pub(crate) fn write_rt_container<W: Write>(
     let mut first = true;
     for child in &container.content {
         writer.separator(&mut first)?;
-        write_rtobject(writer, child.clone())?;
+        write_runtime_object(writer, child.clone())?;
     }
     writer.separator(&mut first)?;
     let named = container.get_named_only_content();
@@ -218,7 +218,7 @@ pub(crate) fn write_rt_container<W: Write>(
         entries.sort_unstable_by(|left, right| left.0.cmp(right.0));
         for (name, child) in entries {
             writer.key(&mut first_property, name)?;
-            write_rt_container(writer, child, true)?;
+            write_runtime_container(writer, child, true)?;
         }
         if flags > 0 {
             writer.key(&mut first_property, "#f")?;
@@ -276,7 +276,7 @@ pub(crate) fn write_choice<W: Write>(
     Ok(())
 }
 
-pub(crate) fn write_list_rt_objs<W: Write>(
+pub(crate) fn write_runtime_object_list<W: Write>(
     writer: &mut JsonWriter<W>,
     objects: &[Rc<dyn RTObject>],
 ) -> Result<(), StoryError> {
@@ -284,7 +284,7 @@ pub(crate) fn write_list_rt_objs<W: Write>(
     let mut first = true;
     for object in objects {
         writer.separator(&mut first)?;
-        write_rtobject(writer, object.clone())?;
+        write_runtime_object(writer, object.clone())?;
     }
     writer.raw("]")?;
     Ok(())

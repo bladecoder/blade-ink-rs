@@ -16,6 +16,10 @@ edition.workspace = true
 name = "bladeink"
 path = "src/lib.rs"
 
+[[example]]
+name = "image_story_cost"
+required-features = ["std", "binary-image"]
+
 [dependencies]
 serde_json = { workspace = true, optional = true }
 strum = { version = "0.28", default-features = false, features = ["derive"] }
@@ -31,6 +35,8 @@ default = ["std", "serde-json-parser"]
 std = ["dep:web-time", "dep:getrandom", "core3/std", "rand/thread_rng"]
 serde-json-parser = ["dep:serde_json"]
 stream-json-parser = []
+load-profile = ["std"]
+binary-image = []
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"], optional = true }

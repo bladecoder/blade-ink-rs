@@ -4,7 +4,6 @@ use crate::prelude::*;
 use crate::compat::{fmt, rc::Rc};
 
 use crate::{
-    container::Container,
     object::{Object, RTObject},
     path::Path,
 };
@@ -32,16 +31,6 @@ impl VariableReference {
         }
     }
 
-    pub fn get_container_for_count(self: &Rc<Self>) -> Result<Rc<Container>, String> {
-        if let Some(path) = &self.path_for_count {
-            Ok(Object::resolve_path(self.clone(), path)
-                .container()
-                .unwrap())
-        } else {
-            Err("Path for count is not set.".to_owned())
-        }
-    }
-
     pub fn get_path_string_for_count(self: &Rc<Self>) -> Option<String> {
         self.path_for_count
             .as_ref()
@@ -60,7 +49,7 @@ impl fmt::Display for VariableReference {
         match &self.name {
             name if !name.is_empty() => write!(f, "var({})", name),
             _ => match &self.path_for_count {
-                Some(path) => write!(f, "read_count({})", &path.to_string()), // TODO needs an RC path.compact_path_string(path)),
+                Some(path) => write!(f, "read_count({})", path), // TODO needs an RC path.compact_path_string(path)),
                 None => write!(f, "read_count(null)"),
             },
         }

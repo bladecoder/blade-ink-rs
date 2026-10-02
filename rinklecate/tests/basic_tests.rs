@@ -102,3 +102,74 @@ fn json_issues_escape_backslashes_test() -> Result<(), Box<dyn std::error::Error
     fs::remove_dir_all(&temp_dir)?;
     Ok(())
 }
+
+#[test]
+fn image_mode_compiles_ink_and_compiled_json() -> Result<(), Box<dyn std::error::Error>> {
+    let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!("blade-ink-image-{unique}"));
+    fs::create_dir_all(&temp_dir)?;
+    let source = temp_dir.join("story.ink");
+    let image_from_ink = temp_dir.join("from-ink.inkb");
+    let image_from_json = temp_dir.join("from-json.inkb");
+    let compiled_json = temp_dir.join("story.ink.json");
+    let default_image = temp_dir.join("story.inkb");
+    fs::write(&source, "Hello world.\n-> END\n")?;
+
+    Command::cargo_bin("rinklecate")?
+        .args([
+            "-o",
+            compiled_json.to_str().unwrap(),
+            source.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    Command::cargo_bin("rinklecate")?
+        .args([
+            "--image",
+            "-o",
+            image_from_ink.to_str().unwrap(),
+            source.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    Command::cargo_bin("rinklecate")?
+        .args(["--image", compiled_json.to_str().unwrap()])
+        .assert()
+        .success();
+    Command::cargo_bin("rinklecate")?
+        .args([
+            "--image",
+            "-o",
+            image_from_json.to_str().unwrap(),
+            compiled_json.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let from_ink = fs::read(image_from_ink)?;
+    let from_json = fs::read(image_from_json)?;
+    assert_eq!(&from_ink[..8], bladeink::image::MAGIC);
+    assert_eq!(from_ink, from_json);
+    assert_eq!(from_json, fs::read(default_image)?);
+    assert_eq!(
+        from_json,
+        bladeink::image::compile_json_to_image(fs::read(compiled_json)?.as_slice())?
+    );
+
+    fs::remove_dir_all(temp_dir)?;
+    Ok(())
+}
+
+#[test]
+fn image_mode_rejects_play_and_stats() -> Result<(), Box<dyn std::error::Error>> {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../conformance-tests/inkfiles/test1.ink");
+    for conflicting in ["-p", "-s"] {
+        Command::cargo_bin("rinklecate")?
+            .args(["--image", conflicting, path.to_str().unwrap()])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("--image cannot be combined"));
+    }
+    Ok(())
+}
