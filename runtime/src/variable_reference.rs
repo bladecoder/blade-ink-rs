@@ -49,7 +49,7 @@ impl fmt::Display for VariableReference {
         match &self.name {
             name if !name.is_empty() => write!(f, "var({})", name),
             _ => match &self.path_for_count {
-                Some(path) => write!(f, "read_count({})", &path.to_string()), // TODO needs an RC path.compact_path_string(path)),
+                Some(path) => write!(f, "read_count({})", path), // TODO needs an RC path.compact_path_string(path)),
                 None => write!(f, "read_count(null)"),
             },
         }

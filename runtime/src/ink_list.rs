@@ -49,7 +49,7 @@ impl InkList {
         } else {
             return Err(StoryError::InvalidStoryState(format!(
                 "InkList origin could not be found in story when constructing new list: {}",
-                &l.initial_origin_names.borrow()[0]
+                l.initial_origin_names.borrow()[0]
             )));
         }
 
