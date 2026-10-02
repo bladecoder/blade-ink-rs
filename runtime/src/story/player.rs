@@ -12,14 +12,14 @@ use crate::{
     compat::{cell::RefCell, rc::Rc},
     ink_list::InkList,
     runtime::Runtime,
+    story::error::StoryError,
     story::variable_observer::{VariableObserver, VariableObserverHandle, VariableObserverResult},
     story::{
         INK_VERSION_CURRENT, TimeSource,
-        errors::{ErrorHandler, ErrorType},
+        error::{ErrorHandler, ErrorType},
         external_functions::{ExternalFunction, ExternalFunctionResult},
     },
     story_content::{LoadObserver, LoadPhase, NoopLoadObserver, StoryData},
-    story_error::StoryError,
     value_type::ValueType,
 };
 
@@ -709,7 +709,8 @@ mod tests {
 
     #[test]
     fn public_story_runs_and_restores_a_choice() {
-        let json = include_str!("../../conformance-tests/inkfiles/choices/single-choice.ink.json");
+        let json =
+            include_str!("../../../conformance-tests/inkfiles/choices/single-choice.ink.json");
         let mut story = Story::new_with_seed(json, 1).unwrap();
         assert_eq!(story.cont().unwrap(), "Hello, world!\n");
         while story.can_continue() {
@@ -731,7 +732,8 @@ mod tests {
 
     #[test]
     fn public_story_resets_without_reparsing_static_content() {
-        let json = include_str!("../../conformance-tests/inkfiles/choices/single-choice.ink.json");
+        let json =
+            include_str!("../../../conformance-tests/inkfiles/choices/single-choice.ink.json");
         let mut flat = Story::new_with_seed(json, 1).unwrap();
         let first = flat.cont().unwrap();
         flat.reset_state().unwrap();
@@ -743,7 +745,7 @@ mod tests {
         use crate::compat::{cell::RefCell, rc::Rc};
 
         let json =
-            include_str!("../../conformance-tests/inkfiles/runtime/variable-observers.ink.json");
+            include_str!("../../../conformance-tests/inkfiles/runtime/variable-observers.ink.json");
         let mut story = Story::new_with_seed(json, 1).unwrap();
         let observed = Rc::new(RefCell::new(Vec::new()));
         let captured = observed.clone();

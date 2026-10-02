@@ -7,8 +7,8 @@ use crate::prelude::*;
 use crate::{
     compat::{collections::HashMap, rc::Rc},
     push_pop::PushPopType,
+    story::error::StoryError,
     story_content::{ContainerId, ContentPointer},
-    story_error::StoryError,
     value::Value,
 };
 
@@ -28,7 +28,7 @@ use serde_json::{Map, json};
     not(any(feature = "stream-json-parser", feature = "binary-image")),
     feature = "serde-json-parser"
 ))]
-use crate::json::{state_read_serde, state_write_serde};
+use crate::json::object::{read_dom, write_dom};
 
 #[derive(Clone)]
 pub(crate) struct CallStackElement {
@@ -98,7 +98,7 @@ impl Thread {
             if !element.temporary_variables.is_empty() {
                 encoded.insert(
                     "temp".to_owned(),
-                    state_write_serde::write_dictionary_values(&element.temporary_variables)?,
+                    write_dom::write_dictionary_values(&element.temporary_variables)?,
                 );
             }
             elements.push(serde_json::Value::Object(encoded));
@@ -178,7 +178,7 @@ impl Thread {
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false);
             if let Some(temps) = entry.get("temp").and_then(serde_json::Value::as_object) {
-                element.temporary_variables = state_read_serde::jobject_to_hashmap_values(temps)?;
+                element.temporary_variables = read_dom::read_value_map(temps)?;
             }
             elements.push(element);
         }

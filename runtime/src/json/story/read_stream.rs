@@ -3,20 +3,20 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 
-use super::json_tokenizer::{JsonTokenizer, JsonValue};
+use crate::json::tokenizer::{JsonTokenizer, JsonValue};
 use crate::{
     compat::{collections::HashMap, io::Read},
     control_command::ControlCommand,
     ink_list_item::InkListItem,
     native_function_call::NativeFunctionCall,
     push_pop::PushPopType,
+    story::error::StoryError,
     story::{INK_VERSION_CURRENT, INK_VERSION_MINIMUM_COMPATIBLE},
     story_content::{
         ChoiceRecord, ContainerRecord, DivertRecord, LoadObserver, LoadPhase, NamedChild, NodeId,
         NodeKind, NodeRecord, StaticList, StaticListDefinition, StaticPath, StaticValue, StoryData,
         VariableReferenceRecord,
     },
-    story_error::StoryError,
 };
 
 fn invalid(message: &str) -> StoryError {

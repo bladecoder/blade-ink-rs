@@ -9,10 +9,10 @@ use crate::{
     io::Read,
     native_function_call::NativeFunctionCall,
     push_pop::PushPopType,
+    story::error::StoryError,
     story_content::{
         ContainerId, NodeId, NodeKind, StaticList, StaticPath, StaticValue, StoryData,
     },
-    story_error::StoryError,
 };
 
 /// Compile an already compiled Ink JSON document into a flash story image.

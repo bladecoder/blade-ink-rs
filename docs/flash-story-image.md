@@ -92,7 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 // Application code
-use bladeink::{story::Story, story_error::StoryError};
+use bladeink::{story::Story, story::error::StoryError};
 
 static IMAGE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/story.inkb"));
 
@@ -224,10 +224,10 @@ For a controlled node-count check, the benchmark builds two stories with the sam
 
 | File | Role |
 | --- | --- |
-| [`story_content.rs`](../runtime/src/story_content.rs) | IDs, arena, borrowed node view, shared storage interface and path logic. |
-| [`image/mod.rs`](../runtime/src/image/mod.rs) | Image validation and read-only offset view. |
+| [`story_content/`](../runtime/src/story_content.rs) | IDs and records in the root file; arena loading, storage adapters and borrowed views in focused modules. |
+| [`image/`](../runtime/src/image/mod.rs) | Image sections, reference validation and read-only node views. |
 | [`image/encoder.rs`](../runtime/src/image/encoder.rs) | Deterministic host encoder. |
-| [`runtime.rs`](../runtime/src/runtime.rs), [`runtime_state.rs`](../runtime/src/runtime_state.rs) and [`callstack.rs`](../runtime/src/callstack.rs) | Interpreter, mutable counters and call stack by ID. |
-| [`story_player.rs`](../runtime/src/story_player.rs) | Public `Story` API, observers, lazy choice cache and asynchronous continuation. |
-| [`state_stream.rs`](../runtime/src/state_stream.rs) and [`state_serde.rs`](../runtime/src/state_serde.rs) | Streaming and Serde Ink JSON save-state codecs. |
+| [`runtime/`](../runtime/src/runtime.rs) and [`callstack.rs`](../runtime/src/callstack.rs) | Interpreter operations, mutable counters and call stack by ID. |
+| [`story/player.rs`](../runtime/src/story/player.rs) | Public `Story` API, observers, lazy choice cache and asynchronous continuation. |
+| [`json/story/`](../runtime/src/json/story/mod.rs), [`json/object/`](../runtime/src/json/object/mod.rs) and [`json/state/`](../runtime/src/json/state/mod.rs) | Compiled story readers, runtime-object conversion and complete save-state codecs, each with DOM or streaming implementations. |
 | [`image_equivalence.rs`](../conformance-tests/tests/image_equivalence.rs) | JSON/image differential tests. |

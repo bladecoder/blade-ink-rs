@@ -3,18 +3,18 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 
-use super::{Runtime, RuntimeChoice, RuntimeFlow};
+use crate::runtime::{Runtime, RuntimeChoice, RuntimeFlow};
 use crate::{
     callstack::{CallStack, Thread},
     compat::{collections::HashMap, rc::Rc},
     control_command::{CommandType, ControlCommand},
-    json::{state_read_serde, state_write_serde},
+    json::object::{read_dom, write_dom},
+    json::state::format::{INK_SAVE_STATE_VERSION, MIN_COMPATIBLE_LOAD_VERSION},
     object::RTObject,
     output_text::clean_output_whitespace,
     path::Path,
-    save_format::{INK_SAVE_STATE_VERSION, MIN_COMPATIBLE_LOAD_VERSION},
+    story::error::StoryError,
     story_content::{ContentPointer, StaticStoryView},
-    story_error::StoryError,
     tag::Tag,
     value::Value,
     value_type::StringValue,
@@ -50,7 +50,7 @@ impl Runtime {
         }
         flow.insert(
             "outputStream".to_owned(),
-            state_write_serde::write_list_rt_objs(&output_stream)?,
+            write_dom::write_runtime_object_list(&output_stream)?,
         );
         let mut saved_choices = Vec::new();
         let mut choice_threads = Map::new();
@@ -130,7 +130,7 @@ impl Runtime {
         state.insert("variablesState".to_owned(), self.variables.write_json()?);
         state.insert(
             "evalStack".to_owned(),
-            state_write_serde::write_list_rt_objs(&self.evaluation_stack)?,
+            write_dom::write_runtime_object_list(&self.evaluation_stack)?,
         );
         if !self.diverted.is_null() {
             state.insert(
@@ -180,7 +180,7 @@ impl Runtime {
             .get("outputStream")
             .and_then(serde_json::Value::as_array)
             .ok_or_else(|| StoryError::BadJson("outputStream not found".to_owned()))?;
-        let output = state_read_serde::jarray_to_runtime_obj_list(output, false)?;
+        let output = read_dom::read_runtime_object_list(output, false)?;
         let mut tag = None::<String>;
         for item in output {
             if let Some(command) = item.as_any().downcast_ref::<ControlCommand>() {
@@ -320,7 +320,7 @@ impl Runtime {
                 .and_then(serde_json::Value::as_object)
                 .ok_or_else(|| StoryError::BadJson("variablesState not found".to_owned()))?,
         )?;
-        loaded.evaluation_stack = state_read_serde::jarray_to_runtime_obj_list(
+        loaded.evaluation_stack = read_dom::read_runtime_object_list(
             object
                 .get("evalStack")
                 .and_then(serde_json::Value::as_array)

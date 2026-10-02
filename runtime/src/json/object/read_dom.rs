@@ -9,11 +9,11 @@ use crate::{
     choice::Choice, choice_point::ChoicePoint, container::Container,
     control_command::ControlCommand, divert::Divert, glue::Glue, ink_list::InkList,
     ink_list_item::InkListItem, native_function_call::NativeFunctionCall, object::RTObject,
-    path::Path, push_pop::PushPopType, story_error::StoryError, tag::Tag, value::Value,
+    path::Path, push_pop::PushPopType, story::error::StoryError, tag::Tag, value::Value,
     variable_assignment::VariableAssignment, variable_reference::VariableReference, void::Void,
 };
 
-pub fn jtoken_to_runtime_object(
+pub fn read_runtime_object(
     token: &serde_json::Value,
     name: Option<String>,
 ) -> Result<Rc<dyn RTObject>, StoryError> {
@@ -280,12 +280,12 @@ pub fn jtoken_to_runtime_object(
     }
 }
 
-pub(crate) fn jobject_to_hashmap_values(
+pub(crate) fn read_value_map(
     object: &Map<String, serde_json::Value>,
 ) -> Result<HashMap<String, Rc<Value>>, StoryError> {
     let mut values = HashMap::with_capacity(object.len());
     for (name, token) in object {
-        let value = jtoken_to_runtime_object(token, None)?
+        let value = read_runtime_object(token, None)?
             .into_any()
             .downcast::<Value>()
             .map_err(|_| StoryError::BadJson("temporary variable must be a value".to_owned()))?;
@@ -314,8 +314,7 @@ fn jarray_to_container(
                 "#f" => flags = v.as_i64().unwrap().try_into().unwrap(),
                 "#n" => name = Some(v.as_str().unwrap().to_string()),
                 k => {
-                    let named_content_item =
-                        jtoken_to_runtime_object(v, Some(k.to_string())).unwrap();
+                    let named_content_item = read_runtime_object(v, Some(k.to_string())).unwrap();
 
                     let named_sub_container = named_content_item
                         .into_any()
@@ -331,13 +330,13 @@ fn jarray_to_container(
     let container = Container::new(
         name,
         flags,
-        jarray_to_runtime_obj_list(jarray, true)?,
+        read_runtime_object_list(jarray, true)?,
         named_only_content,
     );
     Ok(container)
 }
 
-pub fn jarray_to_runtime_obj_list(
+pub fn read_runtime_object_list(
     jarray: &[serde_json::Value],
     skip_last: bool,
 ) -> Result<Vec<Rc<dyn RTObject>>, StoryError> {
@@ -350,7 +349,7 @@ pub fn jarray_to_runtime_obj_list(
     let mut list: Vec<Rc<dyn RTObject>> = Vec::with_capacity(jarray.len());
 
     for jtok in jarray.iter().take(count) {
-        let runtime_obj = jtoken_to_runtime_object(jtok, None);
+        let runtime_obj = read_runtime_object(jtok, None);
         list.push(runtime_obj?);
     }
 

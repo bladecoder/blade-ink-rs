@@ -12,25 +12,27 @@ use crate::{
         rc::Rc,
     },
     control_command::{CommandType, ControlCommand},
+    json::state::format::{INK_SAVE_STATE_VERSION, MIN_COMPATIBLE_LOAD_VERSION},
     json::{
-        json_tokenizer::JsonTokenizer,
-        json_writer::JsonWriter,
-        state_read_stream::{read_runtime_object, read_runtime_object_list},
-        state_write_stream,
+        object::{
+            read_stream::{read_runtime_object, read_runtime_object_list},
+            write_stream,
+        },
+        tokenizer::JsonTokenizer,
+        writer::JsonWriter,
     },
     object::RTObject,
     output_text::clean_output_whitespace,
     path::Path,
     push_pop::PushPopType,
-    save_format::{INK_SAVE_STATE_VERSION, MIN_COMPATIBLE_LOAD_VERSION},
+    story::error::StoryError,
     story_content::{ContentPointer, StaticStoryView, StoryContent},
-    story_error::StoryError,
     tag::Tag,
     value::Value,
     value_type::StringValue,
 };
 
-use super::{Runtime, RuntimeChoice, RuntimeFlow};
+use crate::runtime::{Runtime, RuntimeChoice, RuntimeFlow};
 
 fn write_thread<W: Write>(
     writer: &mut JsonWriter<W>,
@@ -64,7 +66,7 @@ fn write_thread<W: Write>(
         writer.integer(element.push_pop_type as u32)?;
         if !element.temporary_variables.is_empty() {
             writer.key(&mut first_property, "temp")?;
-            state_write_stream::write_dictionary_values(writer, &element.temporary_variables)?;
+            write_stream::write_dictionary_values(writer, &element.temporary_variables)?;
         }
         writer.raw("}")?;
     }
@@ -125,7 +127,7 @@ fn write_output<W: Write>(
         stream.push(Rc::new(Value::new(tag.as_str())));
         stream.push(Rc::new(ControlCommand::new(CommandType::EndTag)));
     }
-    state_write_stream::write_list_rt_objs(writer, &stream)
+    write_stream::write_runtime_object_list(writer, &stream)
 }
 
 fn write_choices<W: Write>(
@@ -241,7 +243,7 @@ impl Runtime {
         writer.raw(",\"variablesState\":")?;
         self.variables.write_json_stream(&mut writer)?;
         writer.raw(",\"evalStack\":")?;
-        state_write_stream::write_list_rt_objs(&mut writer, &self.evaluation_stack)?;
+        write_stream::write_runtime_object_list(&mut writer, &self.evaluation_stack)?;
         if !self.diverted.is_null() {
             writer.raw(",\"currentDivertTarget\":")?;
             writer.string(
@@ -255,12 +257,12 @@ impl Runtime {
             )?;
         }
         writer.raw(",\"visitCounts\":")?;
-        state_write_stream::write_int_dictionary(
+        write_stream::write_int_dictionary(
             &mut writer,
             &self.counters.visit_paths_for_save(&self.data)?,
         )?;
         writer.raw(",\"turnIndices\":")?;
-        state_write_stream::write_int_dictionary(
+        write_stream::write_int_dictionary(
             &mut writer,
             &self.counters.turn_paths_for_save(&self.data)?,
         )?;

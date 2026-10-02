@@ -8,7 +8,7 @@
 //! the `bladeink` crate.
 //!
 //! ```
-//! # use bladeink::{story::Story, story_error::StoryError};
+//! # use bladeink::{story::Story, story::error::StoryError};
 //! # #[cfg(not(any(feature = "serde-json-parser", feature = "stream-json-parser")))]
 //! # fn main() {}
 //! # #[cfg(any(feature = "serde-json-parser", feature = "stream-json-parser"))]
@@ -169,13 +169,9 @@ mod path;
 mod pointer;
 mod push_pop;
 mod runtime;
-mod runtime_state;
-mod save_format;
 mod search_result;
 pub mod story;
 mod story_content;
-pub mod story_error;
-pub mod story_player;
 mod tag;
 mod value;
 pub mod value_type;

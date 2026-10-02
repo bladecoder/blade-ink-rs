@@ -1,8 +1,11 @@
 //! Public Ink story API and shared runtime contracts.
 
-pub use crate::story_player::Story;
+mod player;
+#[cfg(feature = "load-profile")]
+pub use player::LoadProfile;
+pub use player::{ChoiceInfo, Story};
 
-pub mod errors;
+pub mod error;
 pub mod external_functions;
 pub mod variable_observer;
 

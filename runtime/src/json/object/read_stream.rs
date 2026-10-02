@@ -9,11 +9,11 @@ use crate::{
     choice_point::ChoicePoint, container::Container, control_command::ControlCommand,
     divert::Divert, glue::Glue, ink_list::InkList, ink_list_item::InkListItem,
     native_function_call::NativeFunctionCall, object::RTObject, path::Path, push_pop::PushPopType,
-    story_error::StoryError, tag::Tag, value::Value, variable_assignment::VariableAssignment,
+    story::error::StoryError, tag::Tag, value::Value, variable_assignment::VariableAssignment,
     variable_reference::VariableReference, void::Void,
 };
 
-use super::json_tokenizer::{JsonTokenizer, JsonValue};
+use crate::json::tokenizer::{JsonTokenizer, JsonValue};
 
 fn read_i32<R: Read>(tok: &mut JsonTokenizer<R>, field: &str) -> Result<i32, StoryError> {
     tok.read_number()?

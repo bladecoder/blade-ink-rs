@@ -6,7 +6,8 @@ use core::fmt;
 
 use crate::{
     ink_list_item::InkListItem, list_definition::ListDefinition,
-    list_definitions_origin::ListDefinitionsOrigin, story_error::StoryError, value_type::ValueType,
+    list_definitions_origin::ListDefinitionsOrigin, story::error::StoryError,
+    value_type::ValueType,
 };
 
 #[derive(Clone)]

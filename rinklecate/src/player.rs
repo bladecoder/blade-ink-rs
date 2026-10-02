@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use bladeink::story::{
     Story,
-    errors::{ErrorHandler, ErrorType},
+    error::{ErrorHandler, ErrorType},
 };
 
 use crate::Options;

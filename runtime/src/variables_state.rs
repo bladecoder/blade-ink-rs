@@ -16,8 +16,8 @@ use serde_json::Map;
 use crate::{
     callstack::CallStack,
     ink_list::InkList,
+    story::error::StoryError,
     story_content::{StaticStoryView, StoryContent},
-    story_error::StoryError,
     value::Value,
     value_type::{ValueType, VariablePointerValue},
     variable_assignment::VariableAssignment,
@@ -70,13 +70,13 @@ impl VariableCallStack {
 
 #[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
 use crate::compat::io::Write;
-#[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
-use crate::json::{json_writer::JsonWriter, state_write_stream};
 #[cfg(all(
     not(any(feature = "stream-json-parser", feature = "binary-image")),
     feature = "serde-json-parser"
 ))]
-use crate::json::{state_read_serde, state_write_serde};
+use crate::json::object::{read_dom, write_dom};
+#[cfg(any(feature = "stream-json-parser", feature = "binary-image"))]
+use crate::json::{object::write_stream, writer::JsonWriter};
 
 #[derive(Clone)]
 pub(crate) struct VariablesState {
@@ -370,10 +370,7 @@ impl VariablesState {
                 continue;
             }
 
-            jobj.insert(
-                name.clone(),
-                state_write_serde::write_rtobject(val.clone())?,
-            );
+            jobj.insert(name.clone(), write_dom::write_runtime_object(val.clone())?);
         }
 
         Ok(serde_json::Value::Object(jobj))
@@ -397,7 +394,7 @@ impl VariablesState {
                 continue;
             }
             writer.key(&mut first, name)?;
-            state_write_stream::write_rtobject(writer, value.clone())?;
+            write_stream::write_runtime_object(writer, value.clone())?;
         }
         writer.raw("}")?;
         Ok(())
@@ -452,7 +449,7 @@ impl VariablesState {
             if let Some(loaded_token) = loaded_token {
                 self.global_variables.insert(
                     k.to_string(),
-                    state_read_serde::jtoken_to_runtime_object(loaded_token, None)?
+                    read_dom::read_runtime_object(loaded_token, None)?
                         .into_any()
                         .downcast::<Value>()
                         .unwrap(),
