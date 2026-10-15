@@ -7,7 +7,7 @@ use strum::Display;
 
 use crate::object::{Object, RTObject};
 
-#[derive(PartialEq, Display, Clone, Copy)]
+#[derive(Debug, PartialEq, Display, Clone, Copy)]
 pub enum CommandType {
     EvalStart,
     EvalOutput,

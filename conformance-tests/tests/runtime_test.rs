@@ -1,8 +1,8 @@
 use std::{cell::RefCell, error::Error, rc::Rc};
 
 use bladeink::{
+    story::error::StoryError,
     story::{Story, external_functions::ExternalFunction},
-    story_error::StoryError,
     value_type::ValueType,
 };
 use bladeink_compiler::Compiler;

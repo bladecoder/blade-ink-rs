@@ -9,7 +9,7 @@ use crate::compat::{
 
 const PARENT_ID: &str = "^";
 
-/// The componentsString field from the C# impl. has been removed and it is always generated dinamically from the components field.
+/// Ink path components with a lazily cached textual representation.
 #[derive(Eq, Clone, Default)]
 pub struct Path {
     components: Vec<Component>,
@@ -84,6 +84,10 @@ impl Path {
 
     pub fn get_component(&self, index: usize) -> Option<&Component> {
         self.components.get(index)
+    }
+
+    pub(crate) fn components(&self) -> &[Component] {
+        &self.components
     }
 
     pub fn is_relative(&self) -> bool {
@@ -218,7 +222,7 @@ impl PartialEq for Path {
     }
 }
 
-#[derive(Eq, Clone)]
+#[derive(Debug, Eq, Clone)]
 pub struct Component {
     pub index: Option<usize>,
     pub name: Option<String>,

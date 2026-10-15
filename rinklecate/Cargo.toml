@@ -14,7 +14,7 @@ name = "rinklecate"
 path = "src/main.rs"
 
 [dependencies]
-bladeink.workspace = true
+bladeink = { workspace = true, features = ["binary-image"] }
 bladeink-compiler.workspace = true
 anyhow = "1.0"
 serde_json.workspace = true

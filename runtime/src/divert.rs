@@ -65,19 +65,20 @@ impl Divert {
     }
 
     fn compact_path_string(&self, other_path: &Path) -> String {
-        let global_path_str;
-        let relative_path_str;
-
-        if other_path.is_relative() {
-            relative_path_str = other_path.get_components_string();
-            global_path_str = Object::get_path(self)
-                .path_by_appending_path(other_path)
-                .get_components_string();
+        let (relative_path_str, global_path_str) = if other_path.is_relative() {
+            (
+                other_path.get_components_string(),
+                Object::get_path(self)
+                    .path_by_appending_path(other_path)
+                    .get_components_string(),
+            )
         } else {
             let relative_path = self.convert_path_to_relative(other_path);
-            relative_path_str = relative_path.get_components_string();
-            global_path_str = other_path.get_components_string();
-        }
+            (
+                relative_path.get_components_string(),
+                other_path.get_components_string(),
+            )
+        };
 
         if relative_path_str.len() < global_path_str.len() {
             relative_path_str.clone()

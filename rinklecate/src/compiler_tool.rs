@@ -1,4 +1,4 @@
-//! Compilation logic: `.ink` → `.ink.json`.
+//! Compilation logic: `.ink` → `.ink.json` or `.inkb`.
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -124,13 +124,22 @@ pub fn compile(
     }
 
     // ------------------------------------------------------------------
-    // Write output JSON file (unless in play-only mode with no output needed).
+    // Write the requested output (unless in play-only mode).
     // ------------------------------------------------------------------
     if !opts.play_mode {
         let output_path = opts.output_file.as_ref().unwrap();
-        std::fs::write(output_path, &json_string).map_err(|e| {
-            anyhow::anyhow!("Could not write to output file '{}': {}", output_path, e)
-        })?;
+        let image = if opts.image_output {
+            Some(bladeink::image::compile_json_to_image(
+                json_string.as_bytes(),
+            )?)
+        } else {
+            None
+        };
+        std::fs::write(
+            output_path,
+            image.as_deref().unwrap_or(json_string.as_bytes()),
+        )
+        .map_err(|e| anyhow::anyhow!("Could not write to output file '{}': {}", output_path, e))?;
         if opts.json_output {
             println!("{{\"export-complete\": true}}");
         }

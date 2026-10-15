@@ -1,6 +1,6 @@
 use std::{error::Error, path::Path};
 
-use bladeink::{story::Story, story_error::StoryError, value_type::ValueType};
+use bladeink::{story::Story, story::error::StoryError, value_type::ValueType};
 use bladeink_compiler::{Compiler, CompilerError, CompilerOptions};
 use serde_json::Value;
 

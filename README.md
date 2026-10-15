@@ -53,9 +53,10 @@ The default configuration remains `std` with the Serde JSON backend. The availab
 | default (`std`, `serde-json-parser`) | Yes | Existing API, system-generated seeds and clock |
 | `std`, `stream-json-parser` | Yes | Incremental JSON I/O on standard-library targets |
 | `stream-json-parser` without defaults | Yes | `no_std + alloc`; an allocator is required |
+| `binary-image` without defaults | Yes | `no_std + alloc`; reads embedded images and retains the JSON saved-state codec |
 | `serde-json-parser` without `std` | No | Produces a compile-time error |
 
-For `no_std` targets such as embedded systems, disable defaults and enable only the streaming backend:
+For `no_std` targets that load JSON stories, disable defaults and enable the streaming backend:
 
 ```toml
 bladeink = { version = "2", default-features = false, features = ["stream-json-parser"] }
@@ -78,6 +79,8 @@ The clock must be monotonic. A zero time limit does not require one. Existing st
 bladeink = { version = "2", default-features = false, features = ["std", "stream-json-parser"] }
 ```
 
+For image generation, embedding, format details and host memory measurements, see the [binary story image guide](docs/flash-story-image.md).
+
 ## Using the `bladeink-compiler` crate
 
 The `bladeink-compiler` crate compiles `.ink` source files into the JSON format expected by the runtime.
@@ -94,7 +97,7 @@ let mut story = bladeink::story::Story::new(&json)?;
 
 ## Running Ink stories with *rinklecate*
 
-`rinklecate` is a command-line tool that mirrors the interface of the official `inklecate` tool. It can compile `.ink` source files and optionally play them directly in the terminal.
+`rinklecate` is a command-line tool that mirrors the interface of the official `inklecate` tool. It can compile `.ink` source files and play `.ink`, compiled `.ink.json`, and binary `.inkb` stories in the terminal.
 
 You can install it from crates.io:
 
@@ -105,8 +108,9 @@ cargo install rinklecate
 ### Usage
 
 ```
-rinklecate <options> <ink file>
+rinklecate <options> <ink, ink.json or inkb file>
    -o <filename>   Output file name
+   --image         Write a binary story image (.inkb)
    -c              Count all visits to knots, stitches and weave points
    -p              Play mode
    -j              Output in JSON format (for communication with tools like Inky)
@@ -134,6 +138,12 @@ Play an already compiled story:
 
 ```bash
 rinklecate my_story.ink.json
+```
+
+Play a binary story image (the file is fully validated before execution):
+
+```bash
+rinklecate my_story.inkb
 ```
 
 In the `inkfiles` folder you can find many Ink test stories to explore the language capabilities, including **The Intercept**, a full featured story created by **Inkle**:

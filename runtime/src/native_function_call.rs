@@ -6,7 +6,7 @@ use crate::compat::{fmt, rc::Rc};
 use crate::{
     ink_list::InkList,
     object::{Object, RTObject},
-    story_error::StoryError,
+    story::error::StoryError,
     value::Value,
     value_type::ValueType,
     void::Void,

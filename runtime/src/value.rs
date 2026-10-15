@@ -7,7 +7,7 @@ use crate::{
     ink_list::InkList,
     object::{Object, RTObject},
     path::Path,
-    story_error::StoryError,
+    story::error::StoryError,
     value_type::{StringValue, ValueType, VariablePointerValue},
 };
 

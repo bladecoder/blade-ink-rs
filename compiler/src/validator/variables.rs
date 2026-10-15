@@ -12,9 +12,9 @@ impl ValidationContext {
 
     fn validate_node_vars(&self, node: &Node, scope: &ScopeInfo) -> Result<(), CompilerError> {
         match node {
-            Node::OutputExpression(expr) => self.validate_expr_vars(expr, scope)?,
-            Node::Assignment { expression, .. } => self.validate_expr_vars(expression, scope)?,
-            Node::ReturnExpr(expr) => self.validate_expr_vars(expr, scope)?,
+            Node::OutputExpression(expr) => Self::validate_expr_vars(expr, scope)?,
+            Node::Assignment { expression, .. } => Self::validate_expr_vars(expression, scope)?,
+            Node::ReturnExpr(expr) => Self::validate_expr_vars(expr, scope)?,
             Node::Conditional {
                 condition,
                 when_true,
@@ -27,10 +27,10 @@ impl ValidationContext {
                 }
             }
             Node::SwitchConditional { value, branches } => {
-                self.validate_expr_vars(value, scope)?;
+                Self::validate_expr_vars(value, scope)?;
                 for (case, body) in branches {
                     if let Some(e) = case {
-                        self.validate_expr_vars(e, scope)?;
+                        Self::validate_expr_vars(e, scope)?;
                     }
                     self.validate_nodes_vars(body, scope)?;
                 }
@@ -48,7 +48,7 @@ impl ValidationContext {
             }
             Node::VoidCall { args, .. } => {
                 for a in args {
-                    self.validate_expr_vars(a, scope)?;
+                    Self::validate_expr_vars(a, scope)?;
                 }
             }
             _ => {}
@@ -62,13 +62,12 @@ impl ValidationContext {
         scope: &ScopeInfo,
     ) -> Result<(), CompilerError> {
         if let Condition::Expression(expr) = cond {
-            self.validate_expr_vars(expr, scope)?;
+            Self::validate_expr_vars(expr, scope)?;
         }
         Ok(())
     }
 
     fn validate_expr_vars(
-        &self,
         expr: &Expression,
         scope: &ScopeInfo,
     ) -> Result<(), CompilerError> {
@@ -80,15 +79,15 @@ impl ValidationContext {
             }
             Expression::Variable(_) => {}
             Expression::Negate(e) | Expression::Not(e) => {
-                self.validate_expr_vars(e, scope)?;
+                Self::validate_expr_vars(e, scope)?;
             }
             Expression::Binary { left, right, .. } => {
-                self.validate_expr_vars(left, scope)?;
-                self.validate_expr_vars(right, scope)?;
+                Self::validate_expr_vars(left, scope)?;
+                Self::validate_expr_vars(right, scope)?;
             }
             Expression::FunctionCall { args, .. } => {
                 for a in args {
-                    self.validate_expr_vars(a, scope)?;
+                    Self::validate_expr_vars(a, scope)?;
                 }
             }
             _ => {}
